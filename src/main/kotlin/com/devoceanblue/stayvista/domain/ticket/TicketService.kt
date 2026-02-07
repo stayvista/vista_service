@@ -284,6 +284,7 @@ class TicketService(
     }
 
     fun validateVoucher(request: ValidateVoucherRequest): VoucherValidateData {
+        val voucherId = resolveVoucherId(request)
         val voucher = jdbcTemplate.query(
             """
             SELECT id, status
@@ -296,8 +297,7 @@ class TicketService(
                     status = rs.getString("status"),
                 )
             },
-            request.voucher_id.removePrefix("vch_").toLongOrNull()
-                ?: throw DomainException(ErrorCode.VALIDATION_ERROR, "Invalid voucher_id"),
+            voucherId,
         ).firstOrNull() ?: throw DomainException(ErrorCode.NOT_FOUND, "Voucher not found")
 
         if (voucher.status == "REDEEMED") {
@@ -319,6 +319,27 @@ class TicketService(
             voucher_id = "vch_${voucher.id}",
             result = "VALID",
         )
+    }
+
+    private fun resolveVoucherId(request: ValidateVoucherRequest): Long {
+        if (!request.voucher_id.isNullOrBlank()) {
+            return request.voucher_id.removePrefix("vch_").toLongOrNull()
+                ?: throw DomainException(ErrorCode.VALIDATION_ERROR, "Invalid voucher_id")
+        }
+        if (!request.qr_payload.isNullOrBlank()) {
+            return jdbcTemplate.query(
+                """
+                SELECT id
+                FROM voucher
+                WHERE qr_payload = ?
+                ORDER BY id
+                LIMIT 1
+                """.trimIndent(),
+                { rs, _ -> rs.getLong("id") },
+                request.qr_payload,
+            ).firstOrNull() ?: throw DomainException(ErrorCode.NOT_FOUND, "Voucher not found")
+        }
+        throw DomainException(ErrorCode.VALIDATION_ERROR, "voucher_id or qr_payload is required")
     }
 
     @Scheduled(fixedDelay = 60000, initialDelay = 45000)
@@ -656,7 +677,8 @@ data class TicketVoucherListData(
 )
 
 data class ValidateVoucherRequest(
-    val voucher_id: String,
+    val voucher_id: String? = null,
+    val qr_payload: String? = null,
 )
 
 data class VoucherValidateData(

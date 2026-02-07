@@ -89,4 +89,32 @@ class TicketServiceTest {
 
         assertEquals(ErrorCode.NOT_FOUND, exception.errorCode)
     }
+
+    @Test
+    fun `validateVoucher should redeem voucher by qr payload`() {
+        val result = ticketService.validateVoucher(
+            ValidateVoucherRequest(
+                qr_payload = "qr-one",
+            ),
+        )
+
+        assertEquals("vch_7001", result.voucher_id)
+        assertEquals("VALID", result.result)
+        val status = jdbcTemplate.queryForObject(
+            "SELECT status FROM voucher WHERE id = 7001",
+            String::class.java,
+        )
+        assertEquals("REDEEMED", status)
+    }
+
+    @Test
+    fun `validateVoucher should fail when both voucher id and qr payload are missing`() {
+        val exception = assertThrows(DomainException::class.java) {
+            ticketService.validateVoucher(
+                ValidateVoucherRequest(),
+            )
+        }
+
+        assertEquals(ErrorCode.VALIDATION_ERROR, exception.errorCode)
+    }
 }

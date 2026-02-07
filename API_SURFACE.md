@@ -59,6 +59,7 @@
 
 ### Voucher
 - `POST /v1/admin/vouchers/validate` *(or redeem endpoint)*
+  - request: `{ "voucher_id": "vch_..." }` 또는 `{ "qr_payload": "..." }`
 
 ### Search Ops
 - `POST /v1/admin/search/reindex?limit=...`
