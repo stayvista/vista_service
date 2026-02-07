@@ -83,6 +83,10 @@ button { background: var(--accent); color: white; border: none; cursor: pointer;
   gap: 6px;
   cursor: pointer;
 }
+.inventory-cell:focus-visible {
+  outline: 2px solid #0f7b6c;
+  outline-offset: 2px;
+}
 .inventory-cell.selected {
   border-color: #0f7b6c;
   box-shadow: 0 0 0 1px #0f7b6c inset;
@@ -95,6 +99,12 @@ button { background: var(--accent); color: white; border: none; cursor: pointer;
   border-color: #b61d17;
   box-shadow: 0 0 0 1px #b61d17 inset;
   background: #fff5f4;
+}
+.inventory-cell.weekend .date-label {
+  color: #8f5a08;
+}
+.inventory-cell.today {
+  box-shadow: 0 0 0 2px #3f8cff inset;
 }
 .inventory-cell input {
   width: 100%;

@@ -43,6 +43,11 @@ function daysBetween(startInclusive: string, endExclusive: string): string[] {
   return result;
 }
 
+function isWeekend(dateIso: string): boolean {
+  const day = parseIsoDate(dateIso).getDay();
+  return day === 0 || day === 6;
+}
+
 export function InventoryPage() {
   const [roomTypeId, setRoomTypeId] = useState(1);
   const [startDate, setStartDate] = useState("2026-02-10");
@@ -58,6 +63,7 @@ export function InventoryPage() {
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const visibleDates = useMemo(() => monthDates(month), [month]);
+  const todayIso = formatIsoDate(new Date());
 
   function displayedTotal(date: string): number {
     if (Object.prototype.hasOwnProperty.call(draftTotals, date)) return draftTotals[date];
@@ -120,20 +126,39 @@ export function InventoryPage() {
 
   async function applySelectedDate() {
     if (!selectedDate) return;
+    await applySingleDate(selectedDate, selectedTotal);
+  }
+
+  async function applySingleDate(date: string, amount: number) {
     setMessage(null);
     setError(null);
     setConflictDate(null);
     try {
-      await applyRange(selectedDate, addDays(selectedDate, 1), selectedTotal);
-      setMessage(`${selectedDate} 재고를 ${selectedTotal}로 반영했습니다.`);
-      setSelectedTotal(selectedTotal);
+      await applyRange(date, addDays(date, 1), amount);
+      setMessage(`${date} 재고를 ${amount}로 반영했습니다.`);
+      if (selectedDate === date) {
+        setSelectedTotal(amount);
+      }
     } catch (e) {
       const err = e as ApiError;
       if (err.code === "INVENTORY_TOTAL_BELOW_COMMITTED") {
-        setConflictDate(selectedDate);
+        setConflictDate(date);
       }
       setError(`${err.code ?? "ERROR"}: ${err.message ?? "단일 일자 반영 실패"}`);
     }
+  }
+
+  function selectDate(date: string) {
+    setSelectedDate(date);
+    setSelectedTotal(displayedTotal(date));
+  }
+
+  function moveSelection(fromDate: string, offset: number) {
+    const index = visibleDates.indexOf(fromDate);
+    if (index < 0) return;
+    const nextDate = visibleDates[index + offset];
+    if (!nextDate) return;
+    selectDate(nextDate);
   }
 
   function draftRanges() {
@@ -224,20 +249,45 @@ export function InventoryPage() {
         {visibleDates.map((date) => (
           <div
             key={date}
-            className={`inventory-cell${selectedDate === date ? " selected" : ""}${conflictDate === date ? " conflict" : ""}${Object.prototype.hasOwnProperty.call(draftTotals, date) ? " draft" : ""}`}
-            onClick={() => {
-              setSelectedDate(date);
-              setSelectedTotal(displayedTotal(date));
+            className={`inventory-cell${selectedDate === date ? " selected" : ""}${conflictDate === date ? " conflict" : ""}${Object.prototype.hasOwnProperty.call(draftTotals, date) ? " draft" : ""}${isWeekend(date) ? " weekend" : ""}${date === todayIso ? " today" : ""}`}
+            tabIndex={0}
+            onClick={() => selectDate(date)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                selectDate(date);
+              }
             }}
           >
-            <span className="date-label">{date.slice(-2)}</span>
+            <span className="date-label">
+              {date.slice(-2)}
+              {date === todayIso ? " • today" : ""}
+            </span>
             <input
               type="number"
               value={displayedTotal(date)}
+              onFocus={() => selectDate(date)}
               onChange={(e) => {
                 const value = Number(e.target.value);
                 setDraftTotals((prev) => ({ ...prev, [date]: value }));
                 if (selectedDate === date) setSelectedTotal(value);
+              }}
+              onKeyDown={(e) => {
+                if (e.ctrlKey && (e.key === "s" || e.key === "S")) {
+                  e.preventDefault();
+                  void applyDraftTotals();
+                  return;
+                }
+                if (e.ctrlKey && e.key === "Enter") {
+                  e.preventDefault();
+                  void applySingleDate(date, Number((e.currentTarget as HTMLInputElement).value));
+                  return;
+                }
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  moveSelection(date, e.shiftKey ? -1 : 1);
+                  return;
+                }
               }}
             />
           </div>
@@ -259,6 +309,7 @@ export function InventoryPage() {
           {savingBulk ? "저장 중..." : "임시 변경 일괄 저장"}
         </button>
       </div>
+      <p>키보드: `Enter` 다음 날짜 이동, `Shift+Enter` 이전 날짜 이동, `Ctrl+Enter` 현재 날짜 저장, `Ctrl+S` 일괄 저장</p>
       <p>미반영 변경: {Object.keys(draftTotals).length}일 / 묶음 구간 {draftRanges().length}개</p>
       {message && <p className="success">{message}</p>}
       {error && <p className="error">{error}</p>}
