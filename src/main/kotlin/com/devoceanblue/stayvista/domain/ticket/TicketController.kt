@@ -82,6 +82,17 @@ class TicketController(
         ),
     )
 
+    @GetMapping("/tickets/orders/{orderId}/vouchers")
+    fun listOrderVouchers(
+        @PathVariable orderId: String,
+        @RequestHeader(name = "X-User-Id") userId: Long,
+    ) = ApiResponses.ok(
+        ticketService.listOrderVouchers(
+            userId = userId,
+            rawOrderId = orderId,
+        ),
+    )
+
     @PostMapping("/admin/vouchers/validate")
     fun validateVoucher(@Valid @RequestBody request: ValidateVoucherRequest) = ApiResponses.ok(
         ticketService.validateVoucher(request),

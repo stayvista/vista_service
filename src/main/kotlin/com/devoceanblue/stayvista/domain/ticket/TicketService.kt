@@ -241,6 +241,49 @@ class TicketService(
         }
     }
 
+    fun listOrderVouchers(userId: Long, rawOrderId: String): TicketVoucherListData {
+        val orderId = parseOrderId(rawOrderId)
+        val foundOrder = jdbcTemplate.queryForObject(
+            """
+            SELECT COUNT(*)
+            FROM ticket_order
+            WHERE id = ? AND user_id = ?
+            """.trimIndent(),
+            Long::class.java,
+            orderId,
+            userId,
+        ) ?: 0L
+        if (foundOrder == 0L) {
+            throw DomainException(ErrorCode.NOT_FOUND, "Ticket order not found")
+        }
+
+        val vouchers = jdbcTemplate.query(
+            """
+            SELECT id, sequence_no, status, qr_payload, issued_at, redeemed_at
+            FROM voucher
+            WHERE order_id = ? AND user_id = ?
+            ORDER BY sequence_no
+            """.trimIndent(),
+            { rs, _ ->
+                TicketVoucherSummary(
+                    voucher_id = "vch_${rs.getLong("id")}",
+                    sequence_no = rs.getInt("sequence_no"),
+                    status = rs.getString("status"),
+                    qr_payload = rs.getString("qr_payload"),
+                    issued_at = rs.getTimestamp("issued_at")?.toInstant()?.toString(),
+                    redeemed_at = rs.getTimestamp("redeemed_at")?.toInstant()?.toString(),
+                )
+            },
+            orderId,
+            userId,
+        )
+
+        return TicketVoucherListData(
+            order_id = "tord_$orderId",
+            items = vouchers,
+        )
+    }
+
     fun validateVoucher(request: ValidateVoucherRequest): VoucherValidateData {
         val voucher = jdbcTemplate.query(
             """
@@ -601,6 +644,20 @@ data class TicketConfirmData(
     val order_id: String,
     val status: String,
     val voucher_ids: List<String>,
+)
+
+data class TicketVoucherSummary(
+    val voucher_id: String,
+    val sequence_no: Int,
+    val status: String,
+    val qr_payload: String,
+    val issued_at: String?,
+    val redeemed_at: String?,
+)
+
+data class TicketVoucherListData(
+    val order_id: String,
+    val items: List<TicketVoucherSummary>,
 )
 
 data class ValidateVoucherRequest(
