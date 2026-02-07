@@ -10,6 +10,7 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc
 import org.springframework.http.MediaType
 import org.springframework.test.context.bean.override.mockito.MockitoBean
 import org.springframework.test.web.servlet.MockMvc
+import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.header
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath
@@ -20,6 +21,7 @@ import org.springframework.test.web.servlet.result.MockMvcResultMatchers.status
         "stayvista.queue.enabled=true",
         "stayvista.rate-limit.enabled=true",
         "stayvista.rate-limit.booking-hold-per-minute=10",
+        "stayvista.rate-limit.search-per-minute=60",
     ],
 )
 @AutoConfigureMockMvc
@@ -36,6 +38,18 @@ class TrafficGuardFilterTest {
     @BeforeEach
     fun setup() {
         given(redisRateLimiter.allow("booking_hold", "1001", 10)).willReturn(
+            RateLimitDecision(
+                allowed = true,
+                retryAfterSeconds = 1,
+            ),
+        )
+        given(redisRateLimiter.allow("search", "127.0.0.1", 60)).willReturn(
+            RateLimitDecision(
+                allowed = true,
+                retryAfterSeconds = 1,
+            ),
+        )
+        given(redisRateLimiter.allow("search", "1001", 60)).willReturn(
             RateLimitDecision(
                 allowed = true,
                 retryAfterSeconds = 1,
@@ -94,6 +108,47 @@ class TrafficGuardFilterTest {
         )
             .andExpect(status().isTooManyRequests)
             .andExpect(header().string("Retry-After", "17"))
+            .andExpect(jsonPath("$.error.code").value("RATE_LIMITED"))
+            .andExpect(jsonPath("$.request_id").isNotEmpty)
+    }
+
+    @Test
+    fun `search should return RATE_LIMITED using remote ip principal`() {
+        given(redisRateLimiter.allow("search", "127.0.0.1", 60)).willReturn(
+            RateLimitDecision(
+                allowed = false,
+                retryAfterSeconds = 12,
+            ),
+        )
+
+        mockMvc.perform(
+            get("/v1/search/properties")
+                .param("city", "Seoul")
+                .param("limit", "10"),
+        )
+            .andExpect(status().isTooManyRequests)
+            .andExpect(header().string("Retry-After", "12"))
+            .andExpect(jsonPath("$.error.code").value("RATE_LIMITED"))
+            .andExpect(jsonPath("$.request_id").isNotEmpty)
+    }
+
+    @Test
+    fun `search should return RATE_LIMITED using X-User-Id principal`() {
+        given(redisRateLimiter.allow("search", "1001", 60)).willReturn(
+            RateLimitDecision(
+                allowed = false,
+                retryAfterSeconds = 9,
+            ),
+        )
+
+        mockMvc.perform(
+            get("/v1/search/properties")
+                .header("X-User-Id", "1001")
+                .param("city", "Seoul")
+                .param("limit", "10"),
+        )
+            .andExpect(status().isTooManyRequests)
+            .andExpect(header().string("Retry-After", "9"))
             .andExpect(jsonPath("$.error.code").value("RATE_LIMITED"))
             .andExpect(jsonPath("$.request_id").isNotEmpty)
     }
