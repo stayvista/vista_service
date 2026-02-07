@@ -133,6 +133,10 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   background: #fff;
   color: #222;
 }
+.chip-btn.active {
+  background: #1f1f1f;
+  color: #fff;
+}
 .cta-link {
   display: inline-flex;
   align-items: center;
@@ -144,8 +148,42 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   padding: 10px 14px;
   font-weight: 700;
 }
+.property-meta {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.gallery-grid {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+.gallery-grid figure {
+  margin: 0;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  min-height: 120px;
+}
+.gallery-main {
+  grid-row: 1 / span 2;
+}
+.gallery-grid img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
 @media (max-width: 640px) {
   .top-nav { flex-direction: column; gap: 10px; }
   .top-nav nav { flex-wrap: wrap; justify-content: center; }
   .chat-form { grid-template-columns: 1fr; }
+  .gallery-grid {
+    grid-template-columns: 1fr;
+    grid-template-rows: repeat(3, 160px);
+  }
+  .gallery-main {
+    grid-row: auto;
+  }
 }
