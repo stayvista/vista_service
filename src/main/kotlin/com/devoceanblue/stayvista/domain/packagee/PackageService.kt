@@ -228,7 +228,7 @@ class PackageService(
                 ?: throw DomainException(ErrorCode.VALIDATION_ERROR, "Invalid package_order_id")
             val row = jdbcTemplate.query(
                 """
-                SELECT id, status, booking_id, ticket_order_id
+                SELECT id, status, booking_id, ticket_order_id, expires_at
                 FROM package_order
                 WHERE id = ? AND package_id = ? AND user_id = ?
                 FOR UPDATE
@@ -239,6 +239,7 @@ class PackageService(
                         status = rs.getString("status"),
                         bookingId = rs.getLong("booking_id"),
                         ticketOrderId = rs.getLong("ticket_order_id"),
+                        expiresAt = rs.getTimestamp("expires_at")?.toInstant(),
                     )
                 },
                 packageOrderId,
@@ -247,6 +248,12 @@ class PackageService(
             ).firstOrNull() ?: throw DomainException(ErrorCode.NOT_FOUND, "Package order not found")
             if (row.status != "HOLD") {
                 throw DomainException(ErrorCode.CONFLICT, "Package order cannot be confirmed from ${row.status}")
+            }
+            if (row.expiresAt != null && row.expiresAt.isBefore(Instant.now())) {
+                transactionTemplate.execute {
+                    updatePackageOrderStatus(row.id, "EXPIRED")
+                }
+                throw DomainException(ErrorCode.ORDER_EXPIRED, "Package order hold expired")
             }
 
             val bookingId = "bkg_${row.bookingId}"
@@ -428,4 +435,5 @@ private data class PackageOrderRow(
     val status: String,
     val bookingId: Long,
     val ticketOrderId: Long,
+    val expiresAt: Instant?,
 )
