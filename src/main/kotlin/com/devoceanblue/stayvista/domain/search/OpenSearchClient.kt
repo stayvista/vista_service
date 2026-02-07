@@ -124,6 +124,13 @@ class OpenSearchClient(
             request.max_price?.let { range["lte"] = it }
             filters += mapOf("range" to mapOf("price_min" to range))
         }
+        if (request.min_rating != null) {
+            filters += mapOf(
+                "range" to mapOf(
+                    "rating" to mapOf("gte" to request.min_rating),
+                ),
+            )
+        }
 
         val bool = mutableMapOf<String, Any>(
             "must" to if (must.isEmpty()) listOf(mapOf("match_all" to emptyMap<String, Any>())) else must,

@@ -61,6 +61,10 @@ class SearchService(
             where += "rt.base_price <= ?"
             params += request.max_price
         }
+        if (request.min_rating != null) {
+            where += "COALESCE(p.rating, 0) >= ?"
+            params += request.min_rating
+        }
         if (cursor != null) {
             where += "p.id > ?"
             params += cursor
@@ -114,6 +118,7 @@ class SearchService(
             "children=${request.children ?: ""}",
             "min_price=${request.min_price ?: ""}",
             "max_price=${request.max_price ?: ""}",
+            "min_rating=${request.min_rating ?: ""}",
             "sort=${request.sort ?: ""}",
             "cursor=${request.cursor ?: ""}",
             "limit=${request.limit}",
@@ -135,6 +140,7 @@ data class SearchRequest(
     val children: Int?,
     val min_price: Long?,
     val max_price: Long?,
+    val min_rating: Double?,
     val sort: String?,
     val cursor: String?,
     val limit: Int,
