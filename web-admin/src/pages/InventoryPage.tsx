@@ -54,6 +54,7 @@ export function InventoryPage() {
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [selectedTotal, setSelectedTotal] = useState(20);
   const [conflictDate, setConflictDate] = useState<string | null>(null);
+  const [savingBulk, setSavingBulk] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const visibleDates = useMemo(() => monthDates(month), [month]);
@@ -135,6 +136,73 @@ export function InventoryPage() {
     }
   }
 
+  function draftRanges() {
+    const entries = Object.entries(draftTotals)
+      .filter(([, value]) => Number.isFinite(value))
+      .sort(([a], [b]) => a.localeCompare(b));
+    if (entries.length === 0) {
+      return [] as Array<{ start: string; endExclusive: string; amount: number; count: number }>;
+    }
+
+    const ranges: Array<{ start: string; endExclusive: string; amount: number; count: number }> = [];
+    let start = entries[0][0];
+    let previous = entries[0][0];
+    let amount = entries[0][1];
+    let count = 1;
+
+    for (let i = 1; i < entries.length; i += 1) {
+      const [currentDate, currentAmount] = entries[i];
+      const expectedNext = addDays(previous, 1);
+      const isContiguous = currentDate === expectedNext;
+      const sameAmount = currentAmount === amount;
+      if (isContiguous && sameAmount) {
+        previous = currentDate;
+        count += 1;
+        continue;
+      }
+      ranges.push({ start, endExclusive: addDays(previous, 1), amount, count });
+      start = currentDate;
+      previous = currentDate;
+      amount = currentAmount;
+      count = 1;
+    }
+    ranges.push({ start, endExclusive: addDays(previous, 1), amount, count });
+    return ranges;
+  }
+
+  async function applyDraftTotals() {
+    const ranges = draftRanges();
+    if (ranges.length === 0) {
+      setMessage("저장할 임시 변경값이 없습니다.");
+      return;
+    }
+
+    setSavingBulk(true);
+    setMessage(null);
+    setError(null);
+    setConflictDate(null);
+
+    try {
+      for (const range of ranges) {
+        await applyRange(range.start, range.endExclusive, range.amount);
+      }
+      setMessage(`임시 변경 ${Object.keys(draftTotals).length}일 (${ranges.length}개 구간) 저장 완료`);
+    } catch (e) {
+      const err = e as ApiError;
+      if (err.code === "INVENTORY_TOTAL_BELOW_COMMITTED") {
+        const conflict = typeof err.details?.conflict_date === "string" ? err.details.conflict_date : null;
+        if (conflict) {
+          setConflictDate(conflict);
+          const monthKey = conflict.slice(0, 7);
+          if (month !== monthKey) setMonth(monthKey);
+        }
+      }
+      setError(`${err.code ?? "ERROR"}: ${err.message ?? "임시 변경 일괄 저장 실패"}`);
+    } finally {
+      setSavingBulk(false);
+    }
+  }
+
   return (
     <div>
       <h2>재고 캘린더(범위 적용)</h2>
@@ -156,7 +224,7 @@ export function InventoryPage() {
         {visibleDates.map((date) => (
           <div
             key={date}
-            className={`inventory-cell${selectedDate === date ? " selected" : ""}${conflictDate === date ? " conflict" : ""}`}
+            className={`inventory-cell${selectedDate === date ? " selected" : ""}${conflictDate === date ? " conflict" : ""}${Object.prototype.hasOwnProperty.call(draftTotals, date) ? " draft" : ""}`}
             onClick={() => {
               setSelectedDate(date);
               setSelectedTotal(displayedTotal(date));
@@ -184,8 +252,14 @@ export function InventoryPage() {
           disabled={!selectedDate}
         />
         <button type="button" onClick={applySelectedDate} disabled={!selectedDate}>선택일 저장</button>
+        <button type="button" onClick={() => setDraftTotals({})} disabled={Object.keys(draftTotals).length === 0 || savingBulk}>
+          임시 변경 초기화
+        </button>
+        <button type="button" onClick={() => void applyDraftTotals()} disabled={Object.keys(draftTotals).length === 0 || savingBulk}>
+          {savingBulk ? "저장 중..." : "임시 변경 일괄 저장"}
+        </button>
       </div>
-      <p>미반영 변경: {Object.keys(draftTotals).length}일</p>
+      <p>미반영 변경: {Object.keys(draftTotals).length}일 / 묶음 구간 {draftRanges().length}개</p>
       {message && <p className="success">{message}</p>}
       {error && <p className="error">{error}</p>}
     </div>

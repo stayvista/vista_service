@@ -87,6 +87,10 @@ button { background: var(--accent); color: white; border: none; cursor: pointer;
   border-color: #0f7b6c;
   box-shadow: 0 0 0 1px #0f7b6c inset;
 }
+.inventory-cell.draft {
+  border-color: #b57f1b;
+  background: #fffbef;
+}
 .inventory-cell.conflict {
   border-color: #b61d17;
   box-shadow: 0 0 0 1px #b61d17 inset;
