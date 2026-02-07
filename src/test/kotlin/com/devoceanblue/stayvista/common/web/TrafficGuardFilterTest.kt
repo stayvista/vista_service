@@ -1,6 +1,10 @@
 package com.devoceanblue.stayvista.common.web
 
 import com.devoceanblue.stayvista.domain.queue.QueueService
+import com.devoceanblue.stayvista.domain.search.SearchData
+import com.devoceanblue.stayvista.domain.search.SearchItem
+import com.devoceanblue.stayvista.domain.search.SearchRequest
+import com.devoceanblue.stayvista.domain.search.SearchService
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.mockito.BDDMockito.given
@@ -35,6 +39,9 @@ class TrafficGuardFilterTest {
     @MockitoBean
     lateinit var redisRateLimiter: RedisRateLimiter
 
+    @MockitoBean
+    lateinit var searchService: SearchService
+
     @BeforeEach
     fun setup() {
         given(redisRateLimiter.allow("booking_hold", "1001", 10)).willReturn(
@@ -53,6 +60,38 @@ class TrafficGuardFilterTest {
             RateLimitDecision(
                 allowed = true,
                 retryAfterSeconds = 1,
+            ),
+        )
+        given(
+            searchService.search(
+                SearchRequest(
+                    q = null,
+                    city = "Seoul",
+                    check_in = null,
+                    check_out = null,
+                    adults = null,
+                    children = null,
+                    min_price = null,
+                    max_price = null,
+                    min_rating = null,
+                    sort = null,
+                    cursor = null,
+                    limit = 10,
+                ),
+            ),
+        ).willReturn(
+            SearchData(
+                items = listOf(
+                    SearchItem(
+                        property_id = 1001L,
+                        name = "Test Property",
+                        city = "Seoul",
+                        price_min = 120000L,
+                        rating = 4.6,
+                        thumbnail_url = null,
+                    ),
+                ),
+                next_cursor = null,
             ),
         )
     }
@@ -153,6 +192,56 @@ class TrafficGuardFilterTest {
             .andExpect(jsonPath("$.request_id").isNotEmpty)
     }
 
+    @Test
+    fun `search should pass through filter when rate limit allows`() {
+        mockMvc.perform(
+            get("/v1/search/properties")
+                .param("city", "Seoul")
+                .param("limit", "10"),
+        )
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$.data.items[0].property_id").value(1001))
+            .andExpect(jsonPath("$.request_id").isNotEmpty)
+    }
+
+    @Test
+    fun `booking confirm should return QUEUE_REQUIRED when token is missing`() {
+        mockMvc.perform(
+            post("/v1/bookings/bkg_1/confirm")
+                .contentType(MediaType.APPLICATION_JSON)
+                .header("Idempotency-Key", "idem-confirm-missing")
+                .header("X-User-Id", "1001")
+                .content(bookingConfirmBody()),
+        )
+            .andExpect(status().isTooManyRequests)
+            .andExpect(jsonPath("$.error.code").value("QUEUE_REQUIRED"))
+            .andExpect(jsonPath("$.request_id").isNotEmpty)
+    }
+
+    @Test
+    fun `booking confirm should return RATE_LIMITED when confirm policy rejects`() {
+        given(queueService.validateAdmitToken("qat_confirm")).willReturn(true)
+        given(redisRateLimiter.allow("booking_confirm", "1001", 5)).willReturn(
+            RateLimitDecision(
+                allowed = false,
+                retryAfterSeconds = 15,
+            ),
+        )
+
+        mockMvc.perform(
+            post("/v1/bookings/bkg_1/confirm")
+                .contentType(MediaType.APPLICATION_JSON)
+                .header("Idempotency-Key", "idem-confirm-limited")
+                .header("X-User-Id", "1001")
+                .header("Queue-Token", "qat_confirm")
+                .content(bookingConfirmBody()),
+        )
+            .andExpect(status().isTooManyRequests)
+            .andExpect(header().string("Retry-After", "15"))
+            .andExpect(jsonPath("$.error.code").value("RATE_LIMITED"))
+            .andExpect(jsonPath("$.request_id").isNotEmpty)
+    }
+
     private fun bookingHoldBody(): String {
         return """
             {
@@ -162,6 +251,16 @@ class TrafficGuardFilterTest {
               "rooms": 1,
               "guests": {"adults": 2, "children": 0},
               "price": {"currency": "KRW", "amount_total": 120000}
+            }
+        """.trimIndent()
+    }
+
+    private fun bookingConfirmBody(): String {
+        return """
+            {
+              "payment_method": "CARD",
+              "payment_token": "paytok_test",
+              "agree_terms": true
             }
         """.trimIndent()
     }
