@@ -2,7 +2,14 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { apiGet } from "../api/client";
 
-type SearchItem = { property_id: number; name: string; city?: string; price_min?: number; rating?: number };
+type SearchItem = {
+  property_id: number;
+  name: string;
+  city?: string;
+  price_min?: number;
+  rating?: number;
+  thumbnail_url?: string | null;
+};
 type ApiError = { code?: string; message?: string };
 
 export function SearchPage() {
@@ -85,6 +92,10 @@ export function SearchPage() {
     setParams(next);
   }
 
+  function thumbnailOf(item: SearchItem): string {
+    return item.thumbnail_url || `https://picsum.photos/seed/search-${item.property_id}/420/260`;
+  }
+
   return (
     <section className="page">
       <h2>검색 결과</h2>
@@ -131,12 +142,17 @@ export function SearchPage() {
       {loading && <p>검색 중...</p>}
       <ul className="card-list">
         {items.map((item) => (
-          <li key={item.property_id} className="card">
-            <h3>{item.name}</h3>
-            <p>{item.city ?? "도시 정보 없음"}</p>
-            <p>최저가 {item.price_min ?? 0} KRW</p>
-            <p>평점 {item.rating?.toFixed(1) ?? "N/A"}</p>
-            <Link to={`/properties/${item.property_id}`}>상세 보기</Link>
+          <li key={item.property_id} className="card search-card">
+            <img className="search-thumb" src={thumbnailOf(item)} alt={`${item.name} 썸네일`} loading="lazy" />
+            <div className="search-body">
+              <h3>{item.name}</h3>
+              <p>{item.city ?? "도시 정보 없음"}</p>
+              <div className="badge-row">
+                <span className="price-badge">최저가 {(item.price_min ?? 0).toLocaleString()} KRW</span>
+                <span className="rating-badge">★ {item.rating?.toFixed(1) ?? "N/A"}</span>
+              </div>
+              <Link to={`/properties/${item.property_id}`}>상세 보기</Link>
+            </div>
           </li>
         ))}
       </ul>

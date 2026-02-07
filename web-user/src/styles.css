@@ -175,6 +175,41 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   height: 100%;
   object-fit: cover;
 }
+.search-card {
+  padding: 0;
+  overflow: hidden;
+}
+.search-thumb {
+  width: 100%;
+  height: 160px;
+  object-fit: cover;
+  display: block;
+}
+.search-body {
+  padding: 12px;
+  display: grid;
+  gap: 8px;
+}
+.badge-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.price-badge,
+.rating-badge {
+  border-radius: 999px;
+  padding: 4px 8px;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+.price-badge {
+  background: #ffe9d6;
+  color: #6a2f0f;
+}
+.rating-badge {
+  background: #dff3ff;
+  color: #094d70;
+}
 @media (max-width: 640px) {
   .top-nav { flex-direction: column; gap: 10px; }
   .top-nav nav { flex-wrap: wrap; justify-content: center; }
