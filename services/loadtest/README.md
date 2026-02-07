@@ -22,6 +22,18 @@ ROOM_TYPE_ID=1 CHECK_IN=2026-02-10 CHECK_OUT=2026-02-12 k6 run services/loadtest
 ROOM_TYPE_ID=1 k6 run services/loadtest/k6/full_funnel.js
 ```
 
+## Key metrics
+- `http_req_duration`, `http_req_failed`
+- `hold_409_rate`, `hold_429_rate`, `hold_5xx_rate`
+- `funnel_409_rate`, `funnel_429_rate`, `funnel_5xx_rate`
+- `funnel_search_duration`, `funnel_hold_duration`, `funnel_confirm_duration`
+
+## Example report export
+```bash
+k6 run services/loadtest/k6/booking_hold.js \
+  --summary-export /tmp/booking_hold_summary.json
+```
+
 ## Queue before/after comparison
 - Queue OFF: `stayvista.queue.enabled=false`
 - Queue ON: `stayvista.queue.enabled=true`
