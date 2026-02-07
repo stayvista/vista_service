@@ -3,8 +3,12 @@ export type ApiErrorEnvelope = { request_id: string; error: { code: string; mess
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:8080";
 
-export async function apiGet<T>(path: string): Promise<ApiEnvelope<T>> {
-  const response = await fetch(`${API_BASE}${path}`);
+export async function apiGet<T>(path: string, extraHeaders: Record<string, string> = {}): Promise<ApiEnvelope<T>> {
+  const response = await fetch(`${API_BASE}${path}`, {
+    headers: {
+      ...extraHeaders,
+    },
+  });
   if (!response.ok) {
     throw await parseError(response);
   }
