@@ -53,3 +53,9 @@ replay_pid*
 .env
 .env.*
 !.env.example
+
+### Web artifacts ###
+web-user/node_modules/
+web-admin/node_modules/
+web-user/dist/
+web-admin/dist/

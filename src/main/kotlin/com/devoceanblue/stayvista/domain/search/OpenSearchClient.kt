@@ -5,8 +5,10 @@ import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 import java.time.Duration
+import java.util.Base64
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.stereotype.Component
+import tools.jackson.databind.JsonNode
 import tools.jackson.databind.ObjectMapper
 
 @Component
@@ -105,7 +107,7 @@ class OpenSearchClient(
     fun search(request: SearchRequest): SearchData {
         ensureIndexAndAlias()
         val limit = request.limit.coerceIn(1, 50)
-        val offset = request.cursor?.toIntOrNull()?.coerceAtLeast(0) ?: 0
+        val searchAfter = decodeSearchAfter(request.cursor)
 
         val must = mutableListOf<Map<String, Any>>()
         if (!request.q.isNullOrBlank()) {
@@ -150,12 +152,15 @@ class OpenSearchClient(
         }
 
         val queryBody = objectMapper.writeValueAsString(
-            mapOf(
-                "from" to offset,
+            mutableMapOf<String, Any>(
                 "size" to (limit + 1),
                 "query" to mapOf("bool" to bool),
                 "sort" to sort,
-            ),
+            ).apply {
+                if (searchAfter != null) {
+                    this["search_after"] = searchAfter
+                }
+            },
         )
 
         val response = send("POST", "/$aliasName/_search", queryBody)
@@ -165,26 +170,75 @@ class OpenSearchClient(
 
         val tree = objectMapper.readTree(response.body())
         val hits = tree.path("hits").path("hits")
-        val parsed = mutableListOf<SearchItem>()
+        val parsed = mutableListOf<ScoredHit>()
         hits.forEach { hit ->
             val source = hit.path("_source")
-            parsed += SearchItem(
-                property_id = source.path("property_id").asLong(),
-                name = source.path("name").asText(""),
-                city = source.path("city").asText(null),
-                price_min = source.path("price_min").asLong(0),
-                rating = source.path("rating").asDouble(0.0),
-                thumbnail_url = source.path("thumbnail_url").asText(null),
+            val sortValues = hit.path("sort").toSortValues()
+            parsed += ScoredHit(
+                item = SearchItem(
+                    property_id = source.path("property_id").asLong(),
+                    name = source.path("name").asText(""),
+                    city = source.path("city").nullableText(),
+                    price_min = source.path("price_min").asLong(0),
+                    rating = source.path("rating").asDouble(0.0),
+                    thumbnail_url = source.path("thumbnail_url").nullableText(),
+                ),
+                sortValues = sortValues,
             )
         }
 
         val hasNext = parsed.size > limit
         val items = if (hasNext) parsed.dropLast(1) else parsed
+        val nextCursor = if (hasNext) encodeSearchAfter(items.last().sortValues) else null
         return SearchData(
-            items = items,
-            next_cursor = if (hasNext) (offset + limit).toString() else null,
+            items = items.map { it.item },
+            next_cursor = nextCursor,
         )
     }
+
+    private fun decodeSearchAfter(cursor: String?): List<Any>? {
+        if (cursor.isNullOrBlank()) {
+            return null
+        }
+        return try {
+            val raw = String(Base64.getUrlDecoder().decode(cursor), Charsets.UTF_8)
+            @Suppress("UNCHECKED_CAST")
+            objectMapper.readValue(raw, List::class.java) as List<Any>
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun encodeSearchAfter(sortValues: List<Any>): String {
+        val raw = objectMapper.writeValueAsString(sortValues)
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(raw.toByteArray(Charsets.UTF_8))
+    }
+
+    private fun JsonNode.toSortValues(): List<Any> {
+        if (!isArray) {
+            return emptyList()
+        }
+        val values = mutableListOf<Any>()
+        forEach { node ->
+            values += when {
+                node.isLong || node.isInt -> node.asLong()
+                node.isFloatingPointNumber -> node.asDouble()
+                node.isBoolean -> node.asBoolean()
+                node.isTextual -> node.asText()
+                else -> node.toString()
+            }
+        }
+        return values
+    }
+
+    private fun JsonNode.nullableText(): String? {
+        return if (isMissingNode || isNull) null else asText()
+    }
+
+    private data class ScoredHit(
+        val item: SearchItem,
+        val sortValues: List<Any>,
+    )
 
     private fun send(method: String, path: String, body: String?): HttpResponse<String> {
         val requestBuilder = HttpRequest.newBuilder()
