@@ -1,6 +1,8 @@
 import { FormEvent, useState } from "react";
 import { apiPost } from "../api/client";
 
+type ApiError = { code?: string; message?: string };
+
 export function VouchersPage() {
   const [voucherId, setVoucherId] = useState("vch_1");
   const [result, setResult] = useState<string | null>(null);
@@ -11,8 +13,8 @@ export function VouchersPage() {
       const res = await apiPost<{ result: string }>("/v1/admin/vouchers/validate", { voucher_id: voucherId });
       setResult(res.data.result);
     } catch (e) {
-      const err = e as { error?: { code?: string } };
-      setResult(err.error?.code ?? "ERROR");
+      const err = e as ApiError;
+      setResult(err.code ?? "ERROR");
     }
   }
 
