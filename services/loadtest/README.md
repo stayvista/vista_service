@@ -3,6 +3,10 @@
 ## Prerequisites
 - k6 installed
 - local API running on `http://localhost:8080`
+- seed data prepared:
+```bash
+./services/tools/seed/run_seed.sh bulk
+```
 
 ## Scenarios
 1. Search steady
