@@ -86,6 +86,24 @@ export function CheckoutTicketPage() {
     );
   }
 
+  async function attemptConfirm(queueToken?: string) {
+    if (!orderId || remainingSeconds === 0) return;
+    await apiPost(
+      `/v1/tickets/orders/${orderId}/confirm`,
+      { payment_method: "CARD", payment_token: "paytok_test" },
+      {
+        "Idempotency-Key": crypto.randomUUID(),
+        "X-User-Id": "1001",
+        ...(queueToken ? { "Queue-Token": queueToken } : {}),
+      }
+    );
+    const done = new URLSearchParams({
+      type: "ticket",
+      order_id: orderId,
+    });
+    navigate(`/booking/complete?${done.toString()}`);
+  }
+
   async function handleQueue() {
     setStatus("대기열 입장 중");
     const join = await apiPost<QueueJoinData>(
@@ -116,6 +134,50 @@ export function CheckoutTicketPage() {
         setOrderId(hold.data.order_id);
         setExpiresAt(hold.data.expires_at);
         setStatus("HOLD 완료");
+      }
+    };
+
+    queuePollRef.current = window.setInterval(() => {
+      void poll().catch(() => {
+        setStatus("대기열 대기중");
+      });
+    }, 2000);
+    await poll();
+  }
+
+  async function handleConfirmQueue() {
+    setStatus("대기열 입장 중");
+    const join = await apiPost<QueueJoinData>(
+      "/v1/queue/join",
+      { queue_key: `ticket:${eventId}` },
+      { "X-User-Id": "1001" }
+    );
+    setQueueTicket(join.data.ticket);
+    setQueuePosition(join.data.position);
+    setQueueWaitSeconds(join.data.estimated_wait_seconds);
+    setStatus("대기열 대기중");
+
+    const poll = async () => {
+      const result = await apiGet<QueueStatusData>(`/v1/queue/status?ticket=${encodeURIComponent(join.data.ticket)}`);
+      setQueuePosition(result.data.position);
+      setQueueWaitSeconds(result.data.estimated_wait_seconds);
+
+      if (result.data.state === "EXPIRED") {
+        resetQueue();
+        setStatus("대기열 만료");
+        setError("QUEUE_TOKEN_INVALID: 대기열 입장권이 만료되었습니다.");
+        return;
+      }
+      if (result.data.state === "ADMITTED" && result.data.admit_token) {
+        resetQueue();
+        setStatus("입장 허용, CONFIRM 재시도");
+        try {
+          await attemptConfirm(result.data.admit_token);
+        } catch (confirmError) {
+          const err = toError(confirmError);
+          setStatus("CONFIRM 실패");
+          setError(`${err.code ?? "ERROR"}: ${err.message ?? "confirm 실패"}`);
+        }
       }
     };
 
@@ -161,18 +223,17 @@ export function CheckoutTicketPage() {
     setError(null);
     setStatus("CONFIRM 진행 중");
     try {
-      await apiPost(
-        `/v1/tickets/orders/${orderId}/confirm`,
-        { payment_method: "CARD", payment_token: "paytok_test" },
-        { "Idempotency-Key": crypto.randomUUID(), "X-User-Id": "1001" }
-      );
-      const done = new URLSearchParams({
-        type: "ticket",
-        order_id: orderId,
-      });
-      navigate(`/booking/complete?${done.toString()}`);
+      await attemptConfirm();
     } catch (e) {
       const err = toError(e);
+      if (err.code === "QUEUE_REQUIRED") {
+        await handleConfirmQueue().catch((queueError: unknown) => {
+          const queueErr = toError(queueError);
+          setStatus("대기열 실패");
+          setError(`${queueErr.code ?? "ERROR"}: ${queueErr.message ?? "대기열 처리 실패"}`);
+        });
+        return;
+      }
       setStatus("CONFIRM 실패");
       setError(`${err.code ?? "ERROR"}: ${err.message ?? "confirm 실패"}`);
     }

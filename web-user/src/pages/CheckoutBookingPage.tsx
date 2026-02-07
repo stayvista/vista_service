@@ -102,6 +102,24 @@ export function CheckoutBookingPage() {
     );
   }
 
+  async function attemptConfirm(queueToken?: string) {
+    if (!bookingId || remainingSeconds === 0) return;
+    await apiPost(
+      `/v1/bookings/${bookingId}/confirm`,
+      { payment_method: "CARD", payment_token: "paytok_test", agree_terms: true },
+      {
+        "Idempotency-Key": crypto.randomUUID(),
+        "X-User-Id": "1001",
+        ...(queueToken ? { "Queue-Token": queueToken } : {}),
+      }
+    );
+    const done = new URLSearchParams({
+      type: "booking",
+      booking_id: bookingId,
+    });
+    navigate(`/booking/complete?${done.toString()}`);
+  }
+
   async function handleQueueFlow() {
     setStatus("대기열 입장 중");
     const join = await apiPost<QueueJoinData>(
@@ -153,6 +171,54 @@ export function CheckoutBookingPage() {
     await poll();
   }
 
+  async function handleConfirmQueueFlow() {
+    setStatus("대기열 입장 중");
+    const join = await apiPost<QueueJoinData>(
+      "/v1/queue/join",
+      { queue_key: queueKey() },
+      { "X-User-Id": "1001" }
+    );
+    setQueueTicket(join.data.ticket);
+    setQueuePosition(join.data.position);
+    setQueueWaitSeconds(join.data.estimated_wait_seconds);
+    setStatus("대기열 대기중");
+
+    const poll = async () => {
+      const statusResult = await apiGet<QueueStatusData>(`/v1/queue/status?ticket=${encodeURIComponent(join.data.ticket)}`);
+      setQueuePosition(statusResult.data.position);
+      setQueueWaitSeconds(statusResult.data.estimated_wait_seconds);
+
+      if (statusResult.data.state === "EXPIRED") {
+        resetQueueState();
+        setStatus("대기열 만료");
+        setError("QUEUE_TOKEN_INVALID: 대기열 티켓이 만료되었습니다.");
+        return;
+      }
+
+      if (statusResult.data.state === "ADMITTED" && statusResult.data.admit_token) {
+        resetQueueState();
+        setStatus("입장 허용, CONFIRM 재시도");
+        try {
+          await attemptConfirm(statusResult.data.admit_token);
+        } catch (confirmError) {
+          const err = toApiError(confirmError);
+          setStatus("CONFIRM 실패");
+          setError(`${err.code ?? "ERROR"}: ${err.message ?? "confirm 실패"}`);
+        }
+      }
+    };
+
+    if (queuePollRef.current !== null) {
+      window.clearInterval(queuePollRef.current);
+    }
+    queuePollRef.current = window.setInterval(() => {
+      void poll().catch(() => {
+        setStatus("대기열 대기중");
+      });
+    }, 2000);
+    await poll();
+  }
+
   async function createHold() {
     resetQueueState();
     setError(null);
@@ -184,18 +250,17 @@ export function CheckoutBookingPage() {
     setError(null);
     setStatus("CONFIRM 진행 중");
     try {
-      await apiPost(
-        `/v1/bookings/${bookingId}/confirm`,
-        { payment_method: "CARD", payment_token: "paytok_test", agree_terms: true },
-        { "Idempotency-Key": crypto.randomUUID(), "X-User-Id": "1001" }
-      );
-      const done = new URLSearchParams({
-        type: "booking",
-        booking_id: bookingId,
-      });
-      navigate(`/booking/complete?${done.toString()}`);
+      await attemptConfirm();
     } catch (e) {
       const err = toApiError(e);
+      if (err.code === "QUEUE_REQUIRED") {
+        await handleConfirmQueueFlow().catch((queueError: unknown) => {
+          const queueErr = toApiError(queueError);
+          setStatus("대기열 실패");
+          setError(`${queueErr.code ?? "ERROR"}: ${queueErr.message ?? "queue 처리 실패"}`);
+        });
+        return;
+      }
       setStatus("CONFIRM 실패");
       setError(`${err.code ?? "ERROR"}: ${err.message ?? "confirm 실패"}`);
     }
