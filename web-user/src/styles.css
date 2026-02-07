@@ -76,7 +76,65 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 .actions { display: flex; gap: 8px; }
 .toolbar { display: flex; gap: 8px; margin-bottom: 12px; }
 .error { color: #b61d17; font-weight: 700; }
+.warning { color: #8f5a08; font-weight: 700; }
+.queue-box {
+  border: 1px dashed rgba(0, 0, 0, 0.3);
+  border-radius: 12px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  background: #fff7eb;
+}
+.chat-form {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+  align-items: end;
+}
+.chat-form textarea {
+  min-height: 110px;
+}
+.chat-log {
+  list-style: none;
+  margin: 12px 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.chat-msg {
+  border-radius: 12px;
+  padding: 8px 10px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+}
+.chat-msg.user {
+  background: #fff5ea;
+}
+.chat-msg.assistant {
+  background: #eef8ff;
+}
+.chat-answer {
+  font-weight: 600;
+}
+.eyebrow {
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin: 0;
+  color: #5d5d5d;
+}
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.chip-btn {
+  border-radius: 999px;
+  padding: 8px 12px;
+  border: 1px solid rgba(0, 0, 0, 0.2);
+  background: #fff;
+  color: #222;
+}
 @media (max-width: 640px) {
   .top-nav { flex-direction: column; gap: 10px; }
   .top-nav nav { flex-wrap: wrap; justify-content: center; }
+  .chat-form { grid-template-columns: 1fr; }
 }

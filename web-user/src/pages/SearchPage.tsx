@@ -1,41 +1,94 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { apiGet } from "../api/client";
 
 type SearchItem = { property_id: number; name: string; city?: string; price_min?: number; rating?: number };
+type ApiError = { code?: string; message?: string };
 
 export function SearchPage() {
   const [params, setParams] = useSearchParams();
   const [items, setItems] = useState<SearchItem[]>([]);
-  const [nextCursor, setNextCursor] = useState<string | null>(params.get("cursor"));
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function load(append = false) {
+  const requestQuery = useMemo(() => {
+    const next = new URLSearchParams(params);
+    next.delete("cursor");
+    return next;
+  }, [params]);
+
+  const requestQueryString = useMemo(() => requestQuery.toString(), [requestQuery]);
+
+  const loadFirstPage = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const query = new URLSearchParams(params);
-      const response = await apiGet<{ items: SearchItem[]; next_cursor?: string }>(`/v1/search/properties?${query.toString()}`);
-      setItems((prev) => (append ? [...prev, ...response.data.items] : response.data.items));
+      const response = await apiGet<{ items: SearchItem[]; next_cursor?: string }>(
+        `/v1/search/properties?${requestQueryString}`
+      );
+      setItems(response.data.items);
       setNextCursor(response.data.next_cursor ?? null);
     } catch (e) {
-      setError((e as { message?: string }).message ?? "검색 실패");
+      const err = e as ApiError;
+      if (err.code === "RATE_LIMITED") {
+        setError("요청이 많습니다. 잠시 후 다시 시도해 주세요.");
+      } else {
+        setError(`${err.code ?? "ERROR"}: ${err.message ?? "검색 실패"}`);
+      }
     } finally {
       setLoading(false);
     }
-  }
+  }, [requestQueryString]);
 
   useEffect(() => {
-    load(false);
-  }, [params.toString()]);
+    const timer = window.setTimeout(() => {
+      void loadFirstPage();
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [loadFirstPage]);
+
+  async function loadMore() {
+    if (!nextCursor) return;
+    setLoadingMore(true);
+    setError(null);
+    try {
+      const query = new URLSearchParams(requestQuery);
+      query.set("cursor", nextCursor);
+      const response = await apiGet<{ items: SearchItem[]; next_cursor?: string }>(
+        `/v1/search/properties?${query.toString()}`
+      );
+      setItems((prev) => [...prev, ...response.data.items]);
+      setNextCursor(response.data.next_cursor ?? null);
+    } catch (e) {
+      const err = e as ApiError;
+      setError(`${err.code ?? "ERROR"}: ${err.message ?? "더보기 실패"}`);
+    } finally {
+      setLoadingMore(false);
+    }
+  }
 
   const sort = params.get("sort") ?? "";
+  const city = params.get("city") ?? "";
 
   return (
     <section className="page">
       <h2>검색 결과</h2>
       <div className="toolbar">
+        <input
+          value={city}
+          placeholder="도시"
+          onChange={(e) => {
+            const next = new URLSearchParams(params);
+            if (e.target.value) {
+              next.set("city", e.target.value);
+            } else {
+              next.delete("city");
+            }
+            setParams(next);
+          }}
+        />
         <select
           value={sort}
           onChange={(e) => {
@@ -45,7 +98,6 @@ export function SearchPage() {
             } else {
               next.delete("sort");
             }
-            next.delete("cursor");
             setParams(next);
           }}
         >
@@ -56,6 +108,7 @@ export function SearchPage() {
         </select>
       </div>
       {error && <p className="error">{error}</p>}
+      {loading && <p>검색 중...</p>}
       <ul className="card-list">
         {items.map((item) => (
           <li key={item.property_id} className="card">
@@ -68,16 +121,12 @@ export function SearchPage() {
       </ul>
       <div className="actions">
         <button
-          disabled={!nextCursor || loading}
+          disabled={!nextCursor || loading || loadingMore}
           onClick={() => {
-            if (!nextCursor) return;
-            const next = new URLSearchParams(params);
-            next.set("cursor", nextCursor);
-            setParams(next);
-            load(true);
+            void loadMore();
           }}
         >
-          {loading ? "로딩 중..." : "더보기"}
+          {loadingMore ? "로딩 중..." : "더보기"}
         </button>
       </div>
     </section>
