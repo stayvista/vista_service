@@ -23,6 +23,7 @@
 - `GET /v1/tickets/events?product_id=...&date=...`
 - `POST /v1/tickets/orders/holds` *(Idempotency-Key required)*
 - `POST /v1/tickets/orders/{orderId}/confirm` *(Idempotency-Key required)*
+- `GET /v1/tickets/orders/{orderId}/vouchers` *(X-User-Id required)*
 
 ### Packages
 - `GET /v1/packages`
@@ -58,6 +59,9 @@
 
 ### Voucher
 - `POST /v1/admin/vouchers/validate` *(or redeem endpoint)*
+
+### Search Ops
+- `POST /v1/admin/search/reindex?limit=...`
 
 ## OpenAPI
 - `contracts/openapi-v1.yaml` is the source of truth for request/response shapes.

@@ -39,6 +39,20 @@
 - web-admin: 5173
 - web-user: 5174
 
+### 5) 로컬 Seed 데이터(B-0603)
+```bash
+./scripts/seed_local.sh
+```
+- 기본값: `property` 10,000 / `room_type` 30,000 / 핫키 `inventory_night` 365일(`total=1000`)
+- 환경변수로 조정:
+  - `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USERNAME`, `DB_PASSWORD`
+  - `API_BASE` (기본 `http://localhost:8080`)
+  - `REINDEX_AFTER_SEED` (기본 `true`)
+- 수동 OpenSearch 재색인:
+```bash
+curl -X POST "http://localhost:8080/v1/admin/search/reindex?limit=10000"
+```
+
 ## 구현 상태
 - `src/main/kotlin/...` 아래에 v1 API(카탈로그/검색/예약/티켓/패키지/큐/지오/챗봇) 통합 앱이 구현되어 있습니다.
 - `services/` 아래에는 멀티모듈 분리를 위한 스캐폴딩(`apps/*`, `libs/*`)이 준비되어 있습니다.
