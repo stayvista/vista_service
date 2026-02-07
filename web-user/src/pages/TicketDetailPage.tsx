@@ -1,8 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { apiGet } from "../api/client";
 
-type EventItem = { event_id: number; event_date: string; start_time: string; total: number; sold: number };
+type EventItem = { event_id: number; event_date: string; start_time: string; total: number; hold: number; sold: number };
 
 export function TicketDetailPage() {
   const { id } = useParams();
@@ -13,6 +13,11 @@ export function TicketDetailPage() {
     if (!id) return;
     apiGet<{ items: EventItem[] }>(`/v1/tickets/events?product_id=${id}`).then((res) => setEvents(res.data.items));
   }, [id]);
+
+  const hasAvailableEvent = useMemo(
+    () => events.some((event) => (event.total - event.hold - event.sold) > 0),
+    [events],
+  );
 
   return (
     <section className="page">
@@ -33,15 +38,18 @@ export function TicketDetailPage() {
         {events.map((event) => (
           <li className="card" key={event.event_id}>
             <p>{event.event_date} {event.start_time}</p>
-            <p>잔여 {event.total - event.sold}</p>
-            {event.total - event.sold > 0 ? (
-              <Link to={`/checkout/ticket?event_id=${event.event_id}&quantity=${quantity}`}>구매</Link>
+            <p>잔여 {Math.max(0, event.total - event.hold - event.sold)}</p>
+            {(event.total - event.hold - event.sold) > 0 ? (
+              <Link to={`/checkout/ticket?product_id=${id}&event_id=${event.event_id}&quantity=${quantity}`}>구매</Link>
             ) : (
               <p className="warning">매진</p>
             )}
           </li>
         ))}
       </ul>
+      {!hasAvailableEvent && (
+        <p className="warning">현재 시간대가 모두 매진되었습니다. 다른 날짜를 선택해 주세요.</p>
+      )}
     </section>
   );
 }

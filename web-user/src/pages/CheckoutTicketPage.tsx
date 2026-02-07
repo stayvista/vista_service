@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { apiGet, apiPost } from "../api/client";
 
 type ApiError = { code?: string; message?: string };
@@ -9,6 +9,15 @@ type QueueStatusData = {
   position: number;
   estimated_wait_seconds: number;
   admit_token: string | null;
+};
+type EventItem = {
+  event_id: number;
+  event_date: string;
+  start_time: string;
+  end_time?: string | null;
+  total: number;
+  hold: number;
+  sold: number;
 };
 
 export function CheckoutTicketPage() {
@@ -21,10 +30,12 @@ export function CheckoutTicketPage() {
   const [queueTicket, setQueueTicket] = useState<string | null>(null);
   const [queuePosition, setQueuePosition] = useState<number | null>(null);
   const [queueWaitSeconds, setQueueWaitSeconds] = useState<number | null>(null);
+  const [alternativeEvents, setAlternativeEvents] = useState<EventItem[]>([]);
   const [error, setError] = useState<string | null>(null);
   const queuePollRef = useRef<number | null>(null);
 
   const eventId = Number(params.get("event_id") ?? "0");
+  const productId = Number(params.get("product_id") ?? "0");
   const quantity = useMemo(
     () => Math.max(1, Number(params.get("quantity") ?? "1")),
     [params]
@@ -194,6 +205,7 @@ export function CheckoutTicketPage() {
     setError(null);
     setOrderId(null);
     setExpiresAt(null);
+    setAlternativeEvents([]);
     setStatus("HOLD 생성 중");
     try {
       const res = await attemptHold();
@@ -212,6 +224,19 @@ export function CheckoutTicketPage() {
       setError(`${err.code ?? "ERROR"}: ${err.message ?? "hold 실패"}`);
       if (err.code === "TICKET_SOLD_OUT") {
         setStatus("매진");
+        if (productId > 0) {
+          apiGet<{ items: EventItem[] }>(`/v1/tickets/events?product_id=${productId}`)
+            .then((res) => {
+              const alternatives = (res.data.items ?? [])
+                .filter((event) => event.event_id !== eventId)
+                .filter((event) => (event.total - event.hold - event.sold) > 0)
+                .slice(0, 3);
+              setAlternativeEvents(alternatives);
+            })
+            .catch(() => {
+              setAlternativeEvents([]);
+            });
+        }
       } else {
         setStatus("HOLD 실패");
       }
@@ -259,6 +284,20 @@ export function CheckoutTicketPage() {
         </div>
       )}
       {error && <p className="error">{error}</p>}
+      {alternativeEvents.length > 0 && (
+        <section className="queue-box">
+          <p>대체 가능한 시간대</p>
+          <ul className="card-list">
+            {alternativeEvents.map((event) => (
+              <li key={event.event_id} className="card">
+                <p>{event.event_date} {event.start_time}</p>
+                <p>잔여 {Math.max(0, event.total - event.hold - event.sold)}</p>
+                <Link to={`/checkout/ticket?product_id=${productId}&event_id=${event.event_id}&quantity=${quantity}`}>이 시간대로 구매</Link>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
       <div className="actions">
         <button onClick={hold}>HOLD</button>
         <button disabled={!orderId || isExpired} onClick={confirm}>CONFIRM</button>
