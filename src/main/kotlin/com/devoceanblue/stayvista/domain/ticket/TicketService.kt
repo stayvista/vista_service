@@ -18,7 +18,6 @@ import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.LocalTime
 import java.time.ZoneOffset
-import java.util.UUID
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.jdbc.support.GeneratedKeyHolder
@@ -473,32 +472,28 @@ class TicketService(
             order.id,
         )
 
-        val voucherIds = mutableListOf<String>()
-        for (sequence in 1..order.quantity) {
-            val keyHolder = GeneratedKeyHolder()
-            jdbcTemplate.update({ connection ->
-                val ps = connection.prepareStatement(
-                    """
-                    INSERT INTO voucher(order_id, user_id, event_id, sequence_no, status, qr_payload)
-                    VALUES (?, ?, ?, ?, 'ISSUED', ?)
-                    """.trimIndent(),
-                    PreparedStatement.RETURN_GENERATED_KEYS,
-                )
-                ps.setLong(1, order.id)
-                ps.setLong(2, userId)
-                ps.setLong(3, order.eventId)
-                ps.setInt(4, sequence)
-                ps.setString(5, UUID.randomUUID().toString())
-                ps
-            }, keyHolder)
-            voucherIds += "vch_${keyHolder.key?.toLong()}"
-        }
-
         domainSupportService.appendOutbox(
             aggregateType = "TICKET_ORDER",
             aggregateId = order.id.toString(),
             eventType = "TicketOrderConfirmed",
-            payload = mapOf("order_id" to order.id, "voucher_ids" to voucherIds),
+            payload = mapOf("order_id" to order.id, "user_id" to userId, "event_id" to order.eventId, "quantity" to order.quantity),
+        )
+        domainSupportService.appendOutbox(
+            aggregateType = "TICKET_ORDER",
+            aggregateId = order.id.toString(),
+            eventType = "VoucherIssueRequested",
+            payload = mapOf("order_id" to order.id, "user_id" to userId, "event_id" to order.eventId, "quantity" to order.quantity),
+        )
+
+        val voucherIds = jdbcTemplate.query(
+            """
+            SELECT id
+            FROM voucher
+            WHERE order_id = ?
+            ORDER BY sequence_no
+            """.trimIndent(),
+            { rs, _ -> "vch_${rs.getLong("id")}" },
+            order.id,
         )
 
         return TicketConfirmData(
