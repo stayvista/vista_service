@@ -81,6 +81,12 @@ export function SearchPage() {
   const minPrice = params.get("min_price") ?? "";
   const maxPrice = params.get("max_price") ?? "";
   const minRating = params.get("min_rating") ?? "";
+  const sortLabel = useMemo(() => {
+    if (sort === "price_asc") return "가격 낮은 순";
+    if (sort === "price_desc") return "가격 높은 순";
+    if (sort === "rating_desc") return "평점 높은 순";
+    return "";
+  }, [sort]);
 
   function upsertParam(name: string, value: string) {
     const next = new URLSearchParams(params);
@@ -91,6 +97,28 @@ export function SearchPage() {
     }
     setParams(next);
   }
+
+  function removeParam(name: string) {
+    const next = new URLSearchParams(params);
+    next.delete(name);
+    setParams(next);
+  }
+
+  function clearSearchFilters() {
+    const next = new URLSearchParams(params);
+    ["city", "min_price", "max_price", "min_rating", "sort"].forEach((key) => next.delete(key));
+    setParams(next);
+  }
+
+  const activeFilters = useMemo(() => {
+    const chips: Array<{ key: string; label: string }> = [];
+    if (city) chips.push({ key: "city", label: `도시: ${city}` });
+    if (minPrice) chips.push({ key: "min_price", label: `최소가: ${Number(minPrice).toLocaleString()} KRW` });
+    if (maxPrice) chips.push({ key: "max_price", label: `최대가: ${Number(maxPrice).toLocaleString()} KRW` });
+    if (minRating) chips.push({ key: "min_rating", label: `최소 평점: ${minRating}` });
+    if (sortLabel) chips.push({ key: "sort", label: `정렬: ${sortLabel}` });
+    return chips;
+  }, [city, minPrice, maxPrice, minRating, sortLabel]);
 
   function thumbnailOf(item: SearchItem): string {
     return item.thumbnail_url || `https://picsum.photos/seed/search-${item.property_id}/420/260`;
@@ -138,8 +166,26 @@ export function SearchPage() {
           <option value="rating_desc">평점 높은 순</option>
         </select>
       </div>
+      <div className="chips search-chips">
+        {activeFilters.map((chip) => (
+          <button
+            key={chip.key}
+            type="button"
+            className="chip-btn"
+            onClick={() => removeParam(chip.key)}
+          >
+            {chip.label} ×
+          </button>
+        ))}
+        {activeFilters.length > 0 && (
+          <button type="button" className="chip-btn danger" onClick={clearSearchFilters}>
+            필터 전체 초기화
+          </button>
+        )}
+      </div>
       {error && <p className="error">{error}</p>}
       {loading && <p>검색 중...</p>}
+      {!loading && !error && <p>현재 {items.length}개 결과 표시 중</p>}
       <ul className="card-list">
         {items.map((item) => (
           <li key={item.property_id} className="card search-card">

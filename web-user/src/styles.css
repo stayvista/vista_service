@@ -133,6 +133,10 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   background: #fff;
   color: #222;
 }
+.chip-btn.danger {
+  border-color: #b61d17;
+  color: #b61d17;
+}
 .chip-btn.active {
   background: #1f1f1f;
   color: #fff;
@@ -209,6 +213,9 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 .rating-badge {
   background: #dff3ff;
   color: #094d70;
+}
+.search-chips {
+  margin-bottom: 12px;
 }
 @media (max-width: 640px) {
   .top-nav { flex-direction: column; gap: 10px; }
