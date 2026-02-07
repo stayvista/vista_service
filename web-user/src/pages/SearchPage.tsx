@@ -11,6 +11,14 @@ type SearchItem = {
   thumbnail_url?: string | null;
 };
 type ApiError = { code?: string; message?: string };
+type SearchPreset = {
+  id: string;
+  label: string;
+  minPrice?: string;
+  maxPrice?: string;
+  minRating?: string;
+  sort?: string;
+};
 
 export function SearchPage() {
   const [params, setParams] = useSearchParams();
@@ -81,6 +89,11 @@ export function SearchPage() {
   const minPrice = params.get("min_price") ?? "";
   const maxPrice = params.get("max_price") ?? "";
   const minRating = params.get("min_rating") ?? "";
+  const presets: SearchPreset[] = [
+    { id: "value", label: "가성비", maxPrice: "120000", minRating: "4.0", sort: "price_asc" },
+    { id: "top-rated", label: "고평점", minRating: "4.5", sort: "rating_desc" },
+    { id: "luxury", label: "럭셔리", minPrice: "220000", minRating: "4.2", sort: "rating_desc" },
+  ];
   const sortLabel = useMemo(() => {
     if (sort === "price_asc") return "가격 낮은 순";
     if (sort === "price_desc") return "가격 높은 순";
@@ -110,6 +123,15 @@ export function SearchPage() {
     setParams(next);
   }
 
+  function applyPreset(preset: SearchPreset) {
+    const next = new URLSearchParams(params);
+    if (preset.minPrice) next.set("min_price", preset.minPrice); else next.delete("min_price");
+    if (preset.maxPrice) next.set("max_price", preset.maxPrice); else next.delete("max_price");
+    if (preset.minRating) next.set("min_rating", preset.minRating); else next.delete("min_rating");
+    if (preset.sort) next.set("sort", preset.sort); else next.delete("sort");
+    setParams(next);
+  }
+
   const activeFilters = useMemo(() => {
     const chips: Array<{ key: string; label: string }> = [];
     if (city) chips.push({ key: "city", label: `도시: ${city}` });
@@ -127,6 +149,18 @@ export function SearchPage() {
   return (
     <section className="page">
       <h2>검색 결과</h2>
+      <div className="toolbar">
+        {presets.map((preset) => (
+          <button
+            key={preset.id}
+            type="button"
+            className="chip-btn"
+            onClick={() => applyPreset(preset)}
+          >
+            {preset.label}
+          </button>
+        ))}
+      </div>
       <div className="toolbar">
         <input
           value={city}
