@@ -109,6 +109,42 @@ class SearchIndexSyncService(
         meterRegistry.counter("search_index_upsert_total", "result", "success").increment()
     }
 
+    fun reindexAll(limit: Int?): SearchReindexData {
+        val propertyIds = if (limit != null) {
+            jdbcTemplate.query(
+                "SELECT id FROM property ORDER BY id LIMIT ?",
+                { rs, _ -> rs.getLong("id") },
+                limit,
+            )
+        } else {
+            jdbcTemplate.query(
+                "SELECT id FROM property ORDER BY id",
+                { rs, _ -> rs.getLong("id") },
+            )
+        }
+
+        var successCount = 0
+        var failedCount = 0
+        propertyIds.forEach { propertyId ->
+            try {
+                syncCatalogEvent(
+                    aggregateType = "PROPERTY",
+                    aggregateId = propertyId.toString(),
+                    eventType = "PropertyUpserted",
+                )
+                successCount += 1
+            } catch (_: Exception) {
+                failedCount += 1
+            }
+        }
+
+        return SearchReindexData(
+            scanned = propertyIds.size,
+            upserted = successCount,
+            failed = failedCount,
+        )
+    }
+
     private data class PropertyDocument(
         val propertyId: Long,
         val name: String,
@@ -128,3 +164,9 @@ class SearchIndexSyncService(
         val basePrice: Long,
     )
 }
+
+data class SearchReindexData(
+    val scanned: Int,
+    val upserted: Int,
+    val failed: Int,
+)
