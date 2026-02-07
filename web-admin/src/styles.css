@@ -95,6 +95,9 @@ button { background: var(--accent); color: white; border: none; cursor: pointer;
   border-color: #b57f1b;
   background: #fffbef;
 }
+.inventory-cell.dragged {
+  box-shadow: 0 0 0 2px #6374ff inset;
+}
 .inventory-cell.conflict {
   border-color: #b61d17;
   box-shadow: 0 0 0 1px #b61d17 inset;

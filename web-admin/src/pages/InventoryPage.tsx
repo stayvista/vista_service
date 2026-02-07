@@ -1,4 +1,4 @@
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { apiPut } from "../api/client";
 
 type ApiError = { code?: string; message?: string; details?: Record<string, unknown> };
@@ -48,6 +48,15 @@ function isWeekend(dateIso: string): boolean {
   return day === 0 || day === 6;
 }
 
+function datesInVisibleRange(start: string, end: string, visibleDates: string[]): string[] {
+  const startIdx = visibleDates.indexOf(start);
+  const endIdx = visibleDates.indexOf(end);
+  if (startIdx < 0 || endIdx < 0) return [];
+  const from = Math.min(startIdx, endIdx);
+  const to = Math.max(startIdx, endIdx);
+  return visibleDates.slice(from, to + 1);
+}
+
 export function InventoryPage() {
   const [roomTypeId, setRoomTypeId] = useState(1);
   const [startDate, setStartDate] = useState("2026-02-10");
@@ -58,12 +67,26 @@ export function InventoryPage() {
   const [draftTotals, setDraftTotals] = useState<Record<string, number>>({});
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [selectedTotal, setSelectedTotal] = useState(20);
+  const [dragStartDate, setDragStartDate] = useState<string | null>(null);
+  const [dragEndDate, setDragEndDate] = useState<string | null>(null);
+  const [dragAmount, setDragAmount] = useState(20);
+  const [isDragging, setIsDragging] = useState(false);
   const [conflictDate, setConflictDate] = useState<string | null>(null);
   const [savingBulk, setSavingBulk] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const visibleDates = useMemo(() => monthDates(month), [month]);
   const todayIso = formatIsoDate(new Date());
+  const dragDates = useMemo(() => {
+    if (!dragStartDate || !dragEndDate) return [];
+    return datesInVisibleRange(dragStartDate, dragEndDate, visibleDates);
+  }, [dragStartDate, dragEndDate, visibleDates]);
+
+  useEffect(() => {
+    const onMouseUp = () => setIsDragging(false);
+    window.addEventListener("mouseup", onMouseUp);
+    return () => window.removeEventListener("mouseup", onMouseUp);
+  }, []);
 
   function displayedTotal(date: string): number {
     if (Object.prototype.hasOwnProperty.call(draftTotals, date)) return draftTotals[date];
@@ -151,6 +174,24 @@ export function InventoryPage() {
   function selectDate(date: string) {
     setSelectedDate(date);
     setSelectedTotal(displayedTotal(date));
+  }
+
+  function applyDraggedDatesToDraft() {
+    if (dragDates.length === 0) return;
+    const amount = Number.isFinite(dragAmount) ? dragAmount : total;
+    setDraftTotals((prev) => {
+      const next = { ...prev };
+      dragDates.forEach((date) => {
+        next[date] = amount;
+      });
+      return next;
+    });
+    setMessage(`선택 구간 ${dragDates.length}일에 ${amount} 임시 반영`);
+  }
+
+  function clearDragSelection() {
+    setDragStartDate(null);
+    setDragEndDate(null);
   }
 
   function moveSelection(fromDate: string, offset: number) {
@@ -249,8 +290,23 @@ export function InventoryPage() {
         {visibleDates.map((date) => (
           <div
             key={date}
-            className={`inventory-cell${selectedDate === date ? " selected" : ""}${conflictDate === date ? " conflict" : ""}${Object.prototype.hasOwnProperty.call(draftTotals, date) ? " draft" : ""}${isWeekend(date) ? " weekend" : ""}${date === todayIso ? " today" : ""}`}
+            className={`inventory-cell${selectedDate === date ? " selected" : ""}${conflictDate === date ? " conflict" : ""}${Object.prototype.hasOwnProperty.call(draftTotals, date) ? " draft" : ""}${isWeekend(date) ? " weekend" : ""}${date === todayIso ? " today" : ""}${dragDates.includes(date) ? " dragged" : ""}`}
             tabIndex={0}
+            onMouseDown={(e) => {
+              if (e.button !== 0) return;
+              setIsDragging(true);
+              setDragStartDate(date);
+              setDragEndDate(date);
+            }}
+            onMouseEnter={() => {
+              if (!isDragging) return;
+              setDragEndDate(date);
+            }}
+            onMouseUp={() => {
+              if (!isDragging) return;
+              setIsDragging(false);
+              setDragEndDate(date);
+            }}
             onClick={() => selectDate(date)}
             onKeyDown={(e) => {
               if (e.key === "Enter" || e.key === " ") {
@@ -309,7 +365,24 @@ export function InventoryPage() {
           {savingBulk ? "저장 중..." : "임시 변경 일괄 저장"}
         </button>
       </div>
+      <div className="row-form">
+        <input value={dragStartDate ?? ""} readOnly placeholder="드래그 시작일" />
+        <input value={dragEndDate ?? ""} readOnly placeholder="드래그 종료일" />
+        <input
+          type="number"
+          value={dragAmount}
+          onChange={(e) => setDragAmount(Number(e.target.value))}
+          placeholder="드래그 반영 값"
+        />
+        <button type="button" onClick={applyDraggedDatesToDraft} disabled={dragDates.length === 0}>
+          선택 구간 임시 반영
+        </button>
+        <button type="button" onClick={clearDragSelection} disabled={dragDates.length === 0}>
+          선택 구간 해제
+        </button>
+      </div>
       <p>키보드: `Enter` 다음 날짜 이동, `Shift+Enter` 이전 날짜 이동, `Ctrl+Enter` 현재 날짜 저장, `Ctrl+S` 일괄 저장</p>
+      <p>마우스: 셀을 드래그해 구간 선택 후 `선택 구간 임시 반영`으로 한 번에 값 입력</p>
       <p>미반영 변경: {Object.keys(draftTotals).length}일 / 묶음 구간 {draftRanges().length}개</p>
       {message && <p className="success">{message}</p>}
       {error && <p className="error">{error}</p>}
