@@ -22,8 +22,10 @@ function defaultHeaders(): Record<string, string> {
   return adminId ? { "X-Admin-Id": adminId } : {};
 }
 
-export async function apiGet<T>(path: string): Promise<ApiEnvelope<T>> {
-  const res = await fetch(`${API_BASE}${path}`);
+export async function apiGet<T>(path: string, extraHeaders: Record<string, string> = {}): Promise<ApiEnvelope<T>> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    headers: { ...defaultHeaders(), ...extraHeaders },
+  });
   if (!res.ok) throw await parseError(res);
   return res.json();
 }
