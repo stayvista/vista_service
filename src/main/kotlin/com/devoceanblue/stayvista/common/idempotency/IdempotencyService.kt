@@ -31,7 +31,7 @@ class IdempotencyService(
                 """
                 UPDATE idempotency_record
                 SET status='COMPLETED', response_json=?, updated_at=NOW(3)
-                WHERE idem_key=? AND scope=?
+                WHERE idem_key=? AND `scope`=?
                 """.trimIndent(),
                 objectMapper.writeValueAsString(response),
                 idempotencyKey,
@@ -43,7 +43,7 @@ class IdempotencyService(
                 """
                 UPDATE idempotency_record
                 SET status='FAILED', updated_at=NOW(3)
-                WHERE idem_key=? AND scope=?
+                WHERE idem_key=? AND `scope`=?
                 """.trimIndent(),
                 idempotencyKey,
                 scope,
@@ -56,7 +56,7 @@ class IdempotencyService(
         return try {
             jdbcTemplate.update(
                 """
-                INSERT INTO idempotency_record(idem_key, scope, request_hash, status)
+                INSERT INTO idempotency_record(idem_key, `scope`, request_hash, status)
                 VALUES (?, ?, ?, 'IN_PROGRESS')
                 """.trimIndent(),
                 idempotencyKey,
@@ -80,7 +80,7 @@ class IdempotencyService(
                 """
                 SELECT request_hash, status, response_json
                 FROM idempotency_record
-                WHERE idem_key=? AND scope=?
+                WHERE idem_key=? AND `scope`=?
                 """.trimIndent(),
                 { rs, _ ->
                     ExistingRecord(
