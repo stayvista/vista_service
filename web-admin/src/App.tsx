@@ -6,6 +6,7 @@ import { PropertyDetailPage } from "./pages/PropertyDetailPage";
 import { InventoryPage } from "./pages/InventoryPage";
 import { TicketsPage } from "./pages/TicketsPage";
 import { VouchersPage } from "./pages/VouchersPage";
+import { OpsPage } from "./pages/OpsPage";
 
 export function App() {
   const [adminId, setAdminIdState] = useState(getAdminId());
@@ -50,6 +51,7 @@ export function App() {
           <Link to="/admin/inventory">재고</Link>
           <Link to="/admin/tickets">티켓</Link>
           <Link to="/admin/vouchers">바우처</Link>
+          <Link to="/admin/ops">운영도구</Link>
         </nav>
       </aside>
       <section className="content">
@@ -64,6 +66,7 @@ export function App() {
           <Route path="/admin/inventory" element={<InventoryPage />} />
           <Route path="/admin/tickets" element={<TicketsPage />} />
           <Route path="/admin/vouchers" element={<VouchersPage />} />
+          <Route path="/admin/ops" element={<OpsPage />} />
           <Route path="*" element={<PropertiesPage />} />
         </Routes>
       </section>
