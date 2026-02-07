@@ -1,0 +1,3 @@
+package com.devoceanblue.stayvista.common.observability
+
+class CommonObservabilityMarker

@@ -1,0 +1,17 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: stayvista-gateway
+  datasource:
+    url: jdbc:mysql://127.0.0.1:13306/stayvista
+    username: root
+    password: root
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+  flyway:
+    enabled: true
+    locations: filesystem:../db/migrations

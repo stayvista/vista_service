@@ -23,17 +23,25 @@
 ## 로컬 개발 (권장)
 ### 1) 인프라 띄우기
 ```bash
-cd services/docker
-docker compose up -d
+./scripts/dev.sh
 ```
 
 ### 2) DB 마이그레이션
 - Flyway 마이그레이션은 각 서비스(또는 통합 app)가 부팅 시 실행하도록 설계합니다.
 - 초기 스키마는 `services/db/migrations/V1__core_tables.sql` 참고.
 
-### 3) 웹 실행
+### 3) 백엔드 실행(현재 통합 API 앱)
+```bash
+./gradlew bootRun
+```
+
+### 4) 웹 실행
 - web-admin: 5173
 - web-user: 5174
+
+## 구현 상태
+- `src/main/kotlin/...` 아래에 v1 API(카탈로그/검색/예약/티켓/패키지/큐/지오/챗봇) 통합 앱이 구현되어 있습니다.
+- `services/` 아래에는 멀티모듈 분리를 위한 스캐폴딩(`apps/*`, `libs/*`)이 준비되어 있습니다.
 
 ## 핵심 원칙 (대규모 트래픽/정합성)
 - **최종 정합성 보장(중복예약/과판매 방지)은 DB가 한다.**
