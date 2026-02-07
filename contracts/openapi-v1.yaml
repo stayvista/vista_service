@@ -1,0 +1,653 @@
+openapi: 3.0.3
+info:
+  title: StayVista API v1
+  version: 1.0.0
+servers:
+- url: http://localhost:8080
+paths:
+  /v1/search/properties:
+    get:
+      summary: Search properties
+      parameters:
+      - name: q
+        in: query
+        schema:
+          type: string
+      - name: city
+        in: query
+        schema:
+          type: string
+      - name: check_in
+        in: query
+        schema:
+          type: string
+          format: date
+      - name: check_out
+        in: query
+        schema:
+          type: string
+          format: date
+      - name: adults
+        in: query
+        schema:
+          type: integer
+          minimum: 0
+      - name: children
+        in: query
+        schema:
+          type: integer
+          minimum: 0
+      - name: min_price
+        in: query
+        schema:
+          type: integer
+          minimum: 0
+      - name: max_price
+        in: query
+        schema:
+          type: integer
+          minimum: 0
+      - name: sort
+        in: query
+        schema:
+          type: string
+      - name: cursor
+        in: query
+        schema:
+          type: string
+      - name: limit
+        in: query
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 50
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnvelopeSearch'
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '429':
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /v1/bookings/holds:
+    post:
+      summary: Create booking hold
+      parameters:
+      - $ref: '#/components/parameters/IdempotencyKey'
+      - $ref: '#/components/parameters/XUserId'
+      - $ref: '#/components/parameters/XRequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BookingHoldRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnvelopeBookingHold'
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '409':
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '429':
+          description: Rate limited / Queue required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /v1/bookings/{bookingId}/confirm:
+    post:
+      summary: Confirm booking
+      parameters:
+      - name: bookingId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKey'
+      - $ref: '#/components/parameters/XUserId'
+      - $ref: '#/components/parameters/XRequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BookingConfirmRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnvelopeBookingConfirm'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '409':
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /v1/bookings/{bookingId}/cancel:
+    post:
+      summary: Cancel booking
+      parameters:
+      - name: bookingId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKey'
+      - $ref: '#/components/parameters/XUserId'
+      - $ref: '#/components/parameters/XRequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BookingCancelRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnvelopeBookingCancel'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '409':
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /v1/queue/join:
+    post:
+      summary: Join waiting room
+      parameters:
+      - $ref: '#/components/parameters/XUserId'
+      - $ref: '#/components/parameters/XRequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QueueJoinRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnvelopeQueueJoin'
+  /v1/queue/status:
+    get:
+      summary: Get waiting room status
+      parameters:
+      - name: ticket
+        in: query
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/XRequestId'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnvelopeQueueStatus'
+  /v1/geo/pois/nearby:
+    get:
+      summary: Nearby POIs
+      parameters:
+      - name: lat
+        in: query
+        required: true
+        schema:
+          type: number
+          format: double
+      - name: lng
+        in: query
+        required: true
+        schema:
+          type: number
+          format: double
+      - name: radius_m
+        in: query
+        schema:
+          type: integer
+          default: 2000
+      - name: category
+        in: query
+        schema:
+          type: string
+      - name: limit
+        in: query
+        schema:
+          type: integer
+          maximum: 50
+          default: 20
+      - $ref: '#/components/parameters/XRequestId'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnvelopeNearbyPois'
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /v1/chat/recommend:
+    post:
+      summary: Chat recommendations
+      parameters:
+      - $ref: '#/components/parameters/XUserId'
+      - $ref: '#/components/parameters/XRequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChatRecommendRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnvelopeChatRecommend'
+components:
+  parameters:
+    XRequestId:
+      name: X-Request-Id
+      in: header
+      required: false
+      schema:
+        type: string
+    XUserId:
+      name: X-User-Id
+      in: header
+      required: false
+      schema:
+        type: string
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema:
+        type: string
+  schemas:
+    EnvelopeBase:
+      type: object
+      properties:
+        request_id:
+          type: string
+      required:
+      - request_id
+    ErrorBody:
+      type: object
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+        details:
+          type: object
+          additionalProperties: true
+      required:
+      - code
+      - message
+    ErrorEnvelope:
+      allOf:
+      - $ref: '#/components/schemas/EnvelopeBase'
+      - type: object
+        properties:
+          error:
+            $ref: '#/components/schemas/ErrorBody'
+        required:
+        - error
+    Money:
+      type: object
+      properties:
+        currency:
+          type: string
+        amount_total:
+          type: integer
+      required:
+      - currency
+      - amount_total
+    BookingHoldRequest:
+      type: object
+      properties:
+        room_type_id:
+          type: integer
+        check_in:
+          type: string
+          format: date
+        check_out:
+          type: string
+          format: date
+        rooms:
+          type: integer
+          minimum: 1
+        guests:
+          type: object
+          properties:
+            adults:
+              type: integer
+            children:
+              type: integer
+          required:
+          - adults
+          - children
+        price:
+          $ref: '#/components/schemas/Money'
+        user_note:
+          type: string
+      required:
+      - room_type_id
+      - check_in
+      - check_out
+      - rooms
+      - guests
+      - price
+    BookingHoldData:
+      type: object
+      properties:
+        booking_id:
+          type: string
+        status:
+          type: string
+        expires_at:
+          type: string
+          format: date-time
+      required:
+      - booking_id
+      - status
+      - expires_at
+    EnvelopeBookingHold:
+      allOf:
+      - $ref: '#/components/schemas/EnvelopeBase'
+      - type: object
+        properties:
+          data:
+            $ref: '#/components/schemas/BookingHoldData'
+        required:
+        - data
+    BookingConfirmRequest:
+      type: object
+      properties:
+        payment_method:
+          type: string
+        payment_token:
+          type: string
+        agree_terms:
+          type: boolean
+      required:
+      - payment_method
+      - payment_token
+    BookingConfirmData:
+      type: object
+      properties:
+        booking_id:
+          type: string
+        status:
+          type: string
+        confirmed_at:
+          type: string
+          format: date-time
+      required:
+      - booking_id
+      - status
+      - confirmed_at
+    EnvelopeBookingConfirm:
+      allOf:
+      - $ref: '#/components/schemas/EnvelopeBase'
+      - type: object
+        properties:
+          data:
+            $ref: '#/components/schemas/BookingConfirmData'
+        required:
+        - data
+    BookingCancelRequest:
+      type: object
+      properties:
+        reason:
+          type: string
+    BookingCancelData:
+      type: object
+      properties:
+        booking_id:
+          type: string
+        status:
+          type: string
+        cancelled_at:
+          type: string
+          format: date-time
+      required:
+      - booking_id
+      - status
+      - cancelled_at
+    EnvelopeBookingCancel:
+      allOf:
+      - $ref: '#/components/schemas/EnvelopeBase'
+      - type: object
+        properties:
+          data:
+            $ref: '#/components/schemas/BookingCancelData'
+        required:
+        - data
+    SearchItem:
+      type: object
+      properties:
+        property_id:
+          type: integer
+        name:
+          type: string
+        city:
+          type: string
+        price_min:
+          type: integer
+        rating:
+          type: number
+        thumbnail_url:
+          type: string
+      required:
+      - property_id
+      - name
+    SearchData:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/SearchItem'
+        next_cursor:
+          type: string
+      required:
+      - items
+    EnvelopeSearch:
+      allOf:
+      - $ref: '#/components/schemas/EnvelopeBase'
+      - type: object
+        properties:
+          data:
+            $ref: '#/components/schemas/SearchData'
+        required:
+        - data
+    QueueJoinRequest:
+      type: object
+      properties:
+        queue_key:
+          type: string
+      required:
+      - queue_key
+    QueueJoinData:
+      type: object
+      properties:
+        queue_key:
+          type: string
+        ticket:
+          type: string
+        position:
+          type: integer
+        estimated_wait_seconds:
+          type: integer
+      required:
+      - queue_key
+      - ticket
+      - position
+    EnvelopeQueueJoin:
+      allOf:
+      - $ref: '#/components/schemas/EnvelopeBase'
+      - type: object
+        properties:
+          data:
+            $ref: '#/components/schemas/QueueJoinData'
+        required:
+        - data
+    QueueStatusData:
+      type: object
+      properties:
+        state:
+          type: string
+        position:
+          type: integer
+        estimated_wait_seconds:
+          type: integer
+        admit_token:
+          type: string
+      required:
+      - state
+    EnvelopeQueueStatus:
+      allOf:
+      - $ref: '#/components/schemas/EnvelopeBase'
+      - type: object
+        properties:
+          data:
+            $ref: '#/components/schemas/QueueStatusData'
+        required:
+        - data
+    PoiItem:
+      type: object
+      properties:
+        poi_id:
+          type: string
+        name:
+          type: string
+        category:
+          type: string
+        distance_m:
+          type: integer
+        location:
+          type: object
+          properties:
+            lat:
+              type: number
+            lng:
+              type: number
+          required:
+          - lat
+          - lng
+      required:
+      - poi_id
+      - name
+      - location
+    NearbyPoisData:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/PoiItem'
+      required:
+      - items
+    EnvelopeNearbyPois:
+      allOf:
+      - $ref: '#/components/schemas/EnvelopeBase'
+      - type: object
+        properties:
+          data:
+            $ref: '#/components/schemas/NearbyPoisData'
+        required:
+        - data
+    ChatRecommendRequest:
+      type: object
+      properties:
+        message:
+          type: string
+        context:
+          type: object
+          additionalProperties: true
+      required:
+      - message
+    ChatCard:
+      type: object
+      properties:
+        type:
+          type: string
+        title:
+          type: string
+      required:
+      - type
+      - title
+    ChatRecommendData:
+      type: object
+      properties:
+        answer:
+          type: string
+        cards:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChatCard'
+        followups:
+          type: array
+          items:
+            type: string
+      required:
+      - answer
+    EnvelopeChatRecommend:
+      allOf:
+      - $ref: '#/components/schemas/EnvelopeBase'
+      - type: object
+        properties:
+          data:
+            $ref: '#/components/schemas/ChatRecommendData'
+        required:
+        - data
