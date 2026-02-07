@@ -26,6 +26,8 @@ class TrafficGuardFilter(
     @Value("\${stayvista.rate-limit.search-per-minute:60}") private val searchPerMinute: Int,
     @Value("\${stayvista.rate-limit.booking-hold-per-minute:10}") private val bookingHoldPerMinute: Int,
     @Value("\${stayvista.rate-limit.booking-confirm-per-minute:5}") private val bookingConfirmPerMinute: Int,
+    @Value("\${stayvista.rate-limit.package-hold-per-minute:10}") private val packageHoldPerMinute: Int,
+    @Value("\${stayvista.rate-limit.package-confirm-per-minute:5}") private val packageConfirmPerMinute: Int,
     @Value("\${stayvista.queue.enabled:false}") private val queueEnabled: Boolean,
 ) : OncePerRequestFilter() {
     override fun doFilterInternal(
@@ -77,6 +79,12 @@ class TrafficGuardFilter(
         if (method == "POST" && path.matches(Regex("/v1/bookings/.+/confirm"))) {
             return RatePolicy("booking_confirm", bookingConfirmPerMinute)
         }
+        if (method == "POST" && path.matches(Regex("/v1/packages/.+/holds"))) {
+            return RatePolicy("package_hold", packageHoldPerMinute)
+        }
+        if (method == "POST" && path.matches(Regex("/v1/packages/.+/confirm"))) {
+            return RatePolicy("package_confirm", packageConfirmPerMinute)
+        }
         return null
     }
 
@@ -85,7 +93,9 @@ class TrafficGuardFilter(
         return path == "/v1/bookings/holds" ||
             path.matches(Regex("/v1/bookings/.+/confirm")) ||
             path == "/v1/tickets/orders/holds" ||
-            path.matches(Regex("/v1/tickets/orders/.+/confirm"))
+            path.matches(Regex("/v1/tickets/orders/.+/confirm")) ||
+            path.matches(Regex("/v1/packages/.+/holds")) ||
+            path.matches(Regex("/v1/packages/.+/confirm"))
     }
 
     private fun writeError(response: HttpServletResponse, errorCode: ErrorCode, message: String) {

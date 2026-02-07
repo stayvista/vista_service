@@ -56,3 +56,5 @@ stayvista:
     search-per-minute: 60
     booking-hold-per-minute: 10
     booking-confirm-per-minute: 5
+    package-hold-per-minute: 10
+    package-confirm-per-minute: 5

@@ -25,6 +25,8 @@ import org.springframework.test.web.servlet.result.MockMvcResultMatchers.status
         "stayvista.queue.enabled=true",
         "stayvista.rate-limit.enabled=true",
         "stayvista.rate-limit.booking-hold-per-minute=10",
+        "stayvista.rate-limit.package-hold-per-minute=10",
+        "stayvista.rate-limit.package-confirm-per-minute=5",
         "stayvista.rate-limit.search-per-minute=60",
     ],
 )
@@ -57,6 +59,18 @@ class TrafficGuardFilterTest {
             ),
         )
         given(redisRateLimiter.allow("search", "1001", 60)).willReturn(
+            RateLimitDecision(
+                allowed = true,
+                retryAfterSeconds = 1,
+            ),
+        )
+        given(redisRateLimiter.allow("package_hold", "1001", 10)).willReturn(
+            RateLimitDecision(
+                allowed = true,
+                retryAfterSeconds = 1,
+            ),
+        )
+        given(redisRateLimiter.allow("package_confirm", "1001", 5)).willReturn(
             RateLimitDecision(
                 allowed = true,
                 retryAfterSeconds = 1,
@@ -242,6 +256,82 @@ class TrafficGuardFilterTest {
             .andExpect(jsonPath("$.request_id").isNotEmpty)
     }
 
+    @Test
+    fun `package hold should return QUEUE_REQUIRED when token is missing`() {
+        mockMvc.perform(
+            post("/v1/packages/1/holds")
+                .contentType(MediaType.APPLICATION_JSON)
+                .header("Idempotency-Key", "idem-package-hold-missing")
+                .header("X-User-Id", "1001")
+                .content(packageHoldBody()),
+        )
+            .andExpect(status().isTooManyRequests)
+            .andExpect(jsonPath("$.error.code").value("QUEUE_REQUIRED"))
+            .andExpect(jsonPath("$.request_id").isNotEmpty)
+    }
+
+    @Test
+    fun `package hold should return RATE_LIMITED when policy rejects`() {
+        given(queueService.validateAdmitToken("qat_package_hold")).willReturn(true)
+        given(redisRateLimiter.allow("package_hold", "1001", 10)).willReturn(
+            RateLimitDecision(
+                allowed = false,
+                retryAfterSeconds = 13,
+            ),
+        )
+
+        mockMvc.perform(
+            post("/v1/packages/1/holds")
+                .contentType(MediaType.APPLICATION_JSON)
+                .header("Idempotency-Key", "idem-package-hold-limited")
+                .header("X-User-Id", "1001")
+                .header("Queue-Token", "qat_package_hold")
+                .content(packageHoldBody()),
+        )
+            .andExpect(status().isTooManyRequests)
+            .andExpect(header().string("Retry-After", "13"))
+            .andExpect(jsonPath("$.error.code").value("RATE_LIMITED"))
+            .andExpect(jsonPath("$.request_id").isNotEmpty)
+    }
+
+    @Test
+    fun `package confirm should return QUEUE_REQUIRED when token is missing`() {
+        mockMvc.perform(
+            post("/v1/packages/1/confirm")
+                .contentType(MediaType.APPLICATION_JSON)
+                .header("Idempotency-Key", "idem-package-confirm-missing")
+                .header("X-User-Id", "1001")
+                .content(packageConfirmBody()),
+        )
+            .andExpect(status().isTooManyRequests)
+            .andExpect(jsonPath("$.error.code").value("QUEUE_REQUIRED"))
+            .andExpect(jsonPath("$.request_id").isNotEmpty)
+    }
+
+    @Test
+    fun `package confirm should return RATE_LIMITED when policy rejects`() {
+        given(queueService.validateAdmitToken("qat_package_confirm")).willReturn(true)
+        given(redisRateLimiter.allow("package_confirm", "1001", 5)).willReturn(
+            RateLimitDecision(
+                allowed = false,
+                retryAfterSeconds = 14,
+            ),
+        )
+
+        mockMvc.perform(
+            post("/v1/packages/1/confirm")
+                .contentType(MediaType.APPLICATION_JSON)
+                .header("Idempotency-Key", "idem-package-confirm-limited")
+                .header("X-User-Id", "1001")
+                .header("Queue-Token", "qat_package_confirm")
+                .content(packageConfirmBody()),
+        )
+            .andExpect(status().isTooManyRequests)
+            .andExpect(header().string("Retry-After", "14"))
+            .andExpect(jsonPath("$.error.code").value("RATE_LIMITED"))
+            .andExpect(jsonPath("$.request_id").isNotEmpty)
+    }
+
     private fun bookingHoldBody(): String {
         return """
             {
@@ -261,6 +351,26 @@ class TrafficGuardFilterTest {
               "payment_method": "CARD",
               "payment_token": "paytok_test",
               "agree_terms": true
+            }
+        """.trimIndent()
+    }
+
+    private fun packageHoldBody(): String {
+        return """
+            {
+              "check_in": "2026-02-10",
+              "check_out": "2026-02-12",
+              "rooms": 1,
+              "ticket_quantity": 1
+            }
+        """.trimIndent()
+    }
+
+    private fun packageConfirmBody(): String {
+        return """
+            {
+              "package_order_id": "pkg_1",
+              "payment_token": "paytok_test"
             }
         """.trimIndent()
     }
