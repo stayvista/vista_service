@@ -43,6 +43,11 @@
 - `src/main/kotlin/...` 아래에 v1 API(카탈로그/검색/예약/티켓/패키지/큐/지오/챗봇) 통합 앱이 구현되어 있습니다.
 - `services/` 아래에는 멀티모듈 분리를 위한 스캐폴딩(`apps/*`, `libs/*`)이 준비되어 있습니다.
 
+## 인증/결제 정책 (v1)
+- 관리자 API(`/v1/admin/**`)는 `X-Admin-Id`(숫자) 헤더가 필요합니다.
+- 사용자 쓰기 API(booking/ticket/package hold/confirm/cancel)는 `X-User-Id`(숫자) + `Idempotency-Key`가 필요합니다.
+- 결제는 `PaymentGateway` 스텁으로 처리되며, `payment_token`이 `fail`/`error`로 시작하면 `PAYMENT_AUTH_FAILED`(409)를 반환합니다.
+
 ## 핵심 원칙 (대규모 트래픽/정합성)
 - **최종 정합성 보장(중복예약/과판매 방지)은 DB가 한다.**
     - 숙소(룸타입 재고형): `inventory_night(room_type_id, stay_date)`에 대해 **조건부 원자 UPDATE**

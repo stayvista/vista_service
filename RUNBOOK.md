@@ -45,6 +45,16 @@
     - DLQ로 우회(지속 실패 메시지)
     - outbox relay 재시도/중복 publish 방지(event_id)
 
+### 2.4 인증/권한 4xx 급증
+1) `/v1/admin/**` 호출이 `403/400`이면 `X-Admin-Id` 헤더 누락/비숫자 여부 확인
+2) booking/ticket/package 쓰기 호출이 `401/400`이면 `X-User-Id` 헤더 누락/비숫자 여부 확인
+3) 클라이언트에서 `Idempotency-Key`가 요청마다 안정적으로 전달되는지 확인
+
+### 2.5 결제 승인 실패(409 PAYMENT_AUTH_FAILED)
+1) 결제 토큰 형식 확인 (`fail`/`error` prefix는 테스트 실패 토큰으로 취급)
+2) `payment_authorize_total{result=FAILED}` 메트릭 급증 여부 확인
+3) 주문/예약 상태가 `HOLD`에 남아있는지 확인하고 만료 배치 동작 확인
+
 ## 3) 런타임 설정(초안)
 - MySQL: connection pool 상한, 타임아웃, slow query log on
 - Redis: maxmemory-policy 설정, eviction 알람

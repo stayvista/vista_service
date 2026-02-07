@@ -6,6 +6,8 @@ import com.devoceanblue.stayvista.common.db.DbRetryExecutor
 import com.devoceanblue.stayvista.common.idempotency.IdempotencyService
 import com.devoceanblue.stayvista.common.time.DateRange
 import com.devoceanblue.stayvista.domain.common.DomainSupportService
+import com.devoceanblue.stayvista.domain.payment.PaymentAuthorizationRequest
+import com.devoceanblue.stayvista.domain.payment.PaymentGateway
 import io.micrometer.core.instrument.MeterRegistry
 import java.sql.Date
 import java.sql.PreparedStatement
@@ -28,6 +30,7 @@ class BookingService(
     private val retryExecutor: DbRetryExecutor,
     private val transactionTemplate: TransactionTemplate,
     private val domainSupportService: DomainSupportService,
+    private val paymentGateway: PaymentGateway,
     private val meterRegistry: MeterRegistry,
     private val clock: Clock = Clock.systemUTC(),
     @Value("\${stayvista.booking.hold-ttl-minutes:10}") private val holdTtlMinutes: Long,
@@ -215,7 +218,7 @@ class BookingService(
         domainSupportService.ensureUserExists(userId)
         val booking = jdbcTemplate.query(
             """
-            SELECT id, room_type_id, rooms, status, expires_at
+            SELECT id, room_type_id, rooms, status, expires_at, total_amount, currency
             FROM booking
             WHERE id = ? AND user_id = ?
             FOR UPDATE
@@ -227,6 +230,8 @@ class BookingService(
                     rooms = rs.getInt("rooms"),
                     status = rs.getString("status"),
                     expiresAt = rs.getTimestamp("expires_at")?.toInstant(),
+                    totalAmount = rs.getLong("total_amount"),
+                    currency = rs.getString("currency"),
                 )
             },
             bookingId,
@@ -240,9 +245,16 @@ class BookingService(
         if (booking.expiresAt != null && booking.expiresAt.isBefore(now)) {
             throw DomainException(ErrorCode.BOOKING_EXPIRED, "Booking hold has expired")
         }
-        if (request.payment_token.startsWith("fail", ignoreCase = true)) {
-            throw DomainException(ErrorCode.CONFLICT, "Payment authorization failed")
-        }
+        paymentGateway.authorize(
+            PaymentAuthorizationRequest(
+                paymentMethod = request.payment_method,
+                paymentToken = request.payment_token,
+                amount = booking.totalAmount,
+                currency = booking.currency,
+                referenceType = "BOOKING",
+                referenceId = bookingId.toString(),
+            ),
+        )
 
         val nights = jdbcTemplate.query(
             "SELECT stay_date, rooms FROM booking_night WHERE booking_id = ? ORDER BY stay_date",
@@ -398,7 +410,7 @@ class BookingService(
     private fun expireHoldTx(bookingId: Long) {
         val booking = jdbcTemplate.query(
             """
-            SELECT id, room_type_id, rooms, status, expires_at
+            SELECT id, room_type_id, rooms, status, expires_at, total_amount, currency
             FROM booking
             WHERE id = ?
             FOR UPDATE
@@ -410,6 +422,8 @@ class BookingService(
                     rooms = rs.getInt("rooms"),
                     status = rs.getString("status"),
                     expiresAt = rs.getTimestamp("expires_at")?.toInstant(),
+                    totalAmount = rs.getLong("total_amount"),
+                    currency = rs.getString("currency"),
                 )
             },
             bookingId,
@@ -555,6 +569,8 @@ private data class BookingRow(
     val rooms: Int,
     val status: String,
     val expiresAt: Instant?,
+    val totalAmount: Long,
+    val currency: String,
 )
 
 private data class BookingCancelRow(

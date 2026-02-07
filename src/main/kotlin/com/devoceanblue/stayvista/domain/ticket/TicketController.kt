@@ -56,11 +56,11 @@ class TicketController(
     @PostMapping("/tickets/orders/holds")
     fun hold(
         @RequestHeader("Idempotency-Key") idempotencyKey: String,
-        @RequestHeader(name = "X-User-Id", required = false) xUserId: String?,
+        @RequestHeader(name = "X-User-Id") userId: Long,
         @Valid @RequestBody request: TicketHoldRequest,
     ): ResponseEntity<Any> {
         val data = ticketService.hold(
-            userId = xUserId?.toLongOrNull() ?: 1L,
+            userId = userId,
             idempotencyKey = idempotencyKey,
             request = request,
         )
@@ -71,11 +71,11 @@ class TicketController(
     fun confirm(
         @PathVariable orderId: String,
         @RequestHeader("Idempotency-Key") idempotencyKey: String,
-        @RequestHeader(name = "X-User-Id", required = false) xUserId: String?,
+        @RequestHeader(name = "X-User-Id") userId: Long,
         @Valid @RequestBody request: TicketConfirmRequest,
     ) = ApiResponses.ok(
         ticketService.confirm(
-            userId = xUserId?.toLongOrNull() ?: 1L,
+            userId = userId,
             rawOrderId = orderId,
             idempotencyKey = idempotencyKey,
             request = request,

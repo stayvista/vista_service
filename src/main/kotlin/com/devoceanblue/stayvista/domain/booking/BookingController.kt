@@ -19,10 +19,9 @@ class BookingController(
     @PostMapping("/holds")
     fun createHold(
         @RequestHeader("Idempotency-Key") idempotencyKey: String,
-        @RequestHeader(name = "X-User-Id", required = false) xUserId: String?,
+        @RequestHeader(name = "X-User-Id") userId: Long,
         @Valid @RequestBody request: BookingHoldRequest,
     ): ResponseEntity<Any> {
-        val userId = xUserId?.toLongOrNull() ?: 1L
         val data = bookingService.createHold(userId, idempotencyKey, request)
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponses.ok(data))
     }
@@ -31,11 +30,11 @@ class BookingController(
     fun confirm(
         @PathVariable bookingId: String,
         @RequestHeader("Idempotency-Key") idempotencyKey: String,
-        @RequestHeader(name = "X-User-Id", required = false) xUserId: String?,
+        @RequestHeader(name = "X-User-Id") userId: Long,
         @Valid @RequestBody request: BookingConfirmRequest,
     ) = ApiResponses.ok(
         bookingService.confirm(
-            userId = xUserId?.toLongOrNull() ?: 1L,
+            userId = userId,
             rawBookingId = bookingId,
             idempotencyKey = idempotencyKey,
             request = request,
@@ -46,11 +45,11 @@ class BookingController(
     fun cancel(
         @PathVariable bookingId: String,
         @RequestHeader("Idempotency-Key") idempotencyKey: String,
-        @RequestHeader(name = "X-User-Id", required = false) xUserId: String?,
+        @RequestHeader(name = "X-User-Id") userId: Long,
         @Valid @RequestBody request: BookingCancelRequest,
     ) = ApiResponses.ok(
         bookingService.cancel(
-            userId = xUserId?.toLongOrNull() ?: 1L,
+            userId = userId,
             rawBookingId = bookingId,
             idempotencyKey = idempotencyKey,
             request = request,

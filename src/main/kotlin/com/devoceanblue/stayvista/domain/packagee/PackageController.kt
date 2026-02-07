@@ -32,11 +32,11 @@ class PackageController(
     fun hold(
         @PathVariable packageId: Long,
         @RequestHeader("Idempotency-Key") idempotencyKey: String,
-        @RequestHeader(name = "X-User-Id", required = false) xUserId: String?,
+        @RequestHeader(name = "X-User-Id") userId: Long,
         @Valid @RequestBody request: PackageHoldRequest,
     ): ResponseEntity<Any> {
         val data = packageService.hold(
-            userId = xUserId?.toLongOrNull() ?: 1L,
+            userId = userId,
             packageId = packageId,
             idempotencyKey = idempotencyKey,
             request = request,
@@ -48,11 +48,11 @@ class PackageController(
     fun confirm(
         @PathVariable packageId: Long,
         @RequestHeader("Idempotency-Key") idempotencyKey: String,
-        @RequestHeader(name = "X-User-Id", required = false) xUserId: String?,
+        @RequestHeader(name = "X-User-Id") userId: Long,
         @Valid @RequestBody request: PackageConfirmRequest,
     ) = ApiResponses.ok(
         packageService.confirm(
-            userId = xUserId?.toLongOrNull() ?: 1L,
+            userId = userId,
             packageId = packageId,
             idempotencyKey = idempotencyKey,
             request = request,

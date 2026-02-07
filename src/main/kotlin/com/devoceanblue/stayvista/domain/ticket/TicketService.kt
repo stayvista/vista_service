@@ -5,6 +5,8 @@ import com.devoceanblue.stayvista.common.api.ErrorCode
 import com.devoceanblue.stayvista.common.db.DbRetryExecutor
 import com.devoceanblue.stayvista.common.idempotency.IdempotencyService
 import com.devoceanblue.stayvista.domain.common.DomainSupportService
+import com.devoceanblue.stayvista.domain.payment.PaymentAuthorizationRequest
+import com.devoceanblue.stayvista.domain.payment.PaymentGateway
 import io.micrometer.core.instrument.MeterRegistry
 import java.sql.Date
 import java.sql.PreparedStatement
@@ -31,6 +33,7 @@ class TicketService(
     private val idempotencyService: IdempotencyService,
     private val retryExecutor: DbRetryExecutor,
     private val transactionTemplate: TransactionTemplate,
+    private val paymentGateway: PaymentGateway,
     private val meterRegistry: MeterRegistry,
     private val clock: Clock = Clock.systemUTC(),
     @Value("\${stayvista.booking.hold-ttl-minutes:10}") private val holdTtlMinutes: Long,
@@ -363,7 +366,7 @@ class TicketService(
         domainSupportService.ensureUserExists(userId)
         val order = jdbcTemplate.query(
             """
-            SELECT id, event_id, qty, status, expires_at
+            SELECT id, event_id, qty, status, expires_at, total_amount, currency
             FROM ticket_order
             WHERE id = ? AND user_id = ?
             FOR UPDATE
@@ -375,6 +378,8 @@ class TicketService(
                     quantity = rs.getInt("qty"),
                     status = rs.getString("status"),
                     expiresAt = rs.getTimestamp("expires_at")?.toInstant(),
+                    totalAmount = rs.getLong("total_amount"),
+                    currency = rs.getString("currency"),
                 )
             },
             orderId,
@@ -387,9 +392,16 @@ class TicketService(
         if (order.expiresAt != null && order.expiresAt.isBefore(Instant.now(clock))) {
             throw DomainException(ErrorCode.ORDER_EXPIRED, "Ticket order hold expired")
         }
-        if (request.payment_token.startsWith("fail", ignoreCase = true)) {
-            throw DomainException(ErrorCode.CONFLICT, "Payment authorization failed")
-        }
+        paymentGateway.authorize(
+            PaymentAuthorizationRequest(
+                paymentMethod = request.payment_method,
+                paymentToken = request.payment_token,
+                amount = order.totalAmount,
+                currency = order.currency,
+                referenceType = "TICKET_ORDER",
+                referenceId = order.id.toString(),
+            ),
+        )
 
         val moved = jdbcTemplate.update(
             """
@@ -456,7 +468,7 @@ class TicketService(
     private fun expireOne(orderId: Long) {
         val order = jdbcTemplate.query(
             """
-            SELECT id, event_id, qty, status, expires_at
+            SELECT id, event_id, qty, status, expires_at, total_amount, currency
             FROM ticket_order
             WHERE id = ?
             FOR UPDATE
@@ -468,6 +480,8 @@ class TicketService(
                     quantity = rs.getInt("qty"),
                     status = rs.getString("status"),
                     expiresAt = rs.getTimestamp("expires_at")?.toInstant(),
+                    totalAmount = rs.getLong("total_amount"),
+                    currency = rs.getString("currency"),
                 )
             },
             orderId,
@@ -609,6 +623,8 @@ private data class TicketOrderRow(
     val quantity: Int,
     val status: String,
     val expiresAt: Instant?,
+    val totalAmount: Long,
+    val currency: String,
 )
 
 private data class VoucherRow(
