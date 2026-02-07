@@ -68,6 +68,38 @@ button { background: var(--accent); color: white; border: none; cursor: pointer;
 .table { list-style: none; padding: 0; margin: 0; border: 1px solid var(--line); border-radius: 10px; background: #fff; }
 .table li { display: grid; grid-template-columns: 1fr 140px 80px; gap: 8px; padding: 10px 12px; border-top: 1px solid var(--line); }
 .table li:first-child { border-top: 0; }
+.inventory-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(92px, 1fr));
+  gap: 8px;
+  margin: 14px 0;
+}
+.inventory-cell {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  padding: 8px;
+  display: grid;
+  gap: 6px;
+  cursor: pointer;
+}
+.inventory-cell.selected {
+  border-color: #0f7b6c;
+  box-shadow: 0 0 0 1px #0f7b6c inset;
+}
+.inventory-cell.conflict {
+  border-color: #b61d17;
+  box-shadow: 0 0 0 1px #b61d17 inset;
+  background: #fff5f4;
+}
+.inventory-cell input {
+  width: 100%;
+}
+.date-label {
+  font-weight: 700;
+  font-size: 0.85rem;
+  color: #475467;
+}
 .error {
   color: #b61d17;
   font-weight: 700;

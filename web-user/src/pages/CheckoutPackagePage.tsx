@@ -79,7 +79,13 @@ export function CheckoutPackagePage() {
         { package_order_id: packageOrderId, payment_token: "paytok_test" },
         { "Idempotency-Key": crypto.randomUUID(), "X-User-Id": "1001" }
       );
-      navigate("/booking/complete");
+      const done = new URLSearchParams({
+        type: "package",
+        package_order_id: packageOrderId,
+        ...(bookingId ? { booking_id: bookingId } : {}),
+        ...(ticketOrderId ? { order_id: ticketOrderId } : {}),
+      });
+      navigate(`/booking/complete?${done.toString()}`);
     } catch (e) {
       const err = e as ApiError;
       setStatus("CONFIRM 실패");

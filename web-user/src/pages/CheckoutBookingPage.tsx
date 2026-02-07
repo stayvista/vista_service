@@ -189,7 +189,11 @@ export function CheckoutBookingPage() {
         { payment_method: "CARD", payment_token: "paytok_test", agree_terms: true },
         { "Idempotency-Key": crypto.randomUUID(), "X-User-Id": "1001" }
       );
-      navigate("/booking/complete");
+      const done = new URLSearchParams({
+        type: "booking",
+        booking_id: bookingId,
+      });
+      navigate(`/booking/complete?${done.toString()}`);
     } catch (e) {
       const err = toApiError(e);
       setStatus("CONFIRM 실패");

@@ -133,6 +133,17 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   background: #fff;
   color: #222;
 }
+.cta-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #fff;
+  color: #2b2b2b;
+  border: 1px solid rgba(0, 0, 0, 0.2);
+  border-radius: 10px;
+  padding: 10px 14px;
+  font-weight: 700;
+}
 @media (max-width: 640px) {
   .top-nav { flex-direction: column; gap: 10px; }
   .top-nav nav { flex-wrap: wrap; justify-content: center; }

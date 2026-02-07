@@ -166,7 +166,11 @@ export function CheckoutTicketPage() {
         { payment_method: "CARD", payment_token: "paytok_test" },
         { "Idempotency-Key": crypto.randomUUID(), "X-User-Id": "1001" }
       );
-      navigate("/booking/complete");
+      const done = new URLSearchParams({
+        type: "ticket",
+        order_id: orderId,
+      });
+      navigate(`/booking/complete?${done.toString()}`);
     } catch (e) {
       const err = toError(e);
       setStatus("CONFIRM 실패");
