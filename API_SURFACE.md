@@ -30,6 +30,7 @@
 - `GET /v1/packages/{packageId}`
 - `POST /v1/packages/{packageId}/holds` *(Idempotency-Key required)*
 - `POST /v1/packages/{packageId}/confirm` *(Idempotency-Key required)*
+- `GET /v1/admin/packages/orders?status=...&limit=...`
 
 ### Waiting room
 - `POST /v1/queue/join`

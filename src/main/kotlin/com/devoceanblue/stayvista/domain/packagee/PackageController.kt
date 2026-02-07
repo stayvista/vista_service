@@ -10,6 +10,7 @@ import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestHeader
 import org.springframework.web.bind.annotation.RequestMapping
+import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
 
 @RestController
@@ -27,6 +28,17 @@ class PackageController(
 
     @GetMapping("/packages/{packageId}")
     fun getPackage(@PathVariable packageId: Long) = ApiResponses.ok(packageService.getPackage(packageId))
+
+    @GetMapping("/admin/packages/orders")
+    fun listPackageOrders(
+        @RequestParam(required = false) status: String?,
+        @RequestParam(defaultValue = "50") limit: Int,
+    ) = ApiResponses.ok(
+        packageService.listOrders(
+            status = status,
+            limit = limit,
+        ),
+    )
 
     @PostMapping("/packages/{packageId}/holds")
     fun hold(

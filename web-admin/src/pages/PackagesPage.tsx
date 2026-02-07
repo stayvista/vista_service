@@ -8,6 +8,16 @@ type PackageSummary = {
   status: string;
   price: { currency: string; amount_total: number };
 };
+type PackageOrder = {
+  package_order_id: string;
+  package_id: number;
+  user_id: number;
+  status: string;
+  booking_id?: string | null;
+  ticket_order_id?: string | null;
+  expires_at?: string | null;
+  created_at?: string | null;
+};
 
 export function PackagesPage() {
   const [name, setName] = useState("Seed Weekend Combo");
@@ -15,6 +25,8 @@ export function PackagesPage() {
   const [roomTypeId, setRoomTypeId] = useState(200001);
   const [eventId, setEventId] = useState(400001);
   const [items, setItems] = useState<PackageSummary[]>([]);
+  const [orders, setOrders] = useState<PackageOrder[]>([]);
+  const [orderStatus, setOrderStatus] = useState("ALL");
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -23,9 +35,21 @@ export function PackagesPage() {
     setItems(res.data.items ?? []);
   }
 
+  async function loadOrders() {
+    const query = new URLSearchParams({ limit: "50" });
+    if (orderStatus !== "ALL") query.set("status", orderStatus);
+    const res = await apiGet<{ items: PackageOrder[] }>(`/v1/admin/packages/orders?${query.toString()}`);
+    setOrders(res.data.items ?? []);
+  }
+
   useEffect(() => {
     void load();
+    void loadOrders();
   }, []);
+
+  useEffect(() => {
+    void loadOrders();
+  }, [orderStatus]);
 
   async function createPackage(e: FormEvent) {
     e.preventDefault();
@@ -52,6 +76,7 @@ export function PackagesPage() {
       });
       setMessage(`패키지 생성 완료: #${res.data.package_id}`);
       await load();
+      await loadOrders();
     } catch (e) {
       const apiError = e as ApiError;
       setError(`${apiError.code ?? "ERROR"}: ${apiError.message ?? "패키지 생성 실패"}`);
@@ -76,6 +101,28 @@ export function PackagesPage() {
             <span>#{item.package_id} {item.name}</span>
             <span>{item.status}</span>
             <span>{item.price.currency} {item.price.amount_total}</span>
+          </li>
+        ))}
+      </ul>
+      <h3>패키지 주문 모니터링</h3>
+      <div className="row-form">
+        <select value={orderStatus} onChange={(e) => setOrderStatus(e.target.value)}>
+          <option value="ALL">ALL</option>
+          <option value="HOLD">HOLD</option>
+          <option value="CONFIRMED">CONFIRMED</option>
+          <option value="FAILED">FAILED</option>
+          <option value="EXPIRED">EXPIRED</option>
+        </select>
+        <button type="button" onClick={() => { void loadOrders(); }}>새로고침</button>
+      </div>
+      <ul className="table">
+        {orders.map((order) => (
+          <li key={order.package_order_id}>
+            <span>
+              {order.package_order_id} / pkg#{order.package_id} / user#{order.user_id}
+            </span>
+            <span>{order.status}</span>
+            <span>{order.booking_id ?? "-"} · {order.ticket_order_id ?? "-"}</span>
           </li>
         ))}
       </ul>

@@ -56,18 +56,20 @@ class PackageServiceTest {
               booking_id BIGINT NULL,
               ticket_order_id BIGINT NULL,
               expires_at TIMESTAMP NULL,
+              created_at TIMESTAMP NULL,
               updated_at TIMESTAMP NULL
             )
             """.trimIndent(),
         )
+        jdbcTemplate.execute("ALTER TABLE package_order ADD COLUMN IF NOT EXISTS created_at TIMESTAMP")
 
         jdbcTemplate.update("DELETE FROM idempotency_record")
         jdbcTemplate.update("DELETE FROM package_order")
 
         jdbcTemplate.update(
             """
-            INSERT INTO package_order(id, package_id, user_id, status, booking_id, ticket_order_id, expires_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO package_order(id, package_id, user_id, status, booking_id, ticket_order_id, expires_at, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """.trimIndent(),
             9101L,
             5001L,
@@ -76,6 +78,22 @@ class PackageServiceTest {
             3001L,
             4001L,
             Timestamp.from(Instant.now().minusSeconds(120)),
+            Timestamp.from(Instant.now().minusSeconds(130)),
+            Timestamp.from(Instant.now()),
+        )
+        jdbcTemplate.update(
+            """
+            INSERT INTO package_order(id, package_id, user_id, status, booking_id, ticket_order_id, expires_at, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """.trimIndent(),
+            9102L,
+            5001L,
+            1001L,
+            "CONFIRMED",
+            3002L,
+            4002L,
+            Timestamp.from(Instant.now().plusSeconds(3600)),
+            Timestamp.from(Instant.now().minusSeconds(100)),
             Timestamp.from(Instant.now()),
         )
     }
@@ -103,5 +121,18 @@ class PackageServiceTest {
         assertEquals("EXPIRED", updatedStatus)
         then(bookingService).shouldHaveNoInteractions()
         then(ticketService).shouldHaveNoInteractions()
+    }
+
+    @Test
+    fun `listOrders should filter by status and include identifiers`() {
+        val result = packageService.listOrders(
+            status = "CONFIRMED",
+            limit = 20,
+        )
+
+        assertEquals(1, result.items.size)
+        assertEquals("pkg_9102", result.items.first().package_order_id)
+        assertEquals("bkg_3002", result.items.first().booking_id)
+        assertEquals("tord_4002", result.items.first().ticket_order_id)
     }
 }

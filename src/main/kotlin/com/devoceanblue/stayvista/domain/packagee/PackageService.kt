@@ -118,6 +118,50 @@ class PackageService(
         return PackageListData(items)
     }
 
+    fun listOrders(status: String?, limit: Int): PackageOrderListData {
+        val safeLimit = limit.coerceIn(1, 200)
+        val params = mutableListOf<Any>()
+        val where = mutableListOf<String>()
+        if (!status.isNullOrBlank()) {
+            where += "status = ?"
+            params += status
+        }
+
+        val sql = buildString {
+            append(
+                """
+                SELECT id, package_id, user_id, status, booking_id, ticket_order_id, expires_at, created_at, updated_at
+                FROM package_order
+                """.trimIndent(),
+            )
+            if (where.isNotEmpty()) {
+                append(" WHERE ")
+                append(where.joinToString(" AND "))
+            }
+            append(" ORDER BY id DESC LIMIT ?")
+        }
+        params += safeLimit
+
+        val items = jdbcTemplate.query(
+            sql,
+            { rs, _ ->
+                PackageOrderSummary(
+                    package_order_id = "pkg_${rs.getLong("id")}",
+                    package_id = rs.getLong("package_id"),
+                    user_id = rs.getLong("user_id"),
+                    status = rs.getString("status"),
+                    booking_id = rs.getLong("booking_id").takeIf { !rs.wasNull() }?.let { "bkg_$it" },
+                    ticket_order_id = rs.getLong("ticket_order_id").takeIf { !rs.wasNull() }?.let { "tord_$it" },
+                    expires_at = rs.getTimestamp("expires_at")?.toInstant()?.toString(),
+                    created_at = rs.getTimestamp("created_at")?.toInstant()?.toString(),
+                    updated_at = rs.getTimestamp("updated_at")?.toInstant()?.toString(),
+                )
+            },
+            *params.toTypedArray(),
+        )
+        return PackageOrderListData(items)
+    }
+
     fun hold(userId: Long, packageId: Long, idempotencyKey: String, request: PackageHoldRequest): PackageHoldData {
         return idempotencyService.execute(
             scope = "PACKAGE_HOLD",
@@ -420,6 +464,22 @@ data class PackageConfirmRequest(
 data class PackageConfirmData(
     val package_order_id: String,
     val status: String,
+)
+
+data class PackageOrderSummary(
+    val package_order_id: String,
+    val package_id: Long,
+    val user_id: Long,
+    val status: String,
+    val booking_id: String?,
+    val ticket_order_id: String?,
+    val expires_at: String?,
+    val created_at: String?,
+    val updated_at: String?,
+)
+
+data class PackageOrderListData(
+    val items: List<PackageOrderSummary>,
 )
 
 private data class PackageBase(
