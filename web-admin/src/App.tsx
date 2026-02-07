@@ -7,6 +7,7 @@ import { InventoryPage } from "./pages/InventoryPage";
 import { TicketsPage } from "./pages/TicketsPage";
 import { VouchersPage } from "./pages/VouchersPage";
 import { OpsPage } from "./pages/OpsPage";
+import { PackagesPage } from "./pages/PackagesPage";
 
 export function App() {
   const [adminId, setAdminIdState] = useState(getAdminId());
@@ -50,6 +51,7 @@ export function App() {
           <Link to="/admin/properties">숙소</Link>
           <Link to="/admin/inventory">재고</Link>
           <Link to="/admin/tickets">티켓</Link>
+          <Link to="/admin/packages">패키지</Link>
           <Link to="/admin/vouchers">바우처</Link>
           <Link to="/admin/ops">운영도구</Link>
         </nav>
@@ -65,6 +67,7 @@ export function App() {
           <Route path="/admin/properties/:id" element={<PropertyDetailPage />} />
           <Route path="/admin/inventory" element={<InventoryPage />} />
           <Route path="/admin/tickets" element={<TicketsPage />} />
+          <Route path="/admin/packages" element={<PackagesPage />} />
           <Route path="/admin/vouchers" element={<VouchersPage />} />
           <Route path="/admin/ops" element={<OpsPage />} />
           <Route path="*" element={<PropertiesPage />} />
