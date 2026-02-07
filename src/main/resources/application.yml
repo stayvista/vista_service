@@ -7,6 +7,11 @@ spring:
     password: ${DB_PASSWORD:root}
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:127.0.0.1:19092}
+  data:
+    redis:
+      host: ${REDIS_HOST:127.0.0.1}
+      port: ${REDIS_PORT:16379}
+      timeout: 2s
   jpa:
     open-in-view: false
     hibernate:
@@ -36,6 +41,11 @@ logging:
 stayvista:
   booking:
     hold-ttl-minutes: 10
+  search:
+    use-opensearch: true
+    opensearch-url: ${OPENSEARCH_URL:http://127.0.0.1:9200}
+    index-name: properties_v1
+    alias-name: properties
   queue:
     enabled: false
     max-admitted-per-key: 100

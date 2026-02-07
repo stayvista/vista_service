@@ -3,6 +3,7 @@ package com.devoceanblue.stayvista.domain.search
 import com.devoceanblue.stayvista.common.cache.SimpleTtlCache
 import io.micrometer.core.instrument.MeterRegistry
 import java.security.MessageDigest
+import org.springframework.beans.factory.annotation.Value
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Service
 
@@ -11,6 +12,8 @@ class SearchService(
     private val jdbcTemplate: JdbcTemplate,
     private val cache: SimpleTtlCache,
     private val meterRegistry: MeterRegistry,
+    private val openSearchClient: OpenSearchClient,
+    @Value("\${stayvista.search.use-opensearch:true}") private val useOpenSearch: Boolean,
 ) {
     fun search(request: SearchRequest): SearchData {
         val cacheKey = "search:v1:${sha256(normalized(request))}"
@@ -21,6 +24,22 @@ class SearchService(
 
         meterRegistry.counter("search_requests_total", "cache", "miss").increment()
 
+        val data = if (useOpenSearch) {
+            try {
+                openSearchClient.search(request)
+            } catch (_: Exception) {
+                meterRegistry.counter("search_opensearch_errors_total").increment()
+                searchFromDb(request)
+            }
+        } else {
+            searchFromDb(request)
+        }
+
+        cache.put(cacheKey, ttlMillis = 10_000, value = data)
+        return data
+    }
+
+    private fun searchFromDb(request: SearchRequest): SearchData {
         val limit = request.limit.coerceIn(1, 50)
         val cursor = request.cursor?.toLongOrNull()
         val params = mutableListOf<Any?>()
@@ -79,13 +98,10 @@ class SearchService(
 
         val hasNext = rows.size > limit
         val items = if (hasNext) rows.dropLast(1) else rows
-        val data = SearchData(
+        return SearchData(
             items = items,
             next_cursor = if (hasNext) items.last().property_id.toString() else null,
         )
-
-        cache.put(cacheKey, ttlMillis = 10_000, value = data)
-        return data
     }
 
     private fun normalized(request: SearchRequest): String {
