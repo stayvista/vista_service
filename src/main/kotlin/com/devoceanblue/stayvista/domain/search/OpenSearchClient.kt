@@ -14,7 +14,7 @@ import tools.jackson.databind.ObjectMapper
 @Component
 class OpenSearchClient(
     private val objectMapper: ObjectMapper,
-    @Value("\${stayvista.search.opensearch-url:http://127.0.0.1:9200}") private val openSearchUrl: String,
+    @Value("\${stayvista.search.opensearch-url:http://127.0.0.1:39200}") private val openSearchUrl: String,
     @Value("\${stayvista.search.index-name:properties_v1}") private val indexName: String,
     @Value("\${stayvista.search.alias-name:properties}") private val aliasName: String,
 ) {

@@ -2,15 +2,15 @@ spring:
   application:
     name: stayvista
   datasource:
-    url: ${DB_URL:jdbc:mysql://127.0.0.1:13306/stayvista?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC}
+    url: ${DB_URL:jdbc:mysql://127.0.0.1:23306/stayvista?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC}
     username: ${DB_USERNAME:root}
     password: ${DB_PASSWORD:root}
   kafka:
-    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:127.0.0.1:19092}
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:127.0.0.1:39092,127.0.0.1:39093,127.0.0.1:39094}
   data:
     redis:
       host: ${REDIS_HOST:127.0.0.1}
-      port: ${REDIS_PORT:16379}
+      port: ${REDIS_PORT:26379}
       timeout: 2s
   jpa:
     open-in-view: false
@@ -43,7 +43,7 @@ stayvista:
     hold-ttl-minutes: 10
   search:
     use-opensearch: true
-    opensearch-url: ${OPENSEARCH_URL:http://127.0.0.1:9200}
+    opensearch-url: ${OPENSEARCH_URL:http://127.0.0.1:39200}
     index-name: properties_v1
     alias-name: properties
   queue:

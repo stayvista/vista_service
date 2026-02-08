@@ -5,4 +5,4 @@
 - libs: common (logging, error, tracing, idempotency, outbox)
 
 DB 마이그레이션: `db/migrations` (Flyway)
-로컬 인프라: `docker/docker-compose.yml`
+로컬 인프라: `compose.yaml`

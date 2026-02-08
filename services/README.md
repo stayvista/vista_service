@@ -3,7 +3,7 @@
 멀티모듈 백엔드 스캐폴딩입니다.
 
 ## 실행
-- 인프라: `cd services/docker && docker compose up -d`
+- 인프라: `docker compose -p stayvista-infra -f compose.yaml up -d`
 - 개별 앱 예시: `cd services && ./gradlew :apps:booking:bootRun --args='--spring.profiles.active=local'`
 - 시드:
   - 최소: `./services/tools/seed/run_seed.sh`

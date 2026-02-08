@@ -135,4 +135,27 @@ class PackageServiceTest {
         assertEquals("bkg_3002", result.items.first().booking_id)
         assertEquals("tord_4002", result.items.first().ticket_order_id)
     }
+
+    @Test
+    fun `listOrders should not filter when status is blank and should return latest first`() {
+        val result = packageService.listOrders(
+            status = " ",
+            limit = 20,
+        )
+
+        assertEquals(2, result.items.size)
+        assertEquals("pkg_9102", result.items[0].package_order_id)
+        assertEquals("pkg_9101", result.items[1].package_order_id)
+    }
+
+    @Test
+    fun `listOrders should clamp limit to minimum one`() {
+        val result = packageService.listOrders(
+            status = null,
+            limit = 0,
+        )
+
+        assertEquals(1, result.items.size)
+        assertEquals("pkg_9102", result.items.first().package_order_id)
+    }
 }

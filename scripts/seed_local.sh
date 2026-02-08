@@ -5,7 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SQL_FILE="${ROOT_DIR}/scripts/seed_local.sql"
 
 DB_HOST="${DB_HOST:-127.0.0.1}"
-DB_PORT="${DB_PORT:-13306}"
+DB_PORT="${DB_PORT:-23306}"
 DB_NAME="${DB_NAME:-stayvista}"
 DB_USERNAME="${DB_USERNAME:-root}"
 DB_PASSWORD="${DB_PASSWORD:-root}"
