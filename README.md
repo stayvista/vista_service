@@ -46,11 +46,12 @@
 - 기본값: `property` 10,000 / `room_type` 30,000 / 핫키 `inventory_night` 365일(`total=1000`)
 - 환경변수로 조정:
   - `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USERNAME`, `DB_PASSWORD`
-  - `API_BASE` (기본 `http://localhost:8080`)
+  - `API_BASE` (기본 `http://localhost:18765`)
+  - `ADMIN_ID` (기본 `1`, reindex API의 `X-Admin-Id` 헤더)
   - `REINDEX_AFTER_SEED` (기본 `true`)
 - 수동 OpenSearch 재색인:
 ```bash
-curl -X POST "http://localhost:8080/v1/admin/search/reindex?limit=10000"
+curl -X POST -H "X-Admin-Id: 1" "http://localhost:18765/v1/admin/search/reindex?limit=10000"
 ```
 
 ## 구현 상태

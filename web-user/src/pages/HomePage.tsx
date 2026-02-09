@@ -1,6 +1,7 @@
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useNavigate } from "react-router-dom";
+import { apiGet } from "../api/client";
 
 type CityOption = {
   value: string;
@@ -8,12 +9,13 @@ type CityOption = {
   blurb: string;
 };
 
-type DestinationCard = {
-  id: string;
-  title: string;
-  subtitle: string;
-  city: string;
-  image: string;
+type FeaturedHotel = {
+  property_id: number;
+  name: string;
+  city?: string;
+  price_min?: number;
+  rating?: number;
+  thumbnail_url?: string | null;
 };
 
 const cityOptions: CityOption[] = [
@@ -25,37 +27,6 @@ const cityOptions: CityOption[] = [
 
 const quickFilters = ["오션뷰", "프라이빗 풀", "조식 포함", "무료 취소", "24시간 체크인"];
 
-const featuredDestinations: DestinationCard[] = [
-  {
-    id: "seoul",
-    title: "서울 시그니처 스테이",
-    subtitle: "프리미엄 비즈니스 & 시티뷰",
-    city: "Seoul",
-    image: "https://picsum.photos/seed/stayvista-seoul/880/540",
-  },
-  {
-    id: "busan",
-    title: "부산 오션 프런트",
-    subtitle: "해변 도보권 리조트 큐레이션",
-    city: "Busan",
-    image: "https://picsum.photos/seed/stayvista-busan/880/540",
-  },
-  {
-    id: "jeju",
-    title: "제주 프라이빗 리조트",
-    subtitle: "자연 속 웰니스·가족형 숙소",
-    city: "Jeju",
-    image: "https://picsum.photos/seed/stayvista-jeju/880/540",
-  },
-  {
-    id: "daegu",
-    title: "대구 컬처 라운지",
-    subtitle: "핵심 상권 중심 프리미엄 객실",
-    city: "Daegu",
-    image: "https://picsum.photos/seed/stayvista-daegu/880/540",
-  },
-];
-
 function dateOffset(days: number): string {
   const date = new Date();
   date.setDate(date.getDate() + days);
@@ -65,6 +36,29 @@ function dateOffset(days: number): string {
   return `${year}-${month}-${day}`;
 }
 
+function pickFeaturedHotels(items: FeaturedHotel[]): FeaturedHotel[] {
+  const selected: FeaturedHotel[] = [];
+  const seenCity = new Set<string>();
+
+  for (const item of items) {
+    const cityKey = item.city ?? "";
+    if (cityKey && !seenCity.has(cityKey)) {
+      selected.push(item);
+      seenCity.add(cityKey);
+    }
+    if (selected.length >= 4) break;
+  }
+
+  for (const item of items) {
+    if (selected.length >= 4) break;
+    if (!selected.some((selectedItem) => selectedItem.property_id === item.property_id)) {
+      selected.push(item);
+    }
+  }
+
+  return selected.slice(0, 4);
+}
+
 export function HomePage() {
   const navigate = useNavigate();
   const [city, setCity] = useState("Seoul");
@@ -72,7 +66,27 @@ export function HomePage() {
   const [checkOut, setCheckOut] = useState(dateOffset(9));
   const [adults, setAdults] = useState(2);
   const [children, setChildren] = useState(0);
+  const [featuredHotels, setFeaturedHotels] = useState<FeaturedHotel[]>([]);
+  const [featuredLoading, setFeaturedLoading] = useState(false);
+  const [featuredError, setFeaturedError] = useState<string | null>(null);
   const selectedCity = cityOptions.find((option) => option.value === city);
+
+  useEffect(() => {
+    setFeaturedLoading(true);
+    setFeaturedError(null);
+    apiGet<{ items: FeaturedHotel[] }>("/v1/search/properties?sort=rating_desc&limit=20")
+      .then((response) => {
+        setFeaturedHotels(pickFeaturedHotels(response.data.items ?? []));
+      })
+      .catch((e: unknown) => {
+        const err = e as { code?: string; message?: string };
+        setFeaturedHotels([]);
+        setFeaturedError(`${err.code ?? "ERROR"}: ${err.message ?? "추천 호텔 조회 실패"}`);
+      })
+      .finally(() => {
+        setFeaturedLoading(false);
+      });
+  }, []);
 
   const onSubmit = (e: FormEvent) => {
     e.preventDefault();
@@ -91,10 +105,10 @@ export function HomePage() {
       <section className="hero">
         <div className="hero-content">
           <p className="hero-eyebrow">VERIFIED INVENTORY · REAL-TIME BOOKING</p>
-          <h1>끝내주는 여행을 시작하세요</h1>
+          <h1>잊지못할 여행을 선물하세요</h1>
           <p className="hero-summary">
             숙소, 티켓, 패키지 재고를 하나의 화면에서 실시간으로 확인하고
-            안전하게 예약까지 하실수 있습니다!
+            예약 하실수 있습니다.
           </p>
           <div className="service-tabs" role="tablist" aria-label="서비스 선택">
             <button type="button" className="service-tab active" aria-selected="true">숙소</button>
@@ -156,17 +170,28 @@ export function HomePage() {
 
       <section className="home-section">
         <div className="section-head">
-          <h2>지금 가장 빠르게 예약되는 목적지</h2>
+          <h2>지금 가장 빠르게 예약되는 호텔</h2>
           <Link to="/search" className="section-link">전체 숙소 보기</Link>
         </div>
+        {featuredLoading && <p className="notice info">실제 숙소 데이터를 불러오는 중입니다...</p>}
+        {featuredError && <p className="notice warning">{featuredError}</p>}
+        {!featuredLoading && !featuredError && featuredHotels.length === 0 && (
+          <p className="notice warning">표시할 숙소 데이터가 없습니다. 시드를 먼저 확인해 주세요.</p>
+        )}
         <ul className="destination-grid">
-          {featuredDestinations.map((destination) => (
-            <li key={destination.id} className="destination-card">
-              <Link to={`/search?city=${encodeURIComponent(destination.city)}`}>
-                <img src={destination.image} alt={destination.title} loading="lazy" />
+          {featuredHotels.map((hotel) => (
+            <li key={hotel.property_id} className="destination-card">
+              <Link to={`/properties/${hotel.property_id}`}>
+                <img
+                  src={hotel.thumbnail_url || `https://picsum.photos/seed/property-${hotel.property_id}/880/540`}
+                  alt={hotel.name}
+                  loading="lazy"
+                />
                 <div className="destination-meta">
-                  <p>{destination.subtitle}</p>
-                  <h3>{destination.title}</h3>
+                  <p className="destination-subtitle">
+                    {hotel.city ?? "도시 미지정"} · 평점 {(hotel.rating ?? 0).toFixed(1)} · 최저가 {(hotel.price_min ?? 0).toLocaleString()} KRW
+                  </p>
+                  <h3>{hotel.name}</h3>
                 </div>
               </Link>
             </li>

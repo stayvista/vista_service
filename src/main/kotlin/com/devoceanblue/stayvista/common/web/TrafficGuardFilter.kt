@@ -38,6 +38,11 @@ class TrafficGuardFilter(
         val path = request.requestURI
         val method = request.method
 
+        if (method == "OPTIONS") {
+            filterChain.doFilter(request, response)
+            return
+        }
+
         if (queueEnabled && isQueueProtectedEndpoint(method, path)) {
             val token = request.getHeader("Queue-Token")
             if (token.isNullOrBlank()) {

@@ -1,7 +1,7 @@
 export type ApiEnvelope<T> = { request_id: string; data: T };
 export type ApiErrorEnvelope = { request_id: string; error: { code: string; message: string; details?: Record<string, unknown> } };
 
-const API_BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:8080";
+const API_BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:18765";
 
 export async function apiGet<T>(path: string, extraHeaders: Record<string, string> = {}): Promise<ApiEnvelope<T>> {
   const response = await fetch(`${API_BASE}${path}`, {

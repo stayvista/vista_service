@@ -66,7 +66,7 @@ export function PropertyPage() {
             <p>정원 {room.max_guests}명</p>
             <p>기준가 {room.base_price?.amount ?? 0} KRW</p>
             <Link
-              to={`/checkout/booking?room_type_id=${room.room_type_id}&check_in=${search.get("check_in") ?? "2026-02-10"}&check_out=${search.get("check_out") ?? "2026-02-12"}`}
+              to={`/checkout/booking?room_type_id=${room.room_type_id}&check_in=${search.get("check_in") ?? "2026-02-10"}&check_out=${search.get("check_out") ?? "2026-02-12"}&adults=${search.get("adults") ?? "2"}&children=${search.get("children") ?? "0"}&rooms=1`}
             >
               예약하기
             </Link>

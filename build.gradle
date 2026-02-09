@@ -1,4 +1,5 @@
 plugins {
+    id 'idea'
     id 'org.jetbrains.kotlin.jvm' version '2.2.21'
     id 'org.jetbrains.kotlin.plugin.spring' version '2.2.21'
     id 'org.springframework.boot' version '4.0.2'
@@ -48,7 +49,9 @@ dependencies {
 }
 
 kotlin {
+    jvmToolchain(21)
     compilerOptions {
+        jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_21
         freeCompilerArgs.addAll '-Xjsr305=strict', '-Xannotation-default-target=param-property'
     }
 }

@@ -84,34 +84,76 @@ export function ChatPage() {
   }
 
   return (
-    <section className="page">
-      <h2>챗봇 추천</h2>
-      <form onSubmit={onSubmit} className="chat-form">
-        <textarea value={message} onChange={(e) => setMessage(e.target.value)} rows={4} />
-        <button type="submit" disabled={!canSubmit}>{loading ? "생성 중..." : "질문"}</button>
-      </form>
-      {error && <p className="error">{error}</p>}
-      <ul className="chat-log">
-        {messages.map((item, idx) => (
-          <li key={`${item.role}-${idx}`} className={`chat-msg ${item.role}`}>
-            <strong>{item.role === "user" ? "나" : "추천봇"}:</strong> {item.text}
-          </li>
-        ))}
-      </ul>
+    <section className="page concierge-page">
+      <header className="page-head">
+        <p className="page-kicker">AI CONCIERGE · PERSONAL ITINERARY</p>
+        <div className="page-title-wrap">
+          <div>
+            <h2>AI 컨시어지</h2>
+            <p className="page-summary">
+              일정, 예산, 동행 유형을 기반으로 숙소·티켓·주변 스팟을 함께 추천하는 대화형 컨시어지입니다.
+            </p>
+          </div>
+          <div className="page-metrics" aria-label="대화 지표">
+            <div>
+              <strong>{cards.length}</strong>
+              <span>추천 카드</span>
+            </div>
+            <div>
+              <strong>{followups.length}</strong>
+              <span>후속 질문</span>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <div className="concierge-layout">
+        <form onSubmit={onSubmit} className="concierge-compose">
+          <label className="field-group">
+            여행 요청
+            <textarea value={message} onChange={(e) => setMessage(e.target.value)} rows={5} />
+          </label>
+          <button type="submit" disabled={!canSubmit}>{loading ? "생성 중..." : "추천 요청"}</button>
+        </form>
+
+        <div className="concierge-thread">
+          <h3>대화 기록</h3>
+          {error && <p className="notice error">{error}</p>}
+          <ul className="chat-log">
+            {messages.map((item, idx) => (
+              <li key={`${item.role}-${idx}`} className={`chat-msg ${item.role}`}>
+                <strong>{item.role === "user" ? "나" : "추천봇"}</strong>
+                <p>{item.text}</p>
+              </li>
+            ))}
+          </ul>
+          {!loading && messages.length === 0 && (
+            <p className="notice info">예: 3박4일 부산 가족여행 추천해줘</p>
+          )}
+        </div>
+      </div>
+
       {answer && <p className="chat-answer">{answer}</p>}
-      <ul className="card-list">
+      {!loading && !error && messages.length > 0 && cards.length === 0 && (
+        <p className="notice warning">추천 카드가 없습니다. 요청 문장을 조금 더 구체적으로 입력해 주세요.</p>
+      )}
+
+      <ul className="product-grid">
         {cards.map((card, idx) => {
           const link = cardLink(card);
           return (
-            <li key={`${card.type}-${idx}`} className="card">
-              <p className="eyebrow">{card.type}</p>
-              <h3>{card.title}</h3>
-              {card.why && <p>{card.why}</p>}
-              {link && <Link to={link}>바로 보기</Link>}
+            <li key={`${card.type}-${idx}`} className="product-card">
+              <div className="product-body">
+                <p className="eyebrow">{card.type}</p>
+                <h3>{card.title}</h3>
+                {card.why && <p className="product-copy">{card.why}</p>}
+                {link && <Link to={link} className="inline-cta">바로 보기</Link>}
+              </div>
             </li>
           );
         })}
       </ul>
+
       <div className="chips">
         {followups.map((followup, idx) => (
           <button

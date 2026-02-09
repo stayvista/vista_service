@@ -66,45 +66,93 @@ export function NearbyPage() {
   }
 
   return (
-    <section className="page">
-      <h2>주변 추천</h2>
-      <div className="toolbar">
-        <button type="button" onClick={requestLocation}>현재 위치 사용</button>
-        <select value={category} onChange={(e) => setCategory(e.target.value)}>
-          <option value="attraction">관광</option>
-          <option value="food">맛집</option>
-          <option value="shopping">쇼핑</option>
-          <option value="museum">전시</option>
-        </select>
-        <input
-          type="number"
-          step="0.0001"
-          value={lat}
-          onChange={(e) => setLat(Number(e.target.value))}
-          aria-label="위도"
-        />
-        <input
-          type="number"
-          step="0.0001"
-          value={lng}
-          onChange={(e) => setLng(Number(e.target.value))}
-          aria-label="경도"
-        />
-        <input
-          type="number"
-          value={radius}
-          min={200}
-          max={10000}
-          onChange={(e) => setRadius(Number(e.target.value))}
-          aria-label="반경"
-        />
+    <section className="page nearby-page">
+      <header className="page-head">
+        <p className="page-kicker">LOCATION DISCOVERY · REAL-TIME POI</p>
+        <div className="page-title-wrap">
+          <div>
+            <h2>주변 추천</h2>
+            <p className="page-summary">
+              현재 위치 기반으로 관광, 맛집, 쇼핑, 전시 POI를 반경별로 빠르게 탐색할 수 있습니다.
+            </p>
+          </div>
+          <div className="page-metrics" aria-label="주변 추천 지표">
+            <div>
+              <strong>{items.length}</strong>
+              <span>현재 결과</span>
+            </div>
+            <div>
+              <strong>{radius}m</strong>
+              <span>탐색 반경</span>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <div className="nearby-layout">
+        <div className="nearby-controls">
+          <div className="actions">
+            <button type="button" onClick={requestLocation}>현재 위치 사용</button>
+            <span className="location-state">{locationState}</span>
+          </div>
+          <div className="geo-form-grid">
+            <label className="field-group">
+              카테고리
+              <select value={category} onChange={(e) => setCategory(e.target.value)}>
+                <option value="attraction">관광</option>
+                <option value="food">맛집</option>
+                <option value="shopping">쇼핑</option>
+                <option value="museum">전시</option>
+              </select>
+            </label>
+            <label className="field-group">
+              위도
+              <input
+                type="number"
+                step="0.0001"
+                value={lat}
+                onChange={(e) => setLat(Number(e.target.value))}
+                aria-label="위도"
+              />
+            </label>
+            <label className="field-group">
+              경도
+              <input
+                type="number"
+                step="0.0001"
+                value={lng}
+                onChange={(e) => setLng(Number(e.target.value))}
+                aria-label="경도"
+              />
+            </label>
+            <label className="field-group">
+              반경(m)
+              <input
+                type="number"
+                value={radius}
+                min={200}
+                max={10000}
+                onChange={(e) => setRadius(Number(e.target.value))}
+                aria-label="반경"
+              />
+            </label>
+          </div>
+        </div>
+        <aside className="nearby-guide">
+          <h3>탐색 가이드</h3>
+          <p>도심 기준 추천 반경은 1200m ~ 2500m입니다. 카테고리를 바꿔 빠르게 비교해 보세요.</p>
+        </aside>
       </div>
-      <p>{locationState}</p>
-      {loading && <p>주변 추천 불러오는 중...</p>}
-      {error && <p className="error">{error}</p>}
-      <ul className="card-list">
+
+      {loading && <p className="notice info">주변 추천을 불러오는 중입니다...</p>}
+      {error && <p className="notice error">{error}</p>}
+      {!loading && !error && items.length === 0 && (
+        <p className="notice warning">조건에 맞는 주변 추천 결과가 없습니다.</p>
+      )}
+
+      <ul className="poi-grid">
         {items.map((poi) => (
-          <li key={poi.poi_id} className="card">
+          <li key={poi.poi_id} className="poi-card">
             <h3>{poi.name}</h3>
             <p>{poi.category} · {poi.distance_m}m</p>
           </li>

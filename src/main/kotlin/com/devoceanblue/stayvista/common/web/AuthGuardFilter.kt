@@ -25,6 +25,11 @@ class AuthGuardFilter(
         val method = request.method
         val path = request.requestURI
 
+        if (method == "OPTIONS") {
+            filterChain.doFilter(request, response)
+            return
+        }
+
         if (isBypassPath(path) || isPublicEndpoint(method, path)) {
             filterChain.doFilter(request, response)
             return
