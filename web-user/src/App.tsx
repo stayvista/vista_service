@@ -1,4 +1,4 @@
-import { Link, Route, Routes } from "react-router-dom";
+import { Link, NavLink, Route, Routes } from "react-router-dom";
 import { HomePage } from "./pages/HomePage";
 import { SearchPage } from "./pages/SearchPage";
 import { PropertyPage } from "./pages/PropertyPage";
@@ -13,20 +13,50 @@ import { BookingCompletePage } from "./pages/BookingCompletePage";
 import { CheckoutTicketPage } from "./pages/CheckoutTicketPage";
 import { CheckoutPackagePage } from "./pages/CheckoutPackagePage";
 
+const navItems = [
+  { to: "/search", label: "숙소" },
+  { to: "/tickets", label: "티켓" },
+  { to: "/packages", label: "패키지" },
+  { to: "/nearby", label: "주변 추천" },
+  { to: "/chat", label: "AI 컨시어지" },
+];
+
 export function App() {
   return (
     <div className="app-shell">
-      <header className="top-nav">
-        <Link to="/" className="brand">Wanderly</Link>
-        <nav>
-          <Link to="/search">숙소</Link>
-          <Link to="/tickets">티켓</Link>
-          <Link to="/packages">패키지</Link>
-          <Link to="/chat">챗봇</Link>
-          <Link to="/nearby">주변추천</Link>
-        </nav>
+      <header className="site-header">
+        <div className="utility-bar">
+          <p>국내외 프리미엄 숙소 얼리버드 최대 18% 단독 혜택</p>
+          <div className="utility-links">
+            <button type="button">KRW</button>
+            <button type="button">한국어</button>
+            <button type="button">고객센터</button>
+          </div>
+        </div>
+        <div className="top-nav">
+          <Link to="/" className="brand">
+            <span className="brand-mark">StayVista</span>
+            <span className="brand-sub">Premium Escapes</span>
+          </Link>
+          <nav className="primary-nav" aria-label="메인 메뉴">
+            {navItems.map((item) => (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                className={({ isActive }) => (isActive ? "nav-link active" : "nav-link")}
+              >
+                {item.label}
+              </NavLink>
+            ))}
+          </nav>
+          <div className="header-actions">
+            <Link to="/search" className="outline-btn">숙소 등록</Link>
+            <button type="button" className="plain-link">로그인</button>
+            <button type="button" className="pill-btn">회원가입</button>
+          </div>
+        </div>
       </header>
-      <main>
+      <main className="app-main">
         <Routes>
           <Route path="/" element={<HomePage />} />
           <Route path="/search" element={<SearchPage />} />
