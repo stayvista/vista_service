@@ -3,9 +3,14 @@ package com.devoceanblue.stayvista.common.web
 import com.devoceanblue.stayvista.common.api.ApiErrorBody
 import com.devoceanblue.stayvista.common.api.ApiResponses
 import com.devoceanblue.stayvista.common.api.ErrorCode
+import com.devoceanblue.stayvista.domain.auth.AuthPrincipal
+import com.devoceanblue.stayvista.domain.auth.RedisSessionService
 import jakarta.servlet.FilterChain
 import jakarta.servlet.http.HttpServletRequest
 import jakarta.servlet.http.HttpServletResponse
+import jakarta.servlet.http.HttpServletRequestWrapper
+import java.util.Collections
+import java.util.Enumeration
 import org.springframework.core.Ordered
 import org.springframework.core.annotation.Order
 import org.springframework.stereotype.Component
@@ -16,6 +21,7 @@ import tools.jackson.databind.ObjectMapper
 @Order(Ordered.HIGHEST_PRECEDENCE + 5)
 class AuthGuardFilter(
     private val objectMapper: ObjectMapper,
+    private val redisSessionService: RedisSessionService,
 ) : OncePerRequestFilter() {
     override fun doFilterInternal(
         request: HttpServletRequest,
@@ -49,16 +55,20 @@ class AuthGuardFilter(
             return
         }
 
-        if (requiresUserHeader(method, path)) {
-            val userId = request.getHeader("X-User-Id")
-            if (userId.isNullOrBlank()) {
-                writeError(response, ErrorCode.UNAUTHORIZED, "X-User-Id header is required")
+        if (requiresUserAuth(method, path)) {
+            val principal = resolvePrincipal(request) ?: run {
+                writeError(response, ErrorCode.UNAUTHORIZED, "Session access token is required")
                 return
             }
-            if (userId.toLongOrNull() == null) {
-                writeError(response, ErrorCode.VALIDATION_ERROR, "X-User-Id must be numeric")
-                return
-            }
+            val wrapped = AuthenticatedUserRequest(
+                delegate = request,
+                userId = principal.userId,
+            )
+            wrapped.setAttribute("auth.user_id", principal.userId)
+            wrapped.setAttribute("auth.user_email", principal.email)
+            wrapped.setAttribute("auth.user_name", principal.name)
+            filterChain.doFilter(wrapped, response)
+            return
         }
 
         filterChain.doFilter(request, response)
@@ -69,6 +79,7 @@ class AuthGuardFilter(
     }
 
     private fun isPublicEndpoint(method: String, path: String): Boolean {
+        if (method == "POST" && (path == "/v1/auth/login" || path == "/v1/auth/register" || path == "/v1/auth/logout")) return true
         if (method == "GET" && path.startsWith("/v1/search/")) return true
         if (method == "GET" && (path == "/v1/properties" || path.startsWith("/v1/properties/"))) return true
         if (method == "GET" && (path == "/v1/tickets/products" || path.startsWith("/v1/tickets/products/") || path == "/v1/tickets/events")) return true
@@ -79,12 +90,18 @@ class AuthGuardFilter(
         return false
     }
 
-    private fun requiresUserHeader(method: String, path: String): Boolean {
+    private fun requiresUserAuth(method: String, path: String): Boolean {
         if (path.startsWith("/v1/admin/")) return false
+        if (path.startsWith("/v1/me/")) return true
+        if (path.startsWith("/v1/tickets/orders/")) return true
         if (method == "GET") return false
         return path.startsWith("/v1/bookings/") ||
-            path.startsWith("/v1/tickets/orders/") ||
             path.matches(Regex("/v1/packages/.+/(holds|confirm)$"))
+    }
+
+    private fun resolvePrincipal(request: HttpServletRequest): AuthPrincipal? {
+        val token = redisSessionService.extractBearerToken(request.getHeader("Authorization")) ?: return null
+        return redisSessionService.resolvePrincipal(token)
     }
 
     private fun writeError(response: HttpServletResponse, errorCode: ErrorCode, message: String) {
@@ -97,5 +114,31 @@ class AuthGuardFilter(
             ),
         )
         response.writer.write(objectMapper.writeValueAsString(body))
+    }
+
+    private class AuthenticatedUserRequest(
+        delegate: HttpServletRequest,
+        private val userId: Long,
+    ) : HttpServletRequestWrapper(delegate) {
+        override fun getHeader(name: String): String? {
+            if (name.equals("X-User-Id", ignoreCase = true)) {
+                return userId.toString()
+            }
+            return super.getHeader(name)
+        }
+
+        override fun getHeaders(name: String): Enumeration<String> {
+            if (name.equals("X-User-Id", ignoreCase = true)) {
+                return Collections.enumeration(listOf(userId.toString()))
+            }
+            return super.getHeaders(name)
+        }
+
+        override fun getHeaderNames(): Enumeration<String> {
+            val names = Collections.list(super.getHeaderNames())
+                .toMutableSet()
+            names.add("X-User-Id")
+            return Collections.enumeration(names)
+        }
     }
 }

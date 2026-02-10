@@ -7,6 +7,7 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc
 import org.springframework.http.MediaType
 import org.springframework.test.web.servlet.MockMvc
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post
+import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.status
 
@@ -17,7 +18,7 @@ class AuthGuardFilterTest {
     lateinit var mockMvc: MockMvc
 
     @Test
-    fun `booking hold should fail when X-User-Id is missing`() {
+    fun `booking hold should fail when bearer token is missing`() {
         mockMvc.perform(
             post("/v1/bookings/holds")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -41,16 +42,26 @@ class AuthGuardFilterTest {
     }
 
     @Test
-    fun `booking hold should fail when X-User-Id is not numeric`() {
+    fun `booking hold should fail when bearer token is invalid`() {
         mockMvc.perform(
             post("/v1/bookings/holds")
                 .contentType(MediaType.APPLICATION_JSON)
                 .header("Idempotency-Key", "idem-test")
-                .header("X-User-Id", "abc")
+                .header("Authorization", "Bearer invalid-token")
                 .content("{}"),
         )
-            .andExpect(status().isBadRequest)
-            .andExpect(jsonPath("$.error.code").value("VALIDATION_ERROR"))
+            .andExpect(status().isUnauthorized)
+            .andExpect(jsonPath("$.error.code").value("UNAUTHORIZED"))
+    }
+
+    @Test
+    fun `ticket vouchers should fail when bearer token is missing`() {
+        mockMvc.perform(
+            get("/v1/tickets/orders/tord_2/vouchers"),
+        )
+            .andExpect(status().isUnauthorized)
+            .andExpect(jsonPath("$.error.code").value("UNAUTHORIZED"))
+            .andExpect(jsonPath("$.request_id").isNotEmpty)
     }
 
     @Test

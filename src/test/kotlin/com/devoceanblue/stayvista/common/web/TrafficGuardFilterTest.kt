@@ -1,5 +1,7 @@
 package com.devoceanblue.stayvista.common.web
 
+import com.devoceanblue.stayvista.domain.auth.AuthPrincipal
+import com.devoceanblue.stayvista.domain.auth.RedisSessionService
 import com.devoceanblue.stayvista.domain.queue.QueueService
 import com.devoceanblue.stayvista.domain.search.SearchData
 import com.devoceanblue.stayvista.domain.search.SearchItem
@@ -39,13 +41,28 @@ class TrafficGuardFilterTest {
     lateinit var queueService: QueueService
 
     @MockitoBean
+    lateinit var redisSessionService: RedisSessionService
+
+    @MockitoBean
     lateinit var redisRateLimiter: RedisRateLimiter
 
     @MockitoBean
     lateinit var searchService: SearchService
 
+    private lateinit var userAuthorization: String
+
     @BeforeEach
     fun setup() {
+        userAuthorization = "Bearer svs_test_token"
+        given(redisSessionService.extractBearerToken(userAuthorization)).willReturn("svs_test_token")
+        given(redisSessionService.resolvePrincipal("svs_test_token")).willReturn(
+            AuthPrincipal(
+                userId = 1001L,
+                email = "demo.user@stayvista.local",
+                name = "Demo User",
+                expiresAtEpochSeconds = 1_700_000_000L,
+            ),
+        )
         given(redisRateLimiter.allow("booking_hold", "1001", 10)).willReturn(
             RateLimitDecision(
                 allowed = true,
@@ -116,7 +133,7 @@ class TrafficGuardFilterTest {
             post("/v1/bookings/holds")
                 .contentType(MediaType.APPLICATION_JSON)
                 .header("Idempotency-Key", "idem-queue-missing")
-                .header("X-User-Id", "1001")
+                .header("Authorization", userAuthorization)
                 .content(bookingHoldBody()),
         )
             .andExpect(status().isTooManyRequests)
@@ -132,7 +149,7 @@ class TrafficGuardFilterTest {
             post("/v1/bookings/holds")
                 .contentType(MediaType.APPLICATION_JSON)
                 .header("Idempotency-Key", "idem-queue-invalid")
-                .header("X-User-Id", "1001")
+                .header("Authorization", userAuthorization)
                 .header("Queue-Token", "bad-token")
                 .content(bookingHoldBody()),
         )
@@ -155,7 +172,7 @@ class TrafficGuardFilterTest {
             post("/v1/bookings/holds")
                 .contentType(MediaType.APPLICATION_JSON)
                 .header("Idempotency-Key", "idem-rate-limited")
-                .header("X-User-Id", "1001")
+                .header("Authorization", userAuthorization)
                 .header("Queue-Token", "qat_ok")
                 .content(bookingHoldBody()),
         )
@@ -224,7 +241,7 @@ class TrafficGuardFilterTest {
             post("/v1/bookings/bkg_1/confirm")
                 .contentType(MediaType.APPLICATION_JSON)
                 .header("Idempotency-Key", "idem-confirm-missing")
-                .header("X-User-Id", "1001")
+                .header("Authorization", userAuthorization)
                 .content(bookingConfirmBody()),
         )
             .andExpect(status().isTooManyRequests)
@@ -246,7 +263,7 @@ class TrafficGuardFilterTest {
             post("/v1/bookings/bkg_1/confirm")
                 .contentType(MediaType.APPLICATION_JSON)
                 .header("Idempotency-Key", "idem-confirm-limited")
-                .header("X-User-Id", "1001")
+                .header("Authorization", userAuthorization)
                 .header("Queue-Token", "qat_confirm")
                 .content(bookingConfirmBody()),
         )
@@ -262,7 +279,7 @@ class TrafficGuardFilterTest {
             post("/v1/packages/1/holds")
                 .contentType(MediaType.APPLICATION_JSON)
                 .header("Idempotency-Key", "idem-package-hold-missing")
-                .header("X-User-Id", "1001")
+                .header("Authorization", userAuthorization)
                 .content(packageHoldBody()),
         )
             .andExpect(status().isTooManyRequests)
@@ -284,7 +301,7 @@ class TrafficGuardFilterTest {
             post("/v1/packages/1/holds")
                 .contentType(MediaType.APPLICATION_JSON)
                 .header("Idempotency-Key", "idem-package-hold-limited")
-                .header("X-User-Id", "1001")
+                .header("Authorization", userAuthorization)
                 .header("Queue-Token", "qat_package_hold")
                 .content(packageHoldBody()),
         )
@@ -300,7 +317,7 @@ class TrafficGuardFilterTest {
             post("/v1/packages/1/confirm")
                 .contentType(MediaType.APPLICATION_JSON)
                 .header("Idempotency-Key", "idem-package-confirm-missing")
-                .header("X-User-Id", "1001")
+                .header("Authorization", userAuthorization)
                 .content(packageConfirmBody()),
         )
             .andExpect(status().isTooManyRequests)
@@ -322,7 +339,7 @@ class TrafficGuardFilterTest {
             post("/v1/packages/1/confirm")
                 .contentType(MediaType.APPLICATION_JSON)
                 .header("Idempotency-Key", "idem-package-confirm-limited")
-                .header("X-User-Id", "1001")
+                .header("Authorization", userAuthorization)
                 .header("Queue-Token", "qat_package_confirm")
                 .content(packageConfirmBody()),
         )

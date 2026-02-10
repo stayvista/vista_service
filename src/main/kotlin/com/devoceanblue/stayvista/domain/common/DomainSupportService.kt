@@ -1,5 +1,7 @@
 package com.devoceanblue.stayvista.domain.common
 
+import com.devoceanblue.stayvista.common.api.DomainException
+import com.devoceanblue.stayvista.common.api.ErrorCode
 import java.util.UUID
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Service
@@ -11,17 +13,47 @@ class DomainSupportService(
     private val objectMapper: ObjectMapper,
 ) {
     fun ensureUserExists(userId: Long) {
-        jdbcTemplate.update(
+        val found = jdbcTemplate.queryForObject(
             """
-            INSERT INTO user_account(id, email, name, status)
-            VALUES (?, ?, ?, 'ACTIVE')
-            ON DUPLICATE KEY UPDATE name=name
+            SELECT COUNT(*)
+            FROM user_account
+            WHERE id = ?
+              AND status = 'ACTIVE'
             """.trimIndent(),
+            Long::class.java,
             userId,
-            "user-$userId@local.test",
-            "User$userId",
-        )
+        ) ?: 0L
+        if (found <= 0L) {
+            throw DomainException(ErrorCode.UNAUTHORIZED, "User not found or inactive")
+        }
     }
+
+    fun getActiveUser(userId: Long): UserAccount {
+        return jdbcTemplate.query(
+            """
+            SELECT id, email, name, status
+            FROM user_account
+            WHERE id = ?
+              AND status = 'ACTIVE'
+            """.trimIndent(),
+            { rs, _ ->
+                UserAccount(
+                    id = rs.getLong("id"),
+                    email = rs.getString("email"),
+                    name = rs.getString("name"),
+                    status = rs.getString("status"),
+                )
+            },
+            userId,
+        ).firstOrNull() ?: throw DomainException(ErrorCode.UNAUTHORIZED, "User not found or inactive")
+    }
+
+    data class UserAccount(
+        val id: Long,
+        val email: String,
+        val name: String,
+        val status: String,
+    )
 
     fun ensurePartnerExists(partnerId: Long, type: String = "HOTEL") {
         jdbcTemplate.update(

@@ -226,8 +226,7 @@ export function CheckoutPackagePage() {
     setStatus("대기열 입장 중");
     const join = await apiPost<QueueJoinData>(
       "/v1/queue/join",
-      { queue_key: queueKey() },
-      { "X-User-Id": "1001" }
+      { queue_key: queueKey() }
     );
     setQueueTicket(join.data.ticket);
     setQueuePosition(join.data.position);
@@ -266,7 +265,6 @@ export function CheckoutPackagePage() {
       { check_in: checkIn, check_out: checkOut, rooms, ticket_quantity: ticketQuantity },
       {
         "Idempotency-Key": crypto.randomUUID(),
-        "X-User-Id": "1001",
         ...(queueToken ? { "Queue-Token": queueToken } : {}),
       }
     );
@@ -319,7 +317,6 @@ export function CheckoutPackagePage() {
       { package_order_id: packageOrderId, payment_token: "paytok_test" },
       {
         "Idempotency-Key": crypto.randomUUID(),
-        "X-User-Id": "1001",
         ...(queueToken ? { "Queue-Token": queueToken } : {}),
       }
     );

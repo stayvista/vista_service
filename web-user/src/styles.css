@@ -215,6 +215,16 @@ button:disabled {
   gap: 8px;
 }
 
+.user-chip {
+  border: 1px solid #cedaf0;
+  border-radius: 999px;
+  background: #f5f9ff;
+  color: #264879;
+  font-size: 0.8rem;
+  font-weight: 700;
+  padding: 8px 11px;
+}
+
 .outline-btn,
 .plain-link,
 .pill-btn {
@@ -263,6 +273,23 @@ button:disabled {
   border-radius: 24px;
   box-shadow: var(--shadow-soft);
   padding: 22px;
+}
+
+.auth-page {
+  max-width: 640px;
+  margin: 0 auto;
+}
+
+.auth-card {
+  border: 1px solid #d7e2f3;
+  border-radius: 16px;
+  background: linear-gradient(170deg, #fbfdff 0%, #f4f8ff 100%);
+  padding: 16px;
+}
+
+.auth-form {
+  display: grid;
+  gap: 10px;
 }
 
 .hero {
@@ -951,6 +978,10 @@ button:disabled {
   gap: 12px;
 }
 
+.reservation-grid {
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+}
+
 .product-card {
   border: 1px solid #d6e1f2;
   border-radius: 16px;
@@ -997,6 +1028,34 @@ button:disabled {
 .product-copy {
   margin: 0;
   color: #5d6d85;
+}
+
+.mini-meta {
+  margin: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.mini-meta div {
+  border: 1px solid #dee7f4;
+  border-radius: 10px;
+  background: #f9fbff;
+  padding: 8px 10px;
+  display: grid;
+  grid-template-columns: 96px 1fr;
+  gap: 10px;
+}
+
+.mini-meta dt {
+  color: #60718a;
+  font-weight: 700;
+}
+
+.mini-meta dd {
+  margin: 0;
+  text-align: right;
+  color: #1b3153;
+  font-weight: 700;
 }
 
 .product-price {
@@ -1619,6 +1678,14 @@ button:disabled {
 
   .checkout-summary dd {
     justify-self: start;
+    text-align: left;
+  }
+
+  .mini-meta div {
+    grid-template-columns: 1fr;
+  }
+
+  .mini-meta dd {
     text-align: left;
   }
 }

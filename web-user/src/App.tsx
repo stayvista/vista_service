@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { Link, NavLink, Route, Routes } from "react-router-dom";
 import { HomePage } from "./pages/HomePage";
 import { SearchPage } from "./pages/SearchPage";
@@ -12,6 +13,11 @@ import { CheckoutBookingPage } from "./pages/CheckoutBookingPage";
 import { BookingCompletePage } from "./pages/BookingCompletePage";
 import { CheckoutTicketPage } from "./pages/CheckoutTicketPage";
 import { CheckoutPackagePage } from "./pages/CheckoutPackagePage";
+import { LoginPage } from "./pages/LoginPage";
+import { MyReservationsPage } from "./pages/MyReservationsPage";
+import { RequireAuth } from "./components/RequireAuth";
+import { clearAuthSession, getAuthUser, subscribeAuthChange } from "./auth/session";
+import { apiPost } from "./api/client";
 
 const navItems = [
   { to: "/search", label: "숙소" },
@@ -22,6 +28,24 @@ const navItems = [
 ];
 
 export function App() {
+  const [authUser, setAuthUser] = useState(() => getAuthUser());
+
+  useEffect(() => {
+    return subscribeAuthChange(() => {
+      setAuthUser(getAuthUser());
+    });
+  }, []);
+
+  async function handleLogout() {
+    try {
+      await apiPost("/v1/auth/logout", {}, { Authorization: "" });
+    } catch {
+      // Best effort logout: clear local session even if network call fails.
+    } finally {
+      clearAuthSession();
+    }
+  }
+
   return (
     <div className="app-shell">
       <header className="site-header">
@@ -50,9 +74,19 @@ export function App() {
             ))}
           </nav>
           <div className="header-actions">
-            <Link to="/search" className="outline-btn">숙소 등록</Link>
-            <button type="button" className="plain-link">로그인</button>
-            <button type="button" className="pill-btn">회원가입</button>
+            {authUser ? (
+              <>
+                <Link to="/my/reservations" className="outline-btn">내 예약</Link>
+                <span className="user-chip">{authUser.name} #{authUser.userId}</span>
+                <button type="button" className="plain-link" onClick={handleLogout}>로그아웃</button>
+              </>
+            ) : (
+              <>
+                <Link to="/search" className="outline-btn">숙소 등록</Link>
+                <Link to="/login" className="plain-link">로그인</Link>
+                <Link to="/login?mode=register" className="pill-btn">회원가입</Link>
+              </>
+            )}
           </div>
         </div>
       </header>
@@ -67,10 +101,12 @@ export function App() {
           <Route path="/packages/:id" element={<PackageDetailPage />} />
           <Route path="/chat" element={<ChatPage />} />
           <Route path="/nearby" element={<NearbyPage />} />
-          <Route path="/checkout/booking" element={<CheckoutBookingPage />} />
-          <Route path="/checkout/ticket" element={<CheckoutTicketPage />} />
-          <Route path="/checkout/package" element={<CheckoutPackagePage />} />
-          <Route path="/booking/complete" element={<BookingCompletePage />} />
+          <Route path="/login" element={<LoginPage />} />
+          <Route path="/my/reservations" element={<RequireAuth><MyReservationsPage /></RequireAuth>} />
+          <Route path="/checkout/booking" element={<RequireAuth><CheckoutBookingPage /></RequireAuth>} />
+          <Route path="/checkout/ticket" element={<RequireAuth><CheckoutTicketPage /></RequireAuth>} />
+          <Route path="/checkout/package" element={<RequireAuth><CheckoutPackagePage /></RequireAuth>} />
+          <Route path="/booking/complete" element={<RequireAuth><BookingCompletePage /></RequireAuth>} />
           <Route path="*" element={<HomePage />} />
         </Routes>
       </main>

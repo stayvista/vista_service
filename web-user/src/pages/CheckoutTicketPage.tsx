@@ -235,7 +235,6 @@ export function CheckoutTicketPage() {
       },
       {
         "Idempotency-Key": crypto.randomUUID(),
-        "X-User-Id": "1001",
         ...(queueToken ? { "Queue-Token": queueToken } : {}),
       }
     );
@@ -248,7 +247,6 @@ export function CheckoutTicketPage() {
       { payment_method: "CARD", payment_token: "paytok_test" },
       {
         "Idempotency-Key": crypto.randomUUID(),
-        "X-User-Id": "1001",
         ...(queueToken ? { "Queue-Token": queueToken } : {}),
       }
     );
@@ -263,8 +261,7 @@ export function CheckoutTicketPage() {
     setStatus("대기열 입장 중");
     const join = await apiPost<QueueJoinData>(
       "/v1/queue/join",
-      { queue_key: `ticket:${eventId}` },
-      { "X-User-Id": "1001" }
+      { queue_key: `ticket:${eventId}` }
     );
     setQueueTicket(join.data.ticket);
     setQueuePosition(join.data.position);
@@ -304,8 +301,7 @@ export function CheckoutTicketPage() {
     setStatus("대기열 입장 중");
     const join = await apiPost<QueueJoinData>(
       "/v1/queue/join",
-      { queue_key: `ticket:${eventId}` },
-      { "X-User-Id": "1001" }
+      { queue_key: `ticket:${eventId}` }
     );
     setQueueTicket(join.data.ticket);
     setQueuePosition(join.data.position);

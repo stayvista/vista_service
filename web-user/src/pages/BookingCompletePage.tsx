@@ -34,8 +34,7 @@ export function BookingCompletePage() {
     setVoucherState("loading");
     setVoucherError(null);
     apiGet<VoucherListData>(
-      `/v1/tickets/orders/${orderId}/vouchers`,
-      { "X-User-Id": "1001" }
+      `/v1/tickets/orders/${orderId}/vouchers`
     )
       .then((res) => {
         setVouchers(res.data.items);

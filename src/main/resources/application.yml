@@ -42,6 +42,11 @@ logging:
     level: "%5p [request_id:%X{request_id:-}]"
 
 stayvista:
+  auth:
+    session-ttl-seconds: ${AUTH_SESSION_TTL_SECONDS:7200}
+    password:
+      pbkdf2-iterations: ${PASSWORD_PBKDF2_ITERATIONS:180000}
+      pbkdf2-key-length: ${PASSWORD_PBKDF2_KEY_LENGTH:256}
   booking:
     hold-ttl-minutes: 10
   web:

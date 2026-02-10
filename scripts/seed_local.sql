@@ -6,6 +6,21 @@ SET @room_per_property := 3;
 SET @hot_inventory_days := 365;
 SET SESSION cte_max_recursion_depth = 40000;
 
+-- Ensure auth column exists even when Flyway migrations were not run yet
+SELECT COUNT(*) INTO @has_password_hash
+FROM information_schema.columns
+WHERE table_schema = DATABASE()
+  AND table_name = 'user_account'
+  AND column_name = 'password_hash';
+SET @add_password_hash_sql = IF(
+  @has_password_hash = 0,
+  'ALTER TABLE user_account ADD COLUMN password_hash VARCHAR(255) NULL AFTER email',
+  'DO 0'
+);
+PREPARE add_password_hash_stmt FROM @add_password_hash_sql;
+EXECUTE add_password_hash_stmt;
+DEALLOCATE PREPARE add_password_hash_stmt;
+
 -- Core accounts
 INSERT INTO partner_account(id, name, type, status)
 VALUES
@@ -17,10 +32,18 @@ ON DUPLICATE KEY UPDATE
   status = VALUES(status),
   updated_at = NOW(3);
 
-INSERT INTO user_account(id, email, phone, name, status)
-VALUES (1001, 'demo.user@stayvista.local', '010-0000-0000', 'Demo User', 'ACTIVE')
+INSERT INTO user_account(id, email, password_hash, phone, name, status)
+VALUES (
+  1001,
+  'demo.user@stayvista.local',
+  'pbkdf2$180000$zrJdcwlhFuelrP8QuYQejQ$dcOZlouZNKPJl9xZxlfpxMCKBswsmTaimKRXa0fOU4o',
+  '010-0000-0000',
+  'Demo User',
+  'ACTIVE'
+)
 ON DUPLICATE KEY UPDATE
   email = VALUES(email),
+  password_hash = VALUES(password_hash),
   phone = VALUES(phone),
   name = VALUES(name),
   status = VALUES(status),
