@@ -2,7 +2,15 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { apiGet } from "../api/client";
 
-type EventItem = { event_id: number; event_date: string; start_time: string; total: number; hold: number; sold: number };
+type EventItem = {
+  event_id: number;
+  event_date: string;
+  start_time: string;
+  end_time?: string | null;
+  total: number;
+  hold: number;
+  sold: number;
+};
 type ApiError = { code?: string; message?: string };
 
 export function TicketDetailPage() {
@@ -36,17 +44,35 @@ export function TicketDetailPage() {
     () => events.filter((event) => (event.total - event.hold - event.sold) > 0).length,
     [events],
   );
+  const soldOutCount = Math.max(0, events.length - availableCount);
+
+  function toEventLabel(eventDate: string, startTime: string): string {
+    const date = new Date(`${eventDate}T${startTime}`);
+    if (Number.isNaN(date.getTime())) return `${eventDate} ${startTime.slice(0, 5)}`;
+    return date.toLocaleString("ko-KR", {
+      month: "long",
+      day: "numeric",
+      weekday: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  }
 
   return (
     <section className="page detail-page">
       <header className="page-head">
-        <p className="page-kicker">SLOT AVAILABILITY · INSTANT CHECKOUT</p>
+        <p className="page-kicker">SLOT AVAILABILITY · REAL-TIME HOLD</p>
         <div className="page-title-wrap">
           <div>
             <h2>티켓 상세</h2>
             <p className="page-summary">
-              원하는 회차를 선택하면 바로 결제 단계로 이동합니다. 잔여 수량은 실시간으로 반영됩니다.
+              원하는 회차를 선택하고 수량을 확정하면 결제 단계에서 좌석을 임시 확보한 뒤 안전하게 결제할 수 있습니다.
             </p>
+            <div className="chips">
+              <span className="status-pill active">실시간 잔여 수량</span>
+              <span className="status-pill">임시 확보 후 결제</span>
+              <span className="status-pill">대기열 자동 재시도</span>
+            </div>
           </div>
           <div className="page-metrics" aria-label="시간대 지표">
             <div>
@@ -57,6 +83,14 @@ export function TicketDetailPage() {
               <strong>{availableCount}</strong>
               <span>구매 가능</span>
             </div>
+            <div>
+              <strong>{soldOutCount}</strong>
+              <span>마감 회차</span>
+            </div>
+            <div>
+              <strong>{quantity}</strong>
+              <span>선택 수량</span>
+            </div>
           </div>
         </div>
       </header>
@@ -65,7 +99,7 @@ export function TicketDetailPage() {
         <aside className="side-panel">
           <h3>구매 옵션</h3>
           <label className="field-group">
-            수량
+            수량 선택
             <div className="quantity-inline">
               <button
                 type="button"
@@ -93,12 +127,18 @@ export function TicketDetailPage() {
               </button>
             </div>
           </label>
-          <p className="panel-note">1회 결제 시 최대 10매까지 구매 가능합니다.</p>
+          <p className="panel-note">1회 결제 시 최대 10매까지 구매할 수 있습니다.</p>
+          <p className="panel-note">결제 단계에서 임시 확보 시간이 표시되며 만료 전까지 확정할 수 있습니다.</p>
         </aside>
 
         <div className="ticket-slot-wrap">
           {loading && <p className="notice info">시간대 데이터를 불러오는 중입니다...</p>}
-          {error && <p className="notice error">{error}</p>}
+          {error && (
+            <div className="notice error">
+              <p>{error}</p>
+              <p>서버 응답이 지연되는 경우 새로고침 후 다시 확인해 주세요.</p>
+            </div>
+          )}
           {!loading && !error && events.length === 0 && (
             <p className="notice warning">등록된 시간대가 없습니다.</p>
           )}
@@ -107,9 +147,9 @@ export function TicketDetailPage() {
               const remaining = Math.max(0, event.total - event.hold - event.sold);
               return (
                 <li className={remaining > 0 ? "ticket-slot-card" : "ticket-slot-card soldout"} key={event.event_id}>
-                  <p className="slot-datetime">{event.event_date} {event.start_time.slice(0, 5)}</p>
+                  <p className="slot-datetime">{toEventLabel(event.event_date, event.start_time)}</p>
                   <div className="slot-meta">
-                    <span>잔여 {remaining}</span>
+                    <span>남은 좌석 {remaining}</span>
                     <span>총 {event.total}</span>
                   </div>
                   {remaining > 0 ? (
@@ -117,7 +157,7 @@ export function TicketDetailPage() {
                       className="inline-cta"
                       to={`/checkout/ticket?product_id=${id}&event_id=${event.event_id}&quantity=${quantity}`}
                     >
-                      구매 진행
+                      이 시간대로 예약
                     </Link>
                   ) : (
                     <span className="status-pill sold">매진</span>
@@ -130,7 +170,7 @@ export function TicketDetailPage() {
       </div>
 
       {!loading && !error && !hasAvailableEvent && (
-        <p className="notice warning">현재 회차가 모두 매진되었습니다. 다른 날짜 또는 상품을 확인해 주세요.</p>
+        <p className="notice warning">현재 회차가 모두 마감되었습니다. 다른 날짜 또는 다른 상품을 선택해 주세요.</p>
       )}
     </section>
   );

@@ -18,8 +18,9 @@ export const options = {
   },
 };
 
-const BASE = __ENV.BASE_URL || "http://localhost:8080";
+const BASE = __ENV.BASE_URL || "http://localhost:18765";
 const SEARCH_CITY = __ENV.SEARCH_CITY || "Seoul";
+const AUTH_TOKEN = __ENV.AUTH_TOKEN || "";
 
 const funnelSearchDuration = new Trend("funnel_search_duration", true);
 const funnelHoldDuration = new Trend("funnel_hold_duration", true);
@@ -29,7 +30,6 @@ const funnel429Rate = new Rate("funnel_429_rate");
 const funnel5xxRate = new Rate("funnel_5xx_rate");
 
 export default function () {
-  const userId = String(__VU * 10000 + __ITER + 1);
   const search = http.get(`${BASE}/v1/search/properties?city=${encodeURIComponent(SEARCH_CITY)}&limit=5`);
   funnelSearchDuration.add(search.timings.duration);
   funnel5xxRate.add(search.status >= 500);
@@ -46,7 +46,7 @@ export default function () {
     headers: {
       "Content-Type": "application/json",
       "Idempotency-Key": crypto.randomUUID(),
-      "X-User-Id": userId,
+      ...(AUTH_TOKEN ? { Authorization: `Bearer ${AUTH_TOKEN}` } : {}),
     },
   });
   funnelHoldDuration.add(hold.timings.duration);
@@ -65,7 +65,7 @@ export default function () {
       headers: {
         "Content-Type": "application/json",
         "Idempotency-Key": crypto.randomUUID(),
-        "X-User-Id": userId,
+        ...(AUTH_TOKEN ? { Authorization: `Bearer ${AUTH_TOKEN}` } : {}),
       },
     });
     funnelConfirmDuration.add(confirm.timings.duration);

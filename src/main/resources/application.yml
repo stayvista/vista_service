@@ -69,3 +69,22 @@ stayvista:
     booking-confirm-per-minute: 5
     package-hold-per-minute: 10
     package-confirm-per-minute: 5
+  chat:
+    cache:
+      retrieval-ttl-seconds: ${CHAT_RETRIEVAL_CACHE_TTL_SECONDS:900}
+      prompt-ttl-seconds: ${CHAT_PROMPT_CACHE_TTL_SECONDS:180}
+    llm:
+      base-url: ${CHAT_LLM_BASE_URL:http://127.0.0.1:11434}
+      active-model: ${CHAT_LLM_ACTIVE_MODEL:llama3.1:8b-instruct}
+      fallback-model: ${CHAT_LLM_FALLBACK_MODEL:}
+      soft-timeout-ms: ${CHAT_LLM_SOFT_TIMEOUT_MS:2500}
+      hard-timeout-ms: ${CHAT_LLM_HARD_TIMEOUT_MS:6000}
+      max-concurrency: ${CHAT_LLM_MAX_CONCURRENCY:8}
+      max-queue-wait-ms: ${CHAT_LLM_MAX_QUEUE_WAIT_MS:350}
+    embed:
+      base-url: ${CHAT_EMBED_BASE_URL:http://127.0.0.1:11434}
+      active-model: ${CHAT_EMBED_ACTIVE_MODEL:bge-m3}
+      timeout-ms: ${CHAT_EMBED_TIMEOUT_MS:4000}
+    vector-cache-ttl-seconds: ${CHAT_VECTOR_CACHE_TTL_SECONDS:86400}
+    debug:
+      expose-model-version: ${CHAT_DEBUG_EXPOSE_MODEL_VERSION:true}

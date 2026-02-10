@@ -48,24 +48,24 @@ function toEventLabel(eventDate: string, startTime: string): string {
 
 function toCountdownLabel(seconds: number | null): string {
   if (seconds === null) return "아직 좌석 임시 확보를 시작하지 않았습니다.";
-  if (seconds === 0) return "임시 확보 시간이 만료되었습니다. 다시 진행해 주세요.";
+  if (seconds === 0) return "임시 확보 시간이 만료되었습니다. 좌석을 다시 선택해 주세요.";
   const minute = Math.floor(seconds / 60);
   const second = String(seconds % 60).padStart(2, "0");
-  return `임시 확보 종료까지 ${minute}:${second}`;
+  return `결제 가능 시간 ${minute}:${second} 남음`;
 }
 
 function describeStatus(status: string, hasError: boolean): StatusDescriptor {
   if (hasError || status.includes("실패")) {
     return {
-      title: "결제 요청을 완료하지 못했습니다",
-      description: "네트워크 상태를 확인한 뒤 임시 확보부터 다시 시도해 주세요.",
+      title: "결제를 완료하지 못했습니다",
+      description: "일시적인 오류일 수 있어요. 임시 확보부터 다시 진행하면 안전하게 재시도됩니다.",
       tone: "danger",
     };
   }
   if (status === "HOLD 완료") {
     return {
       title: "좌석 임시 확보가 완료되었습니다",
-      description: "남은 시간 안에 결제를 확정하면 티켓 발급 단계로 이동합니다.",
+      description: "남은 시간 안에 결제를 확정하면 바우처가 즉시 발급됩니다.",
       tone: "success",
     };
   }
@@ -78,8 +78,8 @@ function describeStatus(status: string, hasError: boolean): StatusDescriptor {
   }
   if (status.includes("대기열")) {
     return {
-      title: "대기열 순번을 기다리고 있습니다",
-      description: "순번이 되면 임시 확보 또는 확정이 자동으로 재시도됩니다.",
+      title: "접속이 몰려 순번을 기다리고 있습니다",
+      description: "순번이 되면 임시 확보 또는 결제 확정이 자동으로 다시 시도됩니다.",
       tone: "info",
     };
   }
@@ -100,13 +100,13 @@ function describeStatus(status: string, hasError: boolean): StatusDescriptor {
   if (status.includes("생성 중")) {
     return {
       title: "좌석 임시 확보를 진행하고 있습니다",
-      description: "보통 몇 초 내에 처리되며 완료 후 결제 버튼이 활성화됩니다.",
+      description: "재고를 잠금 처리 중이며 완료되면 결제 버튼이 자동으로 활성화됩니다.",
       tone: "info",
     };
   }
   return {
     title: "결제 준비가 완료되었습니다",
-    description: "먼저 좌석을 임시 확보한 후 결제를 확정해 주세요.",
+    description: "좌석을 먼저 임시 확보한 뒤 결제를 확정해 주세요.",
     tone: "neutral",
   };
 }
@@ -398,11 +398,16 @@ export function CheckoutTicketPage() {
   return (
     <section className="page checkout-page">
       <header className="checkout-hero">
-        <p className="page-kicker">INSTANT TICKET CHECKOUT</p>
+        <p className="page-kicker">SECURE TICKET CHECKOUT · HOLD FIRST</p>
         <h2>{product?.name ?? "티켓 결제 확인"}</h2>
         <p className="page-summary">
-          선택한 회차를 임시 확보한 뒤 남은 시간 안에 결제를 완료하면 티켓 구매가 즉시 확정됩니다.
+          선택한 회차를 먼저 임시 확보하고 제한 시간 안에 결제를 완료하면 예약이 확정됩니다.
         </p>
+        <div className="chips">
+          <span className="status-pill active">실시간 재고 잠금</span>
+          <span className="status-pill">만료 시 자동 반납</span>
+          <span className="status-pill">확정 즉시 바우처 발급</span>
+        </div>
       </header>
 
       <ul className="checkout-steps" aria-label="티켓 결제 단계">
@@ -413,7 +418,7 @@ export function CheckoutTicketPage() {
 
       <div className="checkout-grid">
         <article className="checkout-card">
-          <h3>구매 정보</h3>
+          <h3>예약 정보 확인</h3>
           <dl className="checkout-summary">
             <div>
               <dt>상품명</dt>
@@ -443,6 +448,12 @@ export function CheckoutTicketPage() {
             )}
           </dl>
 
+          <div className="queue-box">
+            <p>결제 전 안내</p>
+            <p>1. 임시 확보 후 제한 시간이 지나면 좌석은 자동 반납됩니다.</p>
+            <p>2. 결제 확정이 완료되면 바우처 목록에서 QR을 확인할 수 있습니다.</p>
+          </div>
+
           {alternativeEvents.length > 0 && (
             <section className="checkout-alternatives">
               <p className="panel-note">선택한 회차가 매진되어, 같은 상품의 예약 가능한 시간대를 추천합니다.</p>
@@ -462,7 +473,7 @@ export function CheckoutTicketPage() {
         </article>
 
         <article className="checkout-card">
-          <h3>진행 상태</h3>
+          <h3>결제 진행 상태</h3>
           <div className={`checkout-status ${statusDescriptor.tone}`}>
             <strong>{statusDescriptor.title}</strong>
             <p>{statusDescriptor.description}</p>
@@ -478,16 +489,16 @@ export function CheckoutTicketPage() {
           )}
           {error && <p className="notice error">{error}</p>}
           <div className="actions checkout-actions">
-            <button onClick={hold}>{orderId && !isExpired ? "좌석 다시 임시 확보" : "좌석 임시 확보"}</button>
-            <button disabled={!orderId || isExpired} onClick={confirm}>결제하고 예약 확정</button>
+            <button onClick={hold}>{orderId && !isExpired ? "좌석 다시 확보" : "좌석 임시 확보 시작"}</button>
+            <button disabled={!orderId || isExpired} onClick={confirm}>결제 확정하기</button>
           </div>
           <p className="checkout-note">
-            임시 확보 후 제한 시간이 지나면 좌석은 자동 반납됩니다. 이후에는 임시 확보를 다시 진행해 주세요.
+            결제 확정 단계에서 오류가 발생하면 상태가 업데이트되며, 동일 좌석은 다시 임시 확보 후 재시도할 수 있습니다.
           </p>
         </article>
       </div>
 
-      {isExpired && <p className="notice warning">임시 확보 시간이 만료되어 좌석을 다시 확보해야 합니다.</p>}
+      {isExpired && <p className="notice warning">임시 확보 시간이 만료되었습니다. 좌석 임시 확보를 다시 진행해 주세요.</p>}
     </section>
   );
 }

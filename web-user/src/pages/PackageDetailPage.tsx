@@ -56,13 +56,18 @@ export function PackageDetailPage() {
   return (
     <section className="page detail-page">
       <header className="page-head">
-        <p className="page-kicker">ATOMIC PURCHASE · COMPENSATION READY</p>
+        <p className="page-kicker">ATOMIC PURCHASE · SAFE TRANSACTION</p>
         <div className="page-title-wrap">
           <div>
             <h2>{item?.name ?? "패키지 상세"}</h2>
             <p className="page-summary">
-              패키지 확정 중 일부 단계 실패 시 서버에서 자동 보상되어 부분 구매가 남지 않도록 설계되어 있습니다.
+              패키지 결제는 숙소와 티켓을 묶어 동시에 처리하며, 중간 실패 시 자동 보상으로 주문 정합성을 유지합니다.
             </p>
+            <div className="chips">
+              <span className="status-pill active">동시 확정</span>
+              <span className="status-pill">자동 롤백</span>
+              <span className="status-pill">예약/티켓 통합 관리</span>
+            </div>
           </div>
           <div className="page-metrics" aria-label="패키지 가격 정보">
             <div>
@@ -72,6 +77,14 @@ export function PackageDetailPage() {
             <div>
               <strong>{item?.components.length ?? 0}</strong>
               <span>구성 항목</span>
+            </div>
+            <div>
+              <strong>{item?.status ?? "-"}</strong>
+              <span>판매 상태</span>
+            </div>
+            <div>
+              <strong>{item ? "준비 완료" : "-"}</strong>
+              <span>즉시 결제 가능</span>
             </div>
           </div>
         </div>
@@ -88,17 +101,22 @@ export function PackageDetailPage() {
               <li key={`${component.type}-${idx}`} className="component-card">
                 <p className="component-type">{component.type}</p>
                 <h3>{componentTitle(component.type)}</h3>
-                {component.room_type_id && <p>room_type_id: {component.room_type_id}</p>}
-                {component.event_id && <p>event_id: {component.event_id}</p>}
-                {component.nights != null && <p>nights: {component.nights}</p>}
-                {component.rooms != null && <p>rooms: {component.rooms}</p>}
-                {component.quantity != null && <p>quantity: {component.quantity}</p>}
+                {component.room_type_id && <p>객실 타입 ID: {component.room_type_id}</p>}
+                {component.event_id && <p>이벤트 ID: {component.event_id}</p>}
+                {component.nights != null && <p>숙박 일수: {component.nights}박</p>}
+                {component.rooms != null && <p>객실 수: {component.rooms}개</p>}
+                {component.quantity != null && <p>티켓 수량: {component.quantity}매</p>}
               </li>
             ))}
           </ul>
+          <div className="queue-box">
+            <p>구매 안내</p>
+            <p>1. 결제 단계에서 숙소/티켓 재고를 동시에 임시 확보합니다.</p>
+            <p>2. 확정 중 실패가 발생하면 자동으로 보상 처리되어 부분 결제가 남지 않습니다.</p>
+          </div>
           <div className="detail-actions">
             <Link to={`/checkout/package?package_id=${id}`} className="inline-cta">
-              패키지 구매하기
+              이 구성으로 예약 진행
             </Link>
           </div>
         </>

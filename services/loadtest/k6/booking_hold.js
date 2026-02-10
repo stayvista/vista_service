@@ -24,10 +24,11 @@ export const options = {
   },
 };
 
-const BASE = __ENV.BASE_URL || "http://localhost:8080";
+const BASE = __ENV.BASE_URL || "http://localhost:18765";
 const ROOM_TYPE_ID = Number(__ENV.ROOM_TYPE_ID || "1");
 const CHECK_IN = __ENV.CHECK_IN || "2026-02-10";
 const CHECK_OUT = __ENV.CHECK_OUT || "2026-02-12";
+const AUTH_TOKEN = __ENV.AUTH_TOKEN || "";
 
 const holdDuration = new Trend("hold_duration", true);
 const hold409Rate = new Rate("hold_409_rate");
@@ -48,7 +49,7 @@ export default function () {
     headers: {
       "Content-Type": "application/json",
       "Idempotency-Key": crypto.randomUUID(),
-      "X-User-Id": String(__VU * 100000 + __ITER + 1),
+      ...(AUTH_TOKEN ? { Authorization: `Bearer ${AUTH_TOKEN}` } : {}),
     },
   });
 

@@ -4,8 +4,11 @@ import { apiPost } from "../api/client";
 
 type Card = {
   type: string;
+  id?: string;
   title: string;
+  price?: string;
   why?: string;
+  source?: Array<{ doc_id: string; title: string; snippet: string; source_type: string }>;
   property_id?: number;
   product_id?: number;
   package_id?: number;
@@ -14,8 +17,12 @@ type Card = {
 
 type ChatResponse = {
   answer: string;
+  assistant_text?: string;
   cards: Card[];
   followups: string[];
+  llm_used?: boolean;
+  context_used?: Record<string, unknown>;
+  sources?: Array<{ doc_id: string; title: string; snippet: string; source_type: string }>;
 };
 
 type ChatMessage = {
@@ -34,6 +41,8 @@ export function ChatPage() {
   const [answer, setAnswer] = useState<string>("");
   const [cards, setCards] = useState<Card[]>([]);
   const [followups, setFollowups] = useState<string[]>([]);
+  const [llmUsed, setLlmUsed] = useState(false);
+  const [sources, setSources] = useState<Array<{ doc_id: string; title: string; snippet: string; source_type: string }>>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -48,10 +57,12 @@ export function ChatPage() {
         message: input,
         context: { city: "Seoul", days: 4, budget_krw: 800000, companions: "COUPLE" },
       });
-      setAnswer(res.data.answer);
+      setAnswer(res.data.assistant_text ?? res.data.answer);
       setCards(res.data.cards ?? []);
       setFollowups(res.data.followups ?? []);
-      setMessages((prev) => [...prev, { role: "assistant", text: res.data.answer }]);
+      setLlmUsed(Boolean(res.data.llm_used));
+      setSources(res.data.sources ?? []);
+      setMessages((prev) => [...prev, { role: "assistant", text: res.data.assistant_text ?? res.data.answer }]);
     } catch (e) {
       const err = e as ApiError;
       setError(`${err.code ?? "ERROR"}: ${err.message ?? "추천 생성 실패"}`);
@@ -103,6 +114,14 @@ export function ChatPage() {
               <strong>{followups.length}</strong>
               <span>후속 질문</span>
             </div>
+            <div>
+              <strong>{llmUsed ? "LLM" : "RAG"}</strong>
+              <span>응답 경로</span>
+            </div>
+            <div>
+              <strong>{sources.length}</strong>
+              <span>추천 근거</span>
+            </div>
           </div>
         </div>
       </header>
@@ -134,6 +153,17 @@ export function ChatPage() {
       </div>
 
       {answer && <p className="chat-answer">{answer}</p>}
+      {sources.length > 0 && (
+        <ul className="card-list">
+          {sources.slice(0, 3).map((source) => (
+            <li key={source.doc_id} className="card">
+              <p className="eyebrow">{source.source_type}</p>
+              <h3>{source.title}</h3>
+              <p className="product-copy">{source.snippet}</p>
+            </li>
+          ))}
+        </ul>
+      )}
       {!loading && !error && messages.length > 0 && cards.length === 0 && (
         <p className="notice warning">추천 카드가 없습니다. 요청 문장을 조금 더 구체적으로 입력해 주세요.</p>
       )}

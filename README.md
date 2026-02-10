@@ -22,6 +22,13 @@
 ./scripts/dev.sh
 ```
 
+### 1-1) Local LLM(Ollama) 띄우기
+```bash
+./services/infra/llm/up.sh
+```
+- health: `GET /internal/llm/healthz`
+- ready: `GET /internal/llm/readyz`
+
 ### 2) DB 마이그레이션
 - Flyway 마이그레이션은 각 서비스(또는 통합 app)가 부팅 시 실행하도록 설계합니다.
 - 초기 스키마는 `services/db/migrations/V1__core_tables.sql` 참고.
@@ -56,7 +63,7 @@ curl -X POST -H "X-Admin-Id: 1" "http://localhost:18765/v1/admin/search/reindex?
 
 ## 인증/결제 정책 (v1)
 - 관리자 API(`/v1/admin/**`)는 `X-Admin-Id`(숫자) 헤더가 필요합니다.
-- 사용자 쓰기 API(booking/ticket/package hold/confirm/cancel)는 `X-User-Id`(숫자) + `Idempotency-Key`가 필요합니다.
+- 사용자 쓰기 API(booking/ticket/package hold/confirm/cancel)는 `Authorization: Bearer <session_token>` + `Idempotency-Key`가 필요합니다.
 - 결제는 `PaymentGateway` 스텁으로 처리되며, `payment_token`이 `fail`/`error`로 시작하면 `PAYMENT_AUTH_FAILED`(409)를 반환합니다.
 
 ## 핵심 원칙 (대규모 트래픽/정합성)

@@ -18,7 +18,7 @@ export const options = {
   },
 };
 
-const BASE = __ENV.BASE_URL || "http://localhost:8080";
+const BASE = __ENV.BASE_URL || "http://localhost:18765";
 
 export default function () {
   const res = http.get(`${BASE}/v1/search/properties?city=Seoul&limit=20`);

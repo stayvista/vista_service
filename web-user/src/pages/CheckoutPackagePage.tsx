@@ -68,14 +68,14 @@ function toCountdownLabel(seconds: number | null): string {
   if (seconds === 0) return "임시 확보 시간이 만료되었습니다. 다시 진행해 주세요.";
   const minute = Math.floor(seconds / 60);
   const second = String(seconds % 60).padStart(2, "0");
-  return `임시 확보 종료까지 ${minute}:${second}`;
+  return `결제 가능 시간 ${minute}:${second} 남음`;
 }
 
 function describeStatus(status: string, hasError: boolean): StatusDescriptor {
   if (hasError || status.includes("실패")) {
     return {
       title: "패키지 결제를 완료하지 못했습니다",
-      description: "잠시 후 다시 시도하거나 임시 확보부터 다시 진행해 주세요.",
+      description: "일시적인 오류일 수 있습니다. 임시 확보부터 다시 진행하면 안전하게 재시도할 수 있습니다.",
       tone: "danger",
     };
   }
@@ -96,7 +96,7 @@ function describeStatus(status: string, hasError: boolean): StatusDescriptor {
   if (status.includes("대기열")) {
     return {
       title: "트래픽이 많아 순번 대기 중입니다",
-      description: "순번이 되면 임시 확보 또는 확정 단계가 자동으로 이어집니다.",
+      description: "순번이 되면 임시 확보 또는 결제 확정 단계가 자동으로 다시 진행됩니다.",
       tone: "info",
     };
   }
@@ -359,11 +359,16 @@ export function CheckoutPackagePage() {
   return (
     <section className="page checkout-page">
       <header className="checkout-hero">
-        <p className="page-kicker">ATOMIC PACKAGE CHECKOUT</p>
+        <p className="page-kicker">PACKAGE CHECKOUT · DUAL INVENTORY LOCK</p>
         <h2>{item?.name ?? "패키지 결제 확인"}</h2>
         <p className="page-summary">
-          숙소와 티켓을 하나의 트랜잭션으로 임시 확보하고, 결제 확정 시 동시에 예약을 완료합니다.
+          숙소와 티켓 재고를 동시에 임시 확보한 뒤 한 번의 결제 확정으로 예약을 완료합니다.
         </p>
+        <div className="chips">
+          <span className="status-pill active">숙소+티켓 동시 확보</span>
+          <span className="status-pill">부분 구매 자동 방지</span>
+          <span className="status-pill">확정 즉시 예약 반영</span>
+        </div>
       </header>
 
       <ul className="checkout-steps" aria-label="패키지 결제 단계">
@@ -374,7 +379,7 @@ export function CheckoutPackagePage() {
 
       <div className="checkout-grid">
         <article className="checkout-card">
-          <h3>패키지 정보</h3>
+          <h3>예약 정보 확인</h3>
           <dl className="checkout-summary">
             <div>
               <dt>패키지</dt>
@@ -408,6 +413,12 @@ export function CheckoutPackagePage() {
             )}
           </dl>
 
+          <div className="queue-box">
+            <p>결제 전 안내</p>
+            <p>1. 임시 확보는 제한 시간 내에만 유효하며 만료 시 자동 반납됩니다.</p>
+            <p>2. 확정 중 오류가 발생하면 서버에서 보상 처리되어 부분 구매 상태가 남지 않습니다.</p>
+          </div>
+
           {item?.components && item.components.length > 0 && (
             <ul className="checkout-component-list">
               {item.components.map((component, idx) => (
@@ -428,7 +439,7 @@ export function CheckoutPackagePage() {
         </article>
 
         <article className="checkout-card">
-          <h3>진행 상태</h3>
+          <h3>결제 진행 상태</h3>
           <div className={`checkout-status ${statusDescriptor.tone}`}>
             <strong>{statusDescriptor.title}</strong>
             <p>{statusDescriptor.description}</p>
@@ -451,8 +462,8 @@ export function CheckoutPackagePage() {
           )}
           {error && <p className="notice error">{error}</p>}
           <div className="actions checkout-actions">
-            <button onClick={hold}>{packageOrderId && !isExpired ? "패키지 다시 임시 확보" : "패키지 임시 확보"}</button>
-            <button disabled={!packageOrderId || isExpired} onClick={confirm}>패키지 결제 확정</button>
+            <button onClick={hold}>{packageOrderId && !isExpired ? "패키지 다시 확보" : "패키지 임시 확보 시작"}</button>
+            <button disabled={!packageOrderId || isExpired} onClick={confirm}>결제 확정하기</button>
           </div>
           <p className="checkout-note">
             결제 확정 단계에서 일부 구성 항목 실패가 발생하면 자동 보상되어 부분 구매 상태가 남지 않습니다.
