@@ -6,12 +6,13 @@ StayVista AI 컨시어지의 로컬 LLM/임베딩을 내부망에서만 호출�
 ## 기본 구성
 - chat model: `llama3.1:8b-instruct`
 - embed model: `bge-m3`
-- endpoint: `http://127.0.0.1:11434`
+- endpoint: `http://127.0.0.1:21434`
 
 ## 실행
 ```bash
 ./services/infra/llm/up.sh
 ```
+(`compose.yaml` 단일 파일의 `llm`/`llm-init` 서비스를 사용합니다.)
 
 ## 헬스/레디니스
 ```bash

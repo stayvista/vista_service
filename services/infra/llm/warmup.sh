@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-BASE_URL="${OLLAMA_BASE_URL:-http://127.0.0.1:11434}"
+BASE_URL="${OLLAMA_BASE_URL:-http://127.0.0.1:21434}"
 CHAT_MODEL="${OLLAMA_CHAT_MODEL:-llama3.1:8b-instruct}"
 
 measure_ms() {
