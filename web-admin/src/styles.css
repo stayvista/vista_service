@@ -126,8 +126,157 @@ button { background: var(--accent); color: white; border: none; cursor: pointer;
   font-weight: 700;
 }
 
+.poi-admin-page {
+  display: grid;
+  gap: 12px;
+}
+
+.poi-admin-header h2 {
+  margin: 0;
+}
+
+.poi-admin-header p {
+  margin: 4px 0 0;
+  color: #52617a;
+}
+
+.poi-admin-layout {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.85fr) minmax(0, 1.15fr);
+  gap: 12px;
+}
+
+.poi-admin-list {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+  padding: 10px;
+}
+
+.poi-admin-list ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.poi-admin-list li {
+  border: 1px solid #d7dde8;
+  border-radius: 10px;
+  background: #fbfcff;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  padding: 8px;
+}
+
+.poi-admin-list li.active {
+  border-color: #0f7b6c;
+  box-shadow: 0 0 0 1px #0f7b6c inset;
+}
+
+.poi-row-main {
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  box-shadow: none;
+}
+
+.poi-row-main strong,
+.poi-row-main span {
+  display: block;
+}
+
+.poi-row-main span {
+  color: #5a687f;
+  font-size: 0.86rem;
+}
+
+.poi-row-toggle {
+  align-self: center;
+  border: 1px solid #bed0e8;
+  background: #f5f9ff;
+  color: #1f487d;
+}
+
+.poi-admin-editor {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+  padding: 12px;
+  display: grid;
+  gap: 10px;
+}
+
+.poi-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.poi-form-grid label {
+  display: grid;
+  gap: 6px;
+  font-size: 0.85rem;
+  color: #4f6078;
+  font-weight: 700;
+}
+
+.poi-form-grid textarea {
+  min-height: 84px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  padding: 10px 12px;
+  font: inherit;
+  resize: vertical;
+}
+
+.poi-full-row {
+  grid-column: 1 / -1;
+}
+
+.poi-active-toggle {
+  display: inline-flex !important;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+}
+
+.poi-active-toggle input {
+  width: auto;
+}
+
+.poi-form-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.poi-map-preview {
+  width: 100%;
+  height: 280px;
+  border: 1px solid #d2dbea;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.poi-map-hint {
+  margin: 0;
+  color: #566884;
+  font-size: 0.84rem;
+}
+
 @media (max-width: 900px) {
   .layout { grid-template-columns: 1fr; }
   .sidebar { position: sticky; top: 0; z-index: 3; }
   .topbar { justify-content: flex-start; }
+  .poi-admin-layout {
+    grid-template-columns: 1fr;
+  }
+  .poi-form-grid {
+    grid-template-columns: 1fr;
+  }
 }

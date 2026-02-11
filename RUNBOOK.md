@@ -93,6 +93,22 @@
    - 룰/템플릿 라우팅 비율 상향(LLM 사용률 절감)
    - memory summary 길이/PII 마스킹 점검 (`CHAT_MEMORY_TTL_SECONDS`, `CHAT_PREFERENCE_TTL_SECONDS`)
 
+### 2.7 지도 타일/스타일 장애
+1) 증상 확인
+   - 프론트에서 타일 404/429/5xx 급증, 스타일 JSON fetch 실패, 빈 타일 발생 여부 확인
+2) 즉시 조치
+   - 지도 스타일 URL을 백업 소스로 전환
+   - Nearby 페이지 `auto-search` 비활성화(버튼 재검색 모드 유지)로 요청량 억제
+   - 클러스터 반경/줌 정책을 보수적으로 조정해 렌더링 부하 축소
+3) 모니터링
+   - `http_server_requests_seconds_*{uri=\"/v1/poi/nearby\"}`
+   - `cache_hit_rate_nearby_total`
+   - `rate_limited_count_total{endpoint_group=\"nearby\"}`
+4) 복구 체크
+   - 지도 초기 렌더링 시간 정상화
+   - Nearby API p95/p99 정상화
+   - 429/5xx 비율 정상화
+
 ## 3) Local LLM 운영 절차 (Ollama)
 
 ### 3.1 서비스 기동

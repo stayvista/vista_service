@@ -1,0 +1,110 @@
+{
+  "annotations": {"list": []},
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Nearby Latency p95/p99 (ms)",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(http_server_requests_seconds_bucket{uri=\"/v1/poi/nearby\",method=\"GET\"}[5m])) by (le)) * 1000",
+          "legendFormat": "p95_ms",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum(rate(http_server_requests_seconds_bucket{uri=\"/v1/poi/nearby\",method=\"GET\"}[5m])) by (le)) * 1000",
+          "legendFormat": "p99_ms",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Nearby Request Rate / Error Rate",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+      "targets": [
+        {
+          "expr": "sum(rate(http_server_requests_seconds_count{uri=\"/v1/poi/nearby\",method=\"GET\"}[5m]))",
+          "legendFormat": "req_per_sec",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(http_server_requests_seconds_count{uri=\"/v1/poi/nearby\",method=\"GET\",status=~\"5..\"}[5m])) / clamp_min(sum(rate(http_server_requests_seconds_count{uri=\"/v1/poi/nearby\",method=\"GET\"}[5m])), 0.0001)",
+          "legendFormat": "5xx_rate",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Nearby Cache Hit Rate",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+      "targets": [
+        {
+          "expr": "sum(rate(cache_hit_rate_nearby_total{result=\"hit\"}[5m])) / clamp_min(sum(rate(cache_hit_rate_nearby_total[5m])), 0.0001)",
+          "legendFormat": "cache_hit_rate",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Nearby 429 / Rate Limit",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+      "targets": [
+        {
+          "expr": "sum(rate(http_server_requests_seconds_count{uri=\"/v1/poi/nearby\",method=\"GET\",status=\"429\"}[5m])) / clamp_min(sum(rate(http_server_requests_seconds_count{uri=\"/v1/poi/nearby\",method=\"GET\"}[5m])), 0.0001)",
+          "legendFormat": "http_429_rate",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(rate_limited_count_total{endpoint_group=\"nearby\"}[5m]))",
+          "legendFormat": "rate_limited_count",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "DB Active Connections",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
+      "targets": [
+        {
+          "expr": "hikaricp_connections_active",
+          "legendFormat": "active",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "k6 Nearby p95 (ms)",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(k6_nearby_req_duration_ms_bucket[5m])) by (le))",
+          "legendFormat": "k6_p95_ms",
+          "refId": "A"
+        }
+      ]
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "style": "dark",
+  "tags": ["stayvista", "nearby", "geo"],
+  "templating": {"list": []},
+  "time": {"from": "now-6h", "to": "now"},
+  "timepicker": {},
+  "timezone": "",
+  "title": "StayVista Nearby Map",
+  "uid": "stayvista-nearby-map",
+  "version": 1,
+  "weekStart": ""
+}

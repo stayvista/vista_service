@@ -41,6 +41,11 @@ CHAT_LLM_ENABLED=false k6 run services/loadtest/k6/chat_stream_slo.js \
 k6 run services/loadtest/k6/chat_stream_slo.js \
   --summary-export /tmp/chat_stream_slo_summary.json
 ```
+6. Nearby map (steady + drag + spike)
+```bash
+k6 run services/loadtest/k6/nearby.js \
+  --summary-export /tmp/nearby_summary.json
+```
 
 ## Key metrics
 - `http_req_duration`, `http_req_failed`
@@ -51,6 +56,7 @@ k6 run services/loadtest/k6/chat_stream_slo.js \
 - `chat_llm_used_rate`, `chat_req_failed`
 - `chat_llm_off_p95`
 - `chat_stream_ttfb_ms`, `chat_stream_complete_ms`, `chat_stream_failed`
+- `nearby_req_duration_ms`, `nearby_429_rate`, `nearby_5xx_rate`, `nearby_error_rate`
 
 ## Example report export
 ```bash
@@ -76,3 +82,4 @@ k6 run services/loadtest/k6/booking_hold.js \
 
 ## Dashboard
 - Grafana import JSON: `services/loadtest/grafana/chat_slo_dashboard.json`
+- Grafana import JSON: `services/loadtest/grafana/nearby_dashboard.json`
