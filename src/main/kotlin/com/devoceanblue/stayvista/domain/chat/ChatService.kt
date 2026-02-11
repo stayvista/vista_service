@@ -21,6 +21,7 @@ class ChatService(
     private val modelRegistry: LlmModelRegistry,
     private val promptFactory: ChatPromptFactory,
     private val structuredChatParser: StructuredChatParser,
+    private val citationVerifier: CitationVerifier,
     @Value("\${stayvista.chat.cache.retrieval-ttl-seconds:900}") private val retrievalCacheTtlSeconds: Long,
     @Value("\${stayvista.chat.cache.prompt-ttl-seconds:180}") private val promptCacheTtlSeconds: Long,
     @Value("\${stayvista.chat.llm.enabled:true}") private val llmEnabled: Boolean,
@@ -132,12 +133,13 @@ class ChatService(
                         retrieval = retrieval,
                         slots = slots,
                     )
+                    val verifiedNormalized = citationVerifier.verifyOrMitigate(normalized)
 
                     if (promptCacheEnabled) {
-                        chatCacheService.putPromptCache(promptCacheKey, normalized, promptCacheTtlSeconds)
+                        chatCacheService.putPromptCache(promptCacheKey, verifiedNormalized, promptCacheTtlSeconds)
                     }
                     meterRegistry.counter("llm_used_rate", "used", "true").increment()
-                    normalized
+                    verifiedNormalized
                 }
             }
         }.getOrElse { ex ->
@@ -176,7 +178,8 @@ class ChatService(
         } else {
             null
         }
-        return result.copy(debug = debug)
+        val verified = citationVerifier.verifyOrMitigate(result)
+        return verified.copy(debug = debug)
     }
 
     fun recommendStream(
@@ -320,11 +323,12 @@ class ChatService(
                         retrieval = retrieval,
                         slots = slots,
                     )
+                    val verifiedNormalized = citationVerifier.verifyOrMitigate(normalized)
                     if (promptCacheEnabled) {
-                        chatCacheService.putPromptCache(promptCacheKey, normalized, promptCacheTtlSeconds)
+                        chatCacheService.putPromptCache(promptCacheKey, verifiedNormalized, promptCacheTtlSeconds)
                     }
                     meterRegistry.counter("llm_used_rate", "used", "true").increment()
-                    normalized
+                    verifiedNormalized
                 }
             }
         }.getOrElse { ex ->
@@ -371,7 +375,8 @@ class ChatService(
             null
         }
 
-        return result.copy(debug = debug)
+        val verified = citationVerifier.verifyOrMitigate(result)
+        return verified.copy(debug = debug)
     }
 
     private fun toDebugRoute(type: ChatRouteType): String {

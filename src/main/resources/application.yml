@@ -70,6 +70,13 @@ stayvista:
     package-hold-per-minute: 10
     package-confirm-per-minute: 5
   chat:
+    rag:
+      candidate-limit: ${CHAT_RAG_CANDIDATE_LIMIT:320}
+      rrf-k: ${CHAT_RAG_RRF_K:60}
+      decay-window-days: ${CHAT_RAG_DECAY_WINDOW_DAYS:30}
+      incremental-sync-enabled: ${CHAT_RAG_INCREMENTAL_SYNC_ENABLED:true}
+      incremental-sync-ms: ${CHAT_RAG_INCREMENTAL_SYNC_MS:300000}
+      incremental-sync-initial-delay-ms: ${CHAT_RAG_INCREMENTAL_SYNC_INITIAL_DELAY_MS:30000}
     cache:
       retrieval-ttl-seconds: ${CHAT_RETRIEVAL_CACHE_TTL_SECONDS:900}
       prompt-ttl-seconds: ${CHAT_PROMPT_CACHE_TTL_SECONDS:180}

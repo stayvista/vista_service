@@ -20,12 +20,15 @@ class ChatRoutingPolicy {
         val companions = context.asString("companions")
             ?: extractCompanions(message)
 
+        val sourceTypes = context.asSourceTypes("source_types")
+
         return ChatSlots(
             city = city,
             days = days,
             budgetKrw = budget,
             companions = companions,
             intent = extractIntent(message),
+            sourceTypes = sourceTypes,
         )
     }
 
@@ -154,5 +157,19 @@ class ChatRoutingPolicy {
             is Number -> raw.toLong()
             else -> raw.toString().toLongOrNull()
         }
+    }
+
+    private fun Map<String, Any?>.asSourceTypes(key: String): Set<String> {
+        val raw = this[key] ?: return emptySet()
+
+        val values = when (raw) {
+            is Collection<*> -> raw.mapNotNull { it?.toString() }
+            else -> raw.toString().split(',')
+        }
+
+        return values
+            .map { it.trim().uppercase() }
+            .filter { it in setOf("PROPERTY", "TICKET", "PACKAGE", "POI") }
+            .toSet()
     }
 }

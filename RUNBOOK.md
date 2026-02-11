@@ -67,6 +67,9 @@
    - `llm_queue_depth`
    - `llm_queue_wait_ms`
    - `llm_reject_rate`
+   - `chat_rag_ms`
+   - `chat_rag_index_ms`
+   - `citation_verifier_block_total`
 3) 즉시 조치
    - `CHAT_LLM_ENABLED=false`로 LLM 경로를 즉시 차단하고 TEMPLATE로 degrade
    - `stayvista.chat.llm.max-concurrency` 하향/상향 조정
@@ -116,6 +119,13 @@ docker compose -f services/docker/docker-compose.yml --profile llm up -d
   - `LLM_MODEL_CHAT` (또는 `CHAT_LLM_ACTIVE_MODEL`)
   - `CHAT_EMBED_ACTIVE_MODEL`
 - 순서: pull/warmup -> 일부 트래픽 확인 -> 전체 전환
+
+### 3.5 RAG 인덱스 재빌드
+```bash
+curl -sS -X POST \"http://localhost:18765/v1/admin/chat/rag/reindex?mode=full\"
+curl -sS -X POST \"http://localhost:18765/v1/admin/chat/rag/reindex?mode=incremental&limit=1000\"
+```
+- 런타임 검색은 `travel_doc*` 인덱스를 사용하므로, 카탈로그 변경 후 incremental 재빌드를 권장한다.
 
 ## 4) 런타임 설정(초안)
 - MySQL: connection pool 상한, 타임아웃, slow query log on

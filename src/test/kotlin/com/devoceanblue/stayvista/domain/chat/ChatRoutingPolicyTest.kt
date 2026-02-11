@@ -103,4 +103,15 @@ class ChatRoutingPolicyTest {
         assertEquals(ChatRouteType.TEMPLATE, decision.type)
         assertEquals("rag_is_sufficient", decision.reason)
     }
+
+    @Test
+    fun `extractSlots should parse source type filter from context`() {
+        val request = ChatRecommendRequest(
+            message = "서울 추천",
+            context = mapOf("source_types" to listOf("property", "ticket", "invalid")),
+        )
+
+        val slots = routingPolicy.extractSlots(request)
+        assertEquals(setOf("PROPERTY", "TICKET"), slots.sourceTypes)
+    }
 }

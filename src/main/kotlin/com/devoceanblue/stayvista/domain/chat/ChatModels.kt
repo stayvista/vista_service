@@ -55,6 +55,7 @@ data class ChatSlots(
     val budgetKrw: Long?,
     val companions: String?,
     val intent: String,
+    val sourceTypes: Set<String> = emptySet(),
 )
 
 data class RagDocument(
