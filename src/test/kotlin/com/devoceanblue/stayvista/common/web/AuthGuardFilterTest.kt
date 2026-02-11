@@ -86,4 +86,14 @@ class AuthGuardFilterTest {
             .andExpect(status().isBadRequest)
             .andExpect(jsonPath("$.error.code").value("VALIDATION_ERROR"))
     }
+
+    @Test
+    fun `poi nearby should be public without bearer token`() {
+        mockMvc.perform(
+            get("/v1/poi/nearby")
+                .param("bbox", "invalid"),
+        )
+            .andExpect(status().isBadRequest)
+            .andExpect(jsonPath("$.error.code").value("VALIDATION_ERROR"))
+    }
 }

@@ -71,6 +71,17 @@ stayvista:
     package-confirm-per-minute: 5
     chat-per-minute: 40
     bot-strict-per-minute: 8
+    nearby:
+      enabled: ${POI_NEARBY_RATE_LIMIT_ENABLED:true}
+      refill-tokens: ${POI_NEARBY_RATE_REFILL_TOKENS:20}
+      refill-window-ms: ${POI_NEARBY_RATE_REFILL_WINDOW_MS:10000}
+      burst-tokens: ${POI_NEARBY_RATE_BURST_TOKENS:10}
+  poi:
+    nearby:
+      cache-ttl-seconds: ${POI_NEARBY_CACHE_TTL_SECONDS:15}
+      scan-limit: ${POI_NEARBY_SCAN_LIMIT:2000}
+    geohash:
+      max-prefixes: ${POI_GEOHASH_MAX_PREFIXES:24}
   chat:
     rag:
       candidate-limit: ${CHAT_RAG_CANDIDATE_LIMIT:320}

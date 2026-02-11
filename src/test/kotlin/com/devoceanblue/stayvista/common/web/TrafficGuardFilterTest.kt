@@ -1,6 +1,8 @@
 package com.devoceanblue.stayvista.common.web
 
 import com.devoceanblue.stayvista.domain.auth.AuthPrincipal
+import com.devoceanblue.stayvista.domain.poi.NearbyTokenBucketRateLimiter
+import com.devoceanblue.stayvista.domain.poi.PoiRateLimitDecision
 import com.devoceanblue.stayvista.domain.auth.RedisSessionService
 import com.devoceanblue.stayvista.domain.queue.QueueService
 import com.devoceanblue.stayvista.domain.search.SearchData
@@ -47,6 +49,9 @@ class TrafficGuardFilterTest {
     lateinit var redisRateLimiter: RedisRateLimiter
 
     @MockitoBean
+    lateinit var nearbyRateLimiter: NearbyTokenBucketRateLimiter
+
+    @MockitoBean
     lateinit var searchService: SearchService
 
     private lateinit var userAuthorization: String
@@ -91,6 +96,18 @@ class TrafficGuardFilterTest {
             RateLimitDecision(
                 allowed = true,
                 retryAfterSeconds = 1,
+            ),
+        )
+        given(nearbyRateLimiter.allow("127.0.0.1")).willReturn(
+            PoiRateLimitDecision(
+                allowed = true,
+                retryAfterMs = 0,
+            ),
+        )
+        given(nearbyRateLimiter.allow("bot:127.0.0.1")).willReturn(
+            PoiRateLimitDecision(
+                allowed = true,
+                retryAfterMs = 0,
             ),
         )
         given(
@@ -253,6 +270,26 @@ class TrafficGuardFilterTest {
         )
             .andExpect(status().isOk)
             .andExpect(jsonPath("$.data.items[0].property_id").value(1001))
+            .andExpect(jsonPath("$.request_id").isNotEmpty)
+    }
+
+    @Test
+    fun `nearby should return RATE_LIMITED with retry_after_ms when policy rejects`() {
+        given(nearbyRateLimiter.allow("127.0.0.1")).willReturn(
+            PoiRateLimitDecision(
+                allowed = false,
+                retryAfterMs = 2400,
+            ),
+        )
+
+        mockMvc.perform(
+            get("/v1/poi/nearby")
+                .param("bbox", "37.40,127.00,37.60,127.20"),
+        )
+            .andExpect(status().isTooManyRequests)
+            .andExpect(header().string("Retry-After", "3"))
+            .andExpect(jsonPath("$.error.code").value("RATE_LIMITED"))
+            .andExpect(jsonPath("$.error.details.retry_after_ms").value(2400))
             .andExpect(jsonPath("$.request_id").isNotEmpty)
     }
 

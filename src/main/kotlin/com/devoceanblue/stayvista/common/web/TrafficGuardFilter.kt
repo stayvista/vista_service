@@ -3,6 +3,7 @@ package com.devoceanblue.stayvista.common.web
 import com.devoceanblue.stayvista.common.api.ApiErrorBody
 import com.devoceanblue.stayvista.common.api.ApiResponses
 import com.devoceanblue.stayvista.common.api.ErrorCode
+import com.devoceanblue.stayvista.domain.poi.NearbyTokenBucketRateLimiter
 import com.devoceanblue.stayvista.domain.queue.QueueService
 import io.micrometer.core.instrument.MeterRegistry
 import jakarta.servlet.FilterChain
@@ -21,6 +22,7 @@ class TrafficGuardFilter(
     private val objectMapper: ObjectMapper,
     private val queueService: QueueService,
     private val redisRateLimiter: RedisRateLimiter,
+    private val nearbyRateLimiter: NearbyTokenBucketRateLimiter,
     private val meterRegistry: MeterRegistry,
     @Value("\${stayvista.rate-limit.enabled:true}") private val rateLimitEnabled: Boolean,
     @Value("\${stayvista.rate-limit.search-per-minute:60}") private val searchPerMinute: Int,
@@ -53,6 +55,33 @@ class TrafficGuardFilter(
             }
             if (!queueService.validateAdmitToken(token)) {
                 writeError(response, ErrorCode.QUEUE_TOKEN_INVALID, "Queue token is invalid or expired")
+                return
+            }
+        }
+
+        if (isNearbyEndpoint(method, path)) {
+            val basePrincipal = request.getHeader("X-User-Id")
+                ?.takeIf { it.isNotBlank() }
+                ?: request.remoteAddr.orEmpty()
+            val botRequest = isLikelyBot(request.getHeader("User-Agent"))
+            val principal = if (botRequest) "bot:$basePrincipal" else basePrincipal
+            val decision = nearbyRateLimiter.allow(principal)
+            if (!decision.allowed) {
+                meterRegistry.counter(
+                    "rate_limited_count",
+                    "endpoint_group",
+                    "nearby",
+                    "reason",
+                    if (botRequest) "bot_or_abuse" else "quota",
+                ).increment()
+                val retryAfterSeconds = ((decision.retryAfterMs + 999L) / 1000L).coerceAtLeast(1L)
+                response.setHeader("Retry-After", retryAfterSeconds.toString())
+                writeError(
+                    response = response,
+                    errorCode = ErrorCode.RATE_LIMITED,
+                    message = "Too many nearby requests",
+                    details = mapOf("retry_after_ms" to decision.retryAfterMs),
+                )
                 return
             }
         }
@@ -142,6 +171,10 @@ class TrafficGuardFilter(
             path.matches(Regex("/v1/packages/.+/confirm"))
     }
 
+    private fun isNearbyEndpoint(method: String, path: String): Boolean {
+        return method == "GET" && path == "/v1/poi/nearby"
+    }
+
     private fun isLikelyBot(userAgent: String?): Boolean {
         val ua = userAgent?.lowercase()?.trim().orEmpty()
         if (ua.isBlank()) return false
@@ -167,13 +200,19 @@ class TrafficGuardFilter(
         return path.startsWith("/v1/chat/") || path.startsWith("/v1/search/")
     }
 
-    private fun writeError(response: HttpServletResponse, errorCode: ErrorCode, message: String) {
+    private fun writeError(
+        response: HttpServletResponse,
+        errorCode: ErrorCode,
+        message: String,
+        details: Map<String, Any?> = emptyMap(),
+    ) {
         response.status = errorCode.httpStatus.value()
         response.contentType = "application/json"
         val body = ApiResponses.error(
             ApiErrorBody(
                 code = errorCode.code,
                 message = message,
+                details = details,
             ),
         )
         response.writer.write(objectMapper.writeValueAsString(body))

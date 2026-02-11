@@ -280,7 +280,10 @@ VALUES
 -- Nearby POI seed for geo/chat testing (4,000 rows)
 SET @poi_count := 4000;
 
-INSERT INTO poi(id, name, category, city, lat, lng)
+INSERT INTO poi(
+  id, name, category, city, lat, lng, address, description,
+  popularity_score, rating_score, active
+)
 WITH RECURSIVE poi_seq(n) AS (
   SELECT 1
   UNION ALL
@@ -365,11 +368,39 @@ SELECT
     WHEN 1 THEN ROUND(129.0756 + ((MOD(n * 7, 33) - 16) / 2000), 7)
     WHEN 2 THEN ROUND(126.5312 + ((MOD(n * 7, 33) - 16) / 2000), 7)
     ELSE ROUND(126.7052 + ((MOD(n * 7, 33) - 16) / 2000), 7)
-  END
+  END,
+  CONCAT(
+    CASE MOD(n, 4)
+      WHEN 0 THEN 'Seoul'
+      WHEN 1 THEN 'Busan'
+      WHEN 2 THEN 'Jeju'
+      ELSE 'Incheon'
+    END,
+    ' City Center'
+  ),
+  CONCAT(
+    'Local editorial pick #',
+    n,
+    '. Nearby best spots for ',
+    CASE MOD(n, 4)
+      WHEN 0 THEN 'attractions'
+      WHEN 1 THEN 'food'
+      WHEN 2 THEN 'shopping'
+      ELSE 'museum'
+    END
+  ),
+  50 + MOD(n * 13, 950),
+  ROUND(3.2 + (MOD(n, 18) * 0.1), 2),
+  CASE WHEN MOD(n, 37) = 0 THEN 0 ELSE 1 END
 FROM poi_seq
 ON DUPLICATE KEY UPDATE
   name = VALUES(name),
   category = VALUES(category),
   city = VALUES(city),
   lat = VALUES(lat),
-  lng = VALUES(lng);
+  lng = VALUES(lng),
+  address = VALUES(address),
+  description = VALUES(description),
+  popularity_score = VALUES(popularity_score),
+  rating_score = VALUES(rating_score),
+  active = VALUES(active);

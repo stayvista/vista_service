@@ -85,6 +85,8 @@ class AuthGuardFilter(
         if (method == "GET" && (path == "/v1/tickets/products" || path.startsWith("/v1/tickets/products/") || path == "/v1/tickets/events")) return true
         if (method == "GET" && (path == "/v1/packages" || path.startsWith("/v1/packages/"))) return true
         if (method == "GET" && path == "/v1/geo/pois/nearby") return true
+        if (method == "GET" && path == "/v1/poi/nearby") return true
+        if (method == "GET" && path.startsWith("/v1/poi/")) return true
         if (method == "POST" && path == "/v1/chat/recommend") return true
         if (path == "/v1/queue/join" || path == "/v1/queue/status") return true
         return false

@@ -31,12 +31,24 @@ INSERT INTO ticket_inventory(event_id, total, hold, sold)
 VALUES (5001, 1000, 0, 0)
 ON DUPLICATE KEY UPDATE total=VALUES(total);
 
-INSERT INTO poi(id, name, category, city, lat, lng)
+INSERT INTO poi(
+  id, name, category, city, lat, lng, address, description, popularity_score, rating_score, active
+)
 VALUES
-  (9001, 'City Museum', 'museum', 'Seoul', 37.5000000, 127.0400000),
-  (9002, 'River Park', 'attraction', 'Seoul', 37.4985000, 127.0350000),
-  (9003, 'Local Food Alley', 'food', 'Seoul', 37.5030000, 127.0415000)
-ON DUPLICATE KEY UPDATE name=VALUES(name);
+  (9001, 'City Museum', 'museum', 'Seoul', 37.5000000, 127.0400000, 'Seoul City Center', 'Curated museum spot in Seoul', 640, 4.7, 1),
+  (9002, 'River Park', 'attraction', 'Seoul', 37.4985000, 127.0350000, 'Seoul City Center', 'Popular riverside attraction', 830, 4.6, 1),
+  (9003, 'Local Food Alley', 'food', 'Seoul', 37.5030000, 127.0415000, 'Seoul City Center', 'Best local food street', 910, 4.8, 1)
+ON DUPLICATE KEY UPDATE
+  name = VALUES(name),
+  category = VALUES(category),
+  city = VALUES(city),
+  lat = VALUES(lat),
+  lng = VALUES(lng),
+  address = VALUES(address),
+  description = VALUES(description),
+  popularity_score = VALUES(popularity_score),
+  rating_score = VALUES(rating_score),
+  active = VALUES(active);
 
 -- hot key inventory for 365 days
 WITH RECURSIVE seq AS (

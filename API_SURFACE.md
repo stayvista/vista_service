@@ -38,6 +38,8 @@
 
 ### Geo
 - `GET /v1/geo/pois/nearby`
+- `GET /v1/poi/nearby`
+- `GET /v1/poi/{poiId}`
 
 ### Chat
 - `POST /v1/chat/recommend`
@@ -66,6 +68,11 @@
 
 ### Search Ops
 - `POST /v1/admin/search/reindex?limit=...`
+- `GET /v1/admin/poi?limit=...&offset=...&keyword=...`
+- `GET /v1/admin/poi/{poiId}`
+- `POST /v1/admin/poi`
+- `PATCH /v1/admin/poi/{poiId}`
+- `POST /v1/admin/poi/geohash/backfill?limit=...`
 - `POST /v1/admin/chat/rag/reindex?mode=full|incremental&limit=...`
 - `GET /v1/admin/chat/prompts?prompt_key=...`
 - `POST /v1/admin/chat/prompts`
