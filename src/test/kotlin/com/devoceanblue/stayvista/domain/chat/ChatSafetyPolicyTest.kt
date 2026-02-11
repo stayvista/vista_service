@@ -6,7 +6,7 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 class ChatSafetyPolicyTest {
-    private val policy = ChatSafetyPolicy(SimpleMeterRegistry())
+    private val policy = ChatSafetyPolicy(SimpleMeterRegistry(), PiiRedactor())
 
     @Test
     fun `evaluateInput blocks pii text`() {

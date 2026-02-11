@@ -13,6 +13,7 @@ class ChatMemoryServiceTest {
         redisTemplate = StringRedisTemplate(),
         objectMapper = jacksonObjectMapper(),
         meterRegistry = SimpleMeterRegistry(),
+        piiRedactor = PiiRedactor(),
         ttlSeconds = 3_600,
     )
 

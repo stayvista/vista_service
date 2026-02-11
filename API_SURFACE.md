@@ -67,6 +67,11 @@
 ### Search Ops
 - `POST /v1/admin/search/reindex?limit=...`
 - `POST /v1/admin/chat/rag/reindex?mode=full|incremental&limit=...`
+- `GET /v1/admin/chat/prompts?prompt_key=...`
+- `POST /v1/admin/chat/prompts`
+- `POST /v1/admin/chat/prompts/rollback`
+- `GET /v1/admin/chat/experiments/chat-core`
+- `POST /v1/admin/chat/experiments/chat-core`
 
 ## OpenAPI
 - `contracts/openapi-v1.yaml` is the source of truth for request/response shapes.

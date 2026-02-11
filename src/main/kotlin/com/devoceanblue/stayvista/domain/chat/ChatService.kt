@@ -22,6 +22,8 @@ class ChatService(
     private val promptFactory: ChatPromptFactory,
     private val structuredChatParser: StructuredChatParser,
     private val citationVerifier: CitationVerifier,
+    private val chatExperimentService: ChatExperimentService,
+    private val chatShadowService: ChatShadowService,
     private val llmBudgetController: LlmBudgetController,
     private val semanticCacheService: SemanticCacheService,
     private val chatMemoryService: ChatMemoryService,
@@ -38,6 +40,7 @@ class ChatService(
         val sessionKey = chatMemoryService.resolveSessionKey(request)
         val profileKey = preferenceProfileService.resolveProfileKey(request)
         val memory = chatMemoryService.load(sessionKey)
+        val experiment = chatExperimentService.assign(request, sessionKey)
 
         var route = "TEMPLATE"
         var model: String? = null
@@ -78,6 +81,7 @@ class ChatService(
                         retrieval = retrieval,
                         profileKey = profileKey,
                         memory = memory,
+                        experiment = experiment,
                         allowPlanner = false,
                     )
                 }
@@ -100,18 +104,22 @@ class ChatService(
                         retrieval = retrieval,
                         profileKey = profileKey,
                         memory = memory,
+                        experiment = experiment,
                     )
                 }
 
                 ChatRouteType.LLM -> {
+                    val selectedModel = experiment.model_override ?: modelRegistry.activeModel()
                     val promptCacheEnabled = safetyPolicy.cacheAllowed(message)
                     val promptCacheKey = buildPromptCacheKey(
                         message = message,
                         slots = slots,
                         retrieval = retrieval,
                         memory = memory,
+                        model = selectedModel,
+                        promptVersion = experiment.prompt_version,
                     )
-                    val semanticNamespace = semanticNamespace(slots, retrieval)
+                    val semanticNamespace = semanticNamespace(slots, retrieval, selectedModel)
 
                     if (promptCacheEnabled) {
                         val cached = chatCacheService.getPromptCache(promptCacheKey)
@@ -127,6 +135,7 @@ class ChatService(
                                 retrieval = retrieval,
                                 profileKey = profileKey,
                                 memory = memory,
+                                experiment = experiment,
                             )
                         }
 
@@ -140,6 +149,7 @@ class ChatService(
                                 retrieval = retrieval,
                                 profileKey = profileKey,
                                 memory = memory,
+                                experiment = experiment,
                             )
                         }
                     }
@@ -147,9 +157,15 @@ class ChatService(
                     val llmResult = llmExecutionGate.run {
                         val llmResponse = llmClient.generate(
                             LlmGenerateRequest(
-                                prompt = promptFactory.buildUserPrompt(request, slots, retrieval.hits.take(6), memory),
-                                systemPrompt = promptFactory.buildSystemPrompt(),
-                                model = modelRegistry.activeModel(),
+                                prompt = promptFactory.buildUserPrompt(
+                                    request = request,
+                                    slots = slots,
+                                    hits = retrieval.hits.take(6),
+                                    memory = memory,
+                                    promptVersion = experiment.prompt_version,
+                                ),
+                                systemPrompt = promptFactory.buildSystemPrompt(experiment.prompt_version),
+                                model = selectedModel,
                             ),
                         )
 
@@ -185,6 +201,7 @@ class ChatService(
                             retrieval = retrieval,
                             profileKey = profileKey,
                             memory = memory,
+                            experiment = experiment,
                         )
                     }
 
@@ -216,6 +233,7 @@ class ChatService(
                         retrieval = retrieval,
                         profileKey = profileKey,
                         memory = memory,
+                        experiment = experiment,
                     )
                 }
             }
@@ -255,6 +273,7 @@ class ChatService(
                 retrieval = fallbackRetrieval,
                 profileKey = profileKey,
                 memory = memory,
+                experiment = experiment,
             )
         }
 
@@ -274,7 +293,17 @@ class ChatService(
         val guarded = safetyPolicy.enforceOutputPolicy(result)
         val verified = citationVerifier.verifyOrMitigate(guarded)
         val finalized = verified.copy(debug = debug)
+        recordExperimentOutcome(experiment, finalized, totalMs)
         persistTurnIfNeeded(sessionKey, message, finalized, route)
+        if (route != "BLOCKED") {
+            chatShadowService.submit(
+                request = request,
+                primaryResponse = finalized,
+                routePrimary = route,
+                modelPrimary = model,
+                promptVersion = experiment.prompt_version,
+            )
+        }
         return finalized
     }
 
@@ -290,6 +319,7 @@ class ChatService(
         val sessionKey = chatMemoryService.resolveSessionKey(request)
         val profileKey = preferenceProfileService.resolveProfileKey(request)
         val memory = chatMemoryService.load(sessionKey)
+        val experiment = chatExperimentService.assign(request, sessionKey)
 
         var route = "TEMPLATE"
         var model: String? = null
@@ -353,6 +383,7 @@ class ChatService(
                         retrieval = retrieval,
                         profileKey = profileKey,
                         memory = memory,
+                        experiment = experiment,
                         allowPlanner = false,
                     )
                 }
@@ -376,10 +407,12 @@ class ChatService(
                         retrieval = retrieval,
                         profileKey = profileKey,
                         memory = memory,
+                        experiment = experiment,
                     )
                 }
 
                 ChatRouteType.LLM -> {
+                    val selectedModel = experiment.model_override ?: modelRegistry.activeModel()
                     emitMeta(mapOf("route" to route, "route_reason" to routeDecision.reason, "llm_used" to true))
 
                     val promptCacheEnabled = safetyPolicy.cacheAllowed(message)
@@ -388,8 +421,10 @@ class ChatService(
                         slots = slots,
                         retrieval = retrieval,
                         memory = memory,
+                        model = selectedModel,
+                        promptVersion = experiment.prompt_version,
                     )
-                    val semanticNamespace = semanticNamespace(slots, retrieval)
+                    val semanticNamespace = semanticNamespace(slots, retrieval, selectedModel)
 
                     if (promptCacheEnabled) {
                         val cached = chatCacheService.getPromptCache(promptCacheKey)
@@ -406,6 +441,7 @@ class ChatService(
                                 retrieval = retrieval,
                                 profileKey = profileKey,
                                 memory = memory,
+                                experiment = experiment,
                             )
                         }
 
@@ -420,6 +456,7 @@ class ChatService(
                                 retrieval = retrieval,
                                 profileKey = profileKey,
                                 memory = memory,
+                                experiment = experiment,
                             )
                         }
                     }
@@ -427,9 +464,15 @@ class ChatService(
                     val llmResult = llmExecutionGate.run {
                         val llmResponse = llmClient.generateStream(
                             request = LlmGenerateRequest(
-                                prompt = promptFactory.buildUserPrompt(request, slots, retrieval.hits.take(6), memory),
-                                systemPrompt = promptFactory.buildSystemPrompt(),
-                                model = modelRegistry.activeModel(),
+                                prompt = promptFactory.buildUserPrompt(
+                                    request = request,
+                                    slots = slots,
+                                    hits = retrieval.hits.take(6),
+                                    memory = memory,
+                                    promptVersion = experiment.prompt_version,
+                                ),
+                                systemPrompt = promptFactory.buildSystemPrompt(experiment.prompt_version),
+                                model = selectedModel,
                             ),
                             onChunk = { chunk -> emitToken(chunk) },
                             cancelSignal = isCancelled,
@@ -467,6 +510,7 @@ class ChatService(
                             retrieval = retrieval,
                             profileKey = profileKey,
                             memory = memory,
+                            experiment = experiment,
                         )
                     }
 
@@ -497,6 +541,7 @@ class ChatService(
                         retrieval = retrieval,
                         profileKey = profileKey,
                         memory = memory,
+                        experiment = experiment,
                     )
                 }
             }
@@ -539,6 +584,7 @@ class ChatService(
                 retrieval = fallbackRetrieval,
                 profileKey = profileKey,
                 memory = memory,
+                experiment = experiment,
             )
         }
 
@@ -563,7 +609,17 @@ class ChatService(
         val guarded = safetyPolicy.enforceOutputPolicy(result)
         val verified = citationVerifier.verifyOrMitigate(guarded)
         val finalized = verified.copy(debug = debug)
+        recordExperimentOutcome(experiment, finalized, totalMs)
         persistTurnIfNeeded(sessionKey, message, finalized, route)
+        if (route != "BLOCKED") {
+            chatShadowService.submit(
+                request = request,
+                primaryResponse = finalized,
+                routePrimary = route,
+                modelPrimary = model,
+                promptVersion = experiment.prompt_version,
+            )
+        }
         return finalized
     }
 
@@ -572,17 +628,21 @@ class ChatService(
         slots: ChatSlots,
         retrieval: RagSearchResult,
         memory: ChatMemorySnapshot,
+        model: String,
+        promptVersion: String?,
     ): String {
         return sha256(
             buildString {
                 append("v4|")
-                append(modelRegistry.activeModel())
+                append(model)
                 append('|')
                 append(message.lowercase())
                 append('|')
                 append(slots.city ?: "-")
                 append('|')
                 append(slots.intent)
+                append('|')
+                append(promptVersion ?: "-")
                 append('|')
                 append(memory.state)
                 append('|')
@@ -595,9 +655,9 @@ class ChatService(
         )
     }
 
-    private fun semanticNamespace(slots: ChatSlots, retrieval: RagSearchResult): String {
+    private fun semanticNamespace(slots: ChatSlots, retrieval: RagSearchResult, model: String): String {
         return buildString {
-            append(modelRegistry.activeModel())
+            append(model)
             append('|')
             append(slots.city ?: "-")
             append('|')
@@ -614,6 +674,7 @@ class ChatService(
         retrieval: RagSearchResult,
         profileKey: String,
         memory: ChatMemorySnapshot,
+        experiment: ChatExperimentAssignment,
         allowPlanner: Boolean = true,
     ): ChatRecommendData {
         val rerankedCards = preferenceProfileService.rerank(profileKey, message, response.cards)
@@ -635,6 +696,8 @@ class ChatService(
             "memory_state" to memory.state,
             "memory_turn_count" to memory.turnCount,
             "pref_profile_applied" to (profileKey != "anon"),
+            "experiment_bucket" to experiment.bucket,
+            "experiment_prompt_version" to experiment.prompt_version,
         ) + when {
             itinerary.isNotEmpty() -> mapOf(
                 "planner_mode" to "document_grounded",
@@ -669,6 +732,26 @@ class ChatService(
             )
         }.onFailure {
             meterRegistry.counter("chat_memory_total", "result", "append_error").increment()
+        }
+    }
+
+    private fun recordExperimentOutcome(
+        assignment: ChatExperimentAssignment,
+        response: ChatRecommendData,
+        totalMs: Long,
+    ) {
+        if (assignment.bucket == "OFF") {
+            return
+        }
+
+        meterRegistry.timer("chat_experiment_latency_ms", "bucket", assignment.bucket)
+            .record(Duration.ofMillis(totalMs.coerceAtLeast(1)))
+        if (response.cards.isEmpty()) {
+            meterRegistry.counter("chat_experiment_zero_result_total", "bucket", assignment.bucket).increment()
+        }
+        val route = response.context_used["route"]?.toString().orEmpty()
+        if (route.contains("fallback", ignoreCase = true)) {
+            meterRegistry.counter("chat_experiment_fallback_total", "bucket", assignment.bucket).increment()
         }
     }
 

@@ -77,6 +77,9 @@
    - `chat_semantic_cache_total`
    - `chat_llm_budget_mode`
    - `chat_llm_budget_p99_ms`
+   - `chat_experiment_assignment_total`
+   - `chat_shadow_total`
+   - `chat_prompt_registry_total`
 3) 즉시 조치
    - `CHAT_LLM_ENABLED=false`로 LLM 경로를 즉시 차단하고 TEMPLATE로 degrade
    - `stayvista.chat.llm.max-concurrency` 하향/상향 조정
@@ -142,6 +145,24 @@ curl -sS -X POST \"http://localhost:18765/v1/admin/chat/rag/reindex?mode=increme
 curl -sS -X POST "http://localhost:18765/v1/chat/preferences/feedback" \
   -H "Content-Type: application/json" \
   -d '{"user_id":"1001","like_tags":["culture"],"like_categories":["POI"]}'
+```
+
+### 3.7 Prompt 롤백 / A-B / Shadow 운영
+```bash
+# prompt 등록/활성화
+curl -sS -X POST "http://localhost:18765/v1/admin/chat/prompts" \
+  -H "Content-Type: application/json" \
+  -d '{"prompt_key":"chat-core","version":"v3","system_prompt":"...","activate":true}'
+
+# prompt 즉시 롤백
+curl -sS -X POST "http://localhost:18765/v1/admin/chat/prompts/rollback" \
+  -H "Content-Type: application/json" \
+  -d '{"prompt_key":"chat-core","version":"v2"}'
+
+# A/B rollout 조정 (0/5/50/100)
+curl -sS -X POST "http://localhost:18765/v1/admin/chat/experiments/chat-core" \
+  -H "Content-Type: application/json" \
+  -d '{"enabled":true,"rollout_percent":50,"treatment_model":"llama3.1:70b-instruct","prompt_version":"v3"}'
 ```
 
 ## 4) 런타임 설정(초안)

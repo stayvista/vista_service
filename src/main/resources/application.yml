@@ -88,6 +88,9 @@ stayvista:
       enabled: ${CHAT_SEMANTIC_CACHE_ENABLED:true}
       similarity-threshold: ${CHAT_SEMANTIC_CACHE_SIMILARITY_THRESHOLD:0.92}
       max-entries: ${CHAT_SEMANTIC_CACHE_MAX_ENTRIES:800}
+    shadow:
+      enabled: ${CHAT_SHADOW_ENABLED:false}
+      model: ${CHAT_SHADOW_MODEL:}
     llm:
       enabled: ${CHAT_LLM_ENABLED:true}
       base-url: ${LLM_BASE_URL:${CHAT_LLM_BASE_URL:http://127.0.0.1:21434}}

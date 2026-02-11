@@ -5,8 +5,14 @@ import org.springframework.stereotype.Component
 @Component
 class ChatPromptFactory(
     private val safetyPolicy: ChatSafetyPolicy,
+    private val promptRegistryService: PromptRegistryService,
 ) {
-    fun buildSystemPrompt(): String {
+    fun buildSystemPrompt(promptVersion: String? = null): String {
+        val registryPrompt = promptRegistryService.resolveSystemPrompt(promptVersion)
+        if (!registryPrompt.isNullOrBlank()) {
+            return registryPrompt.trim()
+        }
+
         return """
             You are StayVista AI concierge.
             You must answer in JSON only.
@@ -50,7 +56,9 @@ class ChatPromptFactory(
         slots: ChatSlots,
         hits: List<RagHit>,
         memory: ChatMemorySnapshot = ChatMemorySnapshot(),
+        promptVersion: String? = null,
     ): String {
+        val registryTemplate = promptRegistryService.resolveUserPromptTemplate(promptVersion)?.trim().orEmpty()
         val evidence = hits.joinToString("\n") { hit ->
             val doc = hit.document
             val safeTitle = safetyPolicy.sanitizeEvidenceText(doc.title)
@@ -59,6 +67,7 @@ class ChatPromptFactory(
         }
 
         return """
+            ${if (registryTemplate.isNotBlank()) "PROMPT_TEMPLATE:\n$registryTemplate\n" else ""}
             USER_QUERY:
             ${request.message.trim()}
 

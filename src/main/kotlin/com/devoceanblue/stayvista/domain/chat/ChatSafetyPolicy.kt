@@ -6,6 +6,7 @@ import org.springframework.stereotype.Component
 @Component
 class ChatSafetyPolicy(
     private val meterRegistry: MeterRegistry,
+    private val piiRedactor: PiiRedactor,
 ) {
     private val blockedKeywords = listOf("폭탄", "마약", "해킹", "총기", "살인", "불법")
     private val promptInjectionPatterns = listOf(
@@ -128,12 +129,7 @@ class ChatSafetyPolicy(
     }
 
     private fun containsSensitiveInfo(text: String): Boolean {
-        val emailRegex = Regex("[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}")
-        val phoneRegex = Regex("(01[016789])[ -]?(\\d{3,4})[ -]?(\\d{4})")
-        val cardRegex = Regex("\\b(?:\\d[ -]*?){13,19}\\b")
-        return emailRegex.containsMatchIn(text) ||
-            phoneRegex.containsMatchIn(text) ||
-            cardRegex.containsMatchIn(text)
+        return piiRedactor.containsPii(text)
     }
 
     private fun containsPromptInjection(text: String): Boolean {

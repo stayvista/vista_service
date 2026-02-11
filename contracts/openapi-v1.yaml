@@ -356,6 +356,87 @@ paths:
             application/json:
               schema:
                 type: object
+  /v1/admin/chat/prompts:
+    get:
+      summary: List chat prompt templates
+      parameters:
+      - $ref: '#/components/parameters/XRequestId'
+      - name: prompt_key
+        in: query
+        required: false
+        schema:
+          type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnvelopePromptTemplateList'
+    post:
+      summary: Upsert chat prompt template
+      parameters:
+      - $ref: '#/components/parameters/XRequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PromptTemplateUpsertRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnvelopePromptTemplate'
+  /v1/admin/chat/prompts/rollback:
+    post:
+      summary: Rollback active prompt template
+      parameters:
+      - $ref: '#/components/parameters/XRequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PromptTemplateRollbackRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnvelopePromptTemplate'
+  /v1/admin/chat/experiments/chat-core:
+    get:
+      summary: Get chat-core experiment config
+      parameters:
+      - $ref: '#/components/parameters/XRequestId'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnvelopeChatExperiment'
+    post:
+      summary: Update chat-core experiment config
+      parameters:
+      - $ref: '#/components/parameters/XRequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChatExperimentUpdateRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnvelopeChatExperiment'
 components:
   parameters:
     XRequestId:
@@ -861,6 +942,111 @@ components:
       required:
       - tagWeights
       - categoryWeights
+    PromptTemplateRecord:
+      type: object
+      properties:
+        prompt_key:
+          type: string
+        version:
+          type: string
+        system_prompt:
+          type: string
+          nullable: true
+        user_prompt_template:
+          type: string
+          nullable: true
+        is_active:
+          type: boolean
+        updated_at:
+          type: string
+      required:
+      - prompt_key
+      - version
+      - is_active
+      - updated_at
+    PromptTemplateUpsertRequest:
+      type: object
+      properties:
+        prompt_key:
+          type: string
+          default: chat-core
+        version:
+          type: string
+        system_prompt:
+          type: string
+          nullable: true
+        user_prompt_template:
+          type: string
+          nullable: true
+        activate:
+          type: boolean
+      required:
+      - version
+    PromptTemplateRollbackRequest:
+      type: object
+      properties:
+        prompt_key:
+          type: string
+          default: chat-core
+        version:
+          type: string
+      required:
+      - version
+    PromptTemplateList:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/PromptTemplateRecord'
+      required:
+      - items
+    ChatExperimentConfig:
+      type: object
+      properties:
+        experiment_key:
+          type: string
+        enabled:
+          type: boolean
+        rollout_percent:
+          type: integer
+          minimum: 0
+          maximum: 100
+        treatment_model:
+          type: string
+          nullable: true
+        prompt_version:
+          type: string
+          nullable: true
+        parameters_json:
+          type: object
+          additionalProperties: true
+        updated_at:
+          type: string
+      required:
+      - experiment_key
+      - enabled
+      - rollout_percent
+      - parameters_json
+      - updated_at
+    ChatExperimentUpdateRequest:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+        rollout_percent:
+          type: integer
+          minimum: 0
+          maximum: 100
+        treatment_model:
+          type: string
+          nullable: true
+        prompt_version:
+          type: string
+          nullable: true
+        parameters_json:
+          type: object
+          additionalProperties: true
     EnvelopeChatRecommend:
       allOf:
       - $ref: '#/components/schemas/EnvelopeBase'
@@ -877,5 +1063,32 @@ components:
         properties:
           data:
             $ref: '#/components/schemas/PreferenceProfileSnapshot'
+        required:
+        - data
+    EnvelopePromptTemplate:
+      allOf:
+      - $ref: '#/components/schemas/EnvelopeBase'
+      - type: object
+        properties:
+          data:
+            $ref: '#/components/schemas/PromptTemplateRecord'
+        required:
+        - data
+    EnvelopePromptTemplateList:
+      allOf:
+      - $ref: '#/components/schemas/EnvelopeBase'
+      - type: object
+        properties:
+          data:
+            $ref: '#/components/schemas/PromptTemplateList'
+        required:
+        - data
+    EnvelopeChatExperiment:
+      allOf:
+      - $ref: '#/components/schemas/EnvelopeBase'
+      - type: object
+        properties:
+          data:
+            $ref: '#/components/schemas/ChatExperimentConfig'
         required:
         - data

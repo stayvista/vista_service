@@ -14,6 +14,7 @@ class ChatMemoryService(
     private val redisTemplate: StringRedisTemplate,
     private val objectMapper: ObjectMapper,
     private val meterRegistry: MeterRegistry,
+    private val piiRedactor: PiiRedactor,
     @Value("\${stayvista.chat.memory.ttl-seconds:604800}") private val ttlSeconds: Long,
 ) {
     private val fallbackStore = ConcurrentHashMap<String, StoredMemoryState>()
@@ -132,15 +133,7 @@ class ChatMemoryService(
     }
 
     private fun redactPii(text: String): String {
-        var sanitized = text
-        val emailRegex = Regex("[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}")
-        val phoneRegex = Regex("(01[016789])[ -]?(\\d{3,4})[ -]?(\\d{4})")
-        val cardRegex = Regex("\\b(?:\\d[ -]*?){13,19}\\b")
-
-        sanitized = sanitized.replace(emailRegex, "[REDACTED_EMAIL]")
-        sanitized = sanitized.replace(phoneRegex, "[REDACTED_PHONE]")
-        sanitized = sanitized.replace(cardRegex, "[REDACTED_CARD]")
-        return sanitized
+        return piiRedactor.redact(text)
     }
 
     private data class StoredMemoryState(
