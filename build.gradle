@@ -21,6 +21,19 @@ repositories {
     mavenCentral()
 }
 
+sourceSets {
+    main {
+        kotlin {
+            srcDirs += ['services/eval/src/main/kotlin']
+        }
+    }
+    test {
+        kotlin {
+            srcDirs += ['services/eval/src/test/kotlin']
+        }
+    }
+}
+
 dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-actuator'
     implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
@@ -64,4 +77,33 @@ allOpen {
 
 tasks.named('test') {
     useJUnitPlatform()
+}
+
+tasks.register('runEval', JavaExec) {
+    group = 'verification'
+    description = 'Run eval harness with custom args'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.devoceanblue.stayvista.eval.EvalRunner'
+}
+
+tasks.register('evalSmoke', JavaExec) {
+    group = 'verification'
+    description = 'Run smoke eval suite (>=30 cases)'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.devoceanblue.stayvista.eval.EvalRunner'
+    args '--mode=smoke',
+        '--dataset=services/eval/datasets/smoke_seed.json',
+        '--repeat=3',
+        '--report-dir=services/eval/reports/smoke'
+}
+
+tasks.register('evalFull', JavaExec) {
+    group = 'verification'
+    description = 'Run full eval suite (>=500 cases)'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.devoceanblue.stayvista.eval.EvalRunner'
+    args '--mode=full',
+        '--dataset=services/eval/datasets/full_seed.json',
+        '--repeat=50',
+        '--report-dir=services/eval/reports/full'
 }

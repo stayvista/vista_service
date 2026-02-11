@@ -19,9 +19,13 @@ class ChatCacheService(
 
     fun getPromptCache(key: String): ChatRecommendData? {
         return readJson("chat:prompt:$key", object : TypeReference<ChatRecommendData>() {})
-            ?.also { meterRegistry.counter("chat_prompt_cache_total", "result", "hit").increment() }
+            ?.also {
+                meterRegistry.counter("chat_prompt_cache_total", "result", "hit").increment()
+                meterRegistry.counter("cache_hit_rate_prompt", "result", "hit").increment()
+            }
             ?: run {
                 meterRegistry.counter("chat_prompt_cache_total", "result", "miss").increment()
+                meterRegistry.counter("cache_hit_rate_prompt", "result", "miss").increment()
                 null
             }
     }
@@ -32,9 +36,13 @@ class ChatCacheService(
 
     fun getRetrievalCache(key: String): RagSearchResult? {
         return readJson("chat:retrieval:$key", object : TypeReference<RagSearchResult>() {})
-            ?.also { meterRegistry.counter("chat_retrieval_cache_total", "result", "hit").increment() }
+            ?.also {
+                meterRegistry.counter("chat_retrieval_cache_total", "result", "hit").increment()
+                meterRegistry.counter("cache_hit_rate_retrieval", "result", "hit").increment()
+            }
             ?: run {
                 meterRegistry.counter("chat_retrieval_cache_total", "result", "miss").increment()
+                meterRegistry.counter("cache_hit_rate_retrieval", "result", "miss").increment()
                 null
             }
     }
@@ -50,10 +58,12 @@ class ChatCacheService(
         val existing = inflight.putIfAbsent(fullKey, owned)
         if (existing != null) {
             meterRegistry.counter("chat_singleflight_total", "scope", scope, "result", "join").increment()
+            meterRegistry.counter("singleflight_dedup_rate", "scope", scope, "result", "join").increment()
             return existing.join() as T
         }
 
         meterRegistry.counter("chat_singleflight_total", "scope", scope, "result", "leader").increment()
+        meterRegistry.counter("singleflight_dedup_rate", "scope", scope, "result", "leader").increment()
         return try {
             val value = supplier()
             owned.complete(value as Any)

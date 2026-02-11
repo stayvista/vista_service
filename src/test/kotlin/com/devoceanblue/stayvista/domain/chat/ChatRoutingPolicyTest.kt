@@ -43,4 +43,64 @@ class ChatRoutingPolicyTest {
         val decision = routingPolicy.decide(request.message, slots, hits)
         assertEquals(ChatRouteType.LLM, decision.type)
     }
+
+    @Test
+    fun `decide chooses template when llm is disabled`() {
+        val request = ChatRecommendRequest(message = "서울 3박4일 일정 자세히 짜줘")
+        val slots = routingPolicy.extractSlots(request)
+        val hits = listOf(
+            RagHit(
+                document = RagDocument(
+                    docId = "property:1",
+                    title = "test property",
+                    snippet = "snippet",
+                    sourceType = "PROPERTY",
+                ),
+                score = 0.9,
+            ),
+            RagHit(
+                document = RagDocument(
+                    docId = "poi:1",
+                    title = "test poi",
+                    snippet = "snippet",
+                    sourceType = "POI",
+                ),
+                score = 0.8,
+            ),
+        )
+
+        val decision = routingPolicy.decide(request.message, slots, hits, llmAllowed = false)
+        assertEquals(ChatRouteType.TEMPLATE, decision.type)
+        assertEquals("llm_disabled", decision.reason)
+    }
+
+    @Test
+    fun `decide chooses template when rag is sufficient and no long narrative needed`() {
+        val request = ChatRecommendRequest(message = "서울 숙소 추천")
+        val slots = routingPolicy.extractSlots(request)
+        val hits = listOf(
+            RagHit(
+                document = RagDocument(
+                    docId = "property:1",
+                    title = "test property",
+                    snippet = "snippet",
+                    sourceType = "PROPERTY",
+                ),
+                score = 0.9,
+            ),
+            RagHit(
+                document = RagDocument(
+                    docId = "package:1",
+                    title = "test package",
+                    snippet = "snippet",
+                    sourceType = "PACKAGE",
+                ),
+                score = 0.8,
+            ),
+        )
+
+        val decision = routingPolicy.decide(request.message, slots, hits)
+        assertEquals(ChatRouteType.TEMPLATE, decision.type)
+        assertEquals("rag_is_sufficient", decision.reason)
+    }
 }

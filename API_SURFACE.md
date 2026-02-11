@@ -41,6 +41,7 @@
 
 ### Chat
 - `POST /v1/chat/recommend`
+- `POST /v1/chat/recommend:stream` *(SSE: meta/token/done)*
 
 ## Admin
 

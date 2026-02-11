@@ -3,8 +3,11 @@ package com.devoceanblue.stayvista.domain.chat
 import io.micrometer.core.instrument.MeterRegistry
 import java.security.MessageDigest
 import java.time.Duration
+import java.util.concurrent.CancellationException
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.stereotype.Service
+
+class StructuredRepairFailedException(cause: Throwable? = null) : RuntimeException("structured_output_repair_failed", cause)
 
 @Service
 class ChatService(
@@ -20,12 +23,13 @@ class ChatService(
     private val structuredChatParser: StructuredChatParser,
     @Value("\${stayvista.chat.cache.retrieval-ttl-seconds:900}") private val retrievalCacheTtlSeconds: Long,
     @Value("\${stayvista.chat.cache.prompt-ttl-seconds:180}") private val promptCacheTtlSeconds: Long,
+    @Value("\${stayvista.chat.llm.enabled:true}") private val llmEnabled: Boolean,
 ) {
     fun recommend(request: ChatRecommendRequest): ChatRecommendData {
         val startedAt = System.nanoTime()
         meterRegistry.counter("chat_requests_total").increment()
 
-        var route = "template"
+        var route = "TEMPLATE"
         var model: String? = null
         var llmMs = 0L
         var ragMs = 0L
@@ -34,8 +38,8 @@ class ChatService(
             val message = request.message.trim()
             val safetyDecision = safetyPolicy.evaluateInput(message)
             if (safetyDecision.blocked) {
-                route = "blocked"
-                meterRegistry.counter("chat_route_total", "route", route).increment()
+                route = "BLOCKED"
+                meterRegistry.counter("chat_route_total", "route", route.lowercase()).increment()
                 return@runCatching buildBlockedResponse(safetyDecision.reason ?: "요청을 처리할 수 없습니다.")
             }
 
@@ -48,9 +52,9 @@ class ChatService(
             }
             ragMs = retrieval.retrievalMs
 
-            val routeDecision = routingPolicy.decide(message, slots, retrieval.hits)
-            route = routeDecision.type.name.lowercase()
-            meterRegistry.counter("chat_route_total", "route", route).increment()
+            val routeDecision = routingPolicy.decide(message, slots, retrieval.hits, llmAllowed = llmEnabled)
+            route = toDebugRoute(routeDecision.type)
+            recordRouteRate(routeDecision.type)
 
             when (routeDecision.type) {
                 ChatRouteType.ASK_CLARIFICATION -> {
@@ -138,6 +142,9 @@ class ChatService(
             }
         }.getOrElse { ex ->
             meterRegistry.counter("chat_llm_fail_total", "reason", "fallback").increment()
+            if (ex is StructuredRepairFailedException) {
+                meterRegistry.counter("fallback_due_to_parse_rate", "route", "sync").increment()
+            }
             val slots = routingPolicy.extractSlots(request)
             val fallbackRetrieval = runCatching {
                 ragRetriever.searchItems(request.message, slots)
@@ -172,11 +179,225 @@ class ChatService(
         return result.copy(debug = debug)
     }
 
+    fun recommendStream(
+        request: ChatRecommendRequest,
+        onMeta: (Map<String, Any?>) -> Unit,
+        onToken: (String) -> Unit,
+        isCancelled: () -> Boolean = { false },
+    ): ChatRecommendData {
+        val startedAt = System.nanoTime()
+        meterRegistry.counter("chat_requests_total").increment()
+
+        var route = "TEMPLATE"
+        var model: String? = null
+        var llmMs = 0L
+        var ragMs = 0L
+        var firstEventAtNanos: Long? = null
+
+        fun markFirstEvent() {
+            if (firstEventAtNanos == null) {
+                firstEventAtNanos = System.nanoTime()
+                val ttfbMs = Duration.ofNanos(firstEventAtNanos!! - startedAt).toMillis().coerceAtLeast(1)
+                meterRegistry.timer("chat_ttfb_ms").record(Duration.ofMillis(ttfbMs))
+            }
+        }
+
+        fun emitMeta(payload: Map<String, Any?>) {
+            if (isCancelled()) throw CancellationException("stream cancelled before meta")
+            markFirstEvent()
+            onMeta(payload)
+        }
+
+        fun emitToken(token: String) {
+            if (token.isBlank() || isCancelled()) return
+            markFirstEvent()
+            onToken(token)
+        }
+
+        val result = runCatching {
+            val message = request.message.trim()
+            val safetyDecision = safetyPolicy.evaluateInput(message)
+            if (safetyDecision.blocked) {
+                route = "BLOCKED"
+                meterRegistry.counter("chat_route_total", "route", route.lowercase()).increment()
+                emitMeta(mapOf("route" to route, "route_reason" to "guardrails_blocked", "llm_used" to false))
+                return@runCatching buildBlockedResponse(safetyDecision.reason ?: "요청을 처리할 수 없습니다.")
+            }
+
+            val slots = routingPolicy.extractSlots(request)
+            val retrievalKey = sha256(retrievalCacheKey(slots, message))
+            val retrieval = chatCacheService.singleFlight("retrieval", retrievalKey) {
+                chatCacheService.getRetrievalCache(retrievalKey)
+                    ?: ragRetriever.searchItems(message, slots)
+                        .also { chatCacheService.putRetrievalCache(retrievalKey, it, retrievalCacheTtlSeconds) }
+            }
+            ragMs = retrieval.retrievalMs
+
+            val routeDecision = routingPolicy.decide(message, slots, retrieval.hits, llmAllowed = llmEnabled)
+            route = toDebugRoute(routeDecision.type)
+            recordRouteRate(routeDecision.type)
+
+            when (routeDecision.type) {
+                ChatRouteType.ASK_CLARIFICATION -> {
+                    meterRegistry.counter("llm_used_rate", "used", "false").increment()
+                    emitMeta(mapOf("route" to route, "route_reason" to routeDecision.reason, "llm_used" to false))
+                    buildClarificationResponse(slots, routeDecision)
+                }
+
+                ChatRouteType.TEMPLATE -> {
+                    meterRegistry.counter("llm_used_rate", "used", "false").increment()
+                    emitMeta(mapOf("route" to route, "route_reason" to routeDecision.reason, "llm_used" to false))
+                    buildTemplateResponse(
+                        slots = slots,
+                        retrieval = retrieval,
+                        followups = routeDecision.followups.ifEmpty { routingPolicy.defaultFollowups(slots) },
+                        contextUsed = mapOf(
+                            "route" to routeDecision.reason,
+                            "embedding_used" to retrieval.usedEmbedding,
+                        ),
+                    )
+                }
+
+                ChatRouteType.LLM -> {
+                    emitMeta(mapOf("route" to route, "route_reason" to routeDecision.reason, "llm_used" to true))
+
+                    val promptCacheEnabled = safetyPolicy.cacheAllowed(message)
+                    val promptCacheKey = sha256(
+                        buildString {
+                            append("v3|")
+                            append(modelRegistry.activeModel())
+                            append('|')
+                            append(message.lowercase())
+                            append('|')
+                            append(slots.city ?: "-")
+                            append('|')
+                            append(retrieval.hits.take(4).joinToString(";") { it.document.docId })
+                        },
+                    )
+
+                    if (promptCacheEnabled) {
+                        val cached = chatCacheService.getPromptCache(promptCacheKey)
+                        if (cached != null) {
+                            meterRegistry.counter("llm_used_rate", "used", "true").increment()
+                            emitToken(cached.assistant_text)
+                            return@runCatching cached
+                        }
+                    }
+
+                    val llmResult = llmExecutionGate.run {
+                        val llmResponse = llmClient.generateStream(
+                            request = LlmGenerateRequest(
+                                prompt = promptFactory.buildUserPrompt(request, slots, retrieval.hits.take(6)),
+                                systemPrompt = promptFactory.buildSystemPrompt(),
+                                model = modelRegistry.activeModel(),
+                            ),
+                            onChunk = { chunk -> emitToken(chunk) },
+                            cancelSignal = isCancelled,
+                        )
+
+                        model = llmResponse.model
+                        llmMs += llmResponse.elapsedMs
+
+                        parseStructuredOutputWithRepair(llmResponse.text)
+                    }
+
+                    if (llmResult.rejected || llmResult.value == null) {
+                        meterRegistry.counter("chat_llm_fail_total", "reason", "queue_rejected").increment()
+                        meterRegistry.counter("llm_used_rate", "used", "false").increment()
+                        return@runCatching buildTemplateResponse(
+                            slots = slots,
+                            retrieval = retrieval,
+                            followups = routingPolicy.defaultFollowups(slots),
+                            contextUsed = mapOf(
+                                "route" to "queue_rejected_fallback",
+                                "embedding_used" to retrieval.usedEmbedding,
+                            ),
+                        )
+                    }
+
+                    val normalized = normalizeStructuredResult(
+                        structured = llmResult.value,
+                        retrieval = retrieval,
+                        slots = slots,
+                    )
+                    if (promptCacheEnabled) {
+                        chatCacheService.putPromptCache(promptCacheKey, normalized, promptCacheTtlSeconds)
+                    }
+                    meterRegistry.counter("llm_used_rate", "used", "true").increment()
+                    normalized
+                }
+            }
+        }.getOrElse { ex ->
+            if (ex is CancellationException) {
+                throw ex
+            }
+            meterRegistry.counter("chat_llm_fail_total", "reason", "fallback").increment()
+            if (ex is StructuredRepairFailedException) {
+                meterRegistry.counter("fallback_due_to_parse_rate", "route", "stream").increment()
+            }
+            val slots = routingPolicy.extractSlots(request)
+            val fallbackRetrieval = runCatching {
+                ragRetriever.searchItems(request.message, slots)
+            }.getOrElse {
+                RagSearchResult(emptyList(), retrievalMs = 0L, usedEmbedding = false)
+            }
+            ragMs = fallbackRetrieval.retrievalMs
+            buildTemplateResponse(
+                slots = slots,
+                retrieval = fallbackRetrieval,
+                followups = routingPolicy.defaultFollowups(slots),
+                contextUsed = mapOf(
+                    "route" to "exception_fallback",
+                    "error_type" to ex.javaClass.simpleName,
+                ),
+            )
+        }
+
+        val totalMs = Duration.ofNanos(System.nanoTime() - startedAt).toMillis().coerceAtLeast(1)
+        meterRegistry.timer("chat_stream_duration_ms").record(Duration.ofMillis(totalMs))
+        meterRegistry.timer("chat_latency_seconds").record(Duration.ofMillis(totalMs))
+        if (firstEventAtNanos == null) {
+            meterRegistry.timer("chat_ttfb_ms").record(Duration.ofMillis(totalMs))
+        }
+        val debug = if (modelRegistry.shouldExposeModelVersion()) {
+            ChatDebug(
+                route = route,
+                model = model,
+                llm_ms = llmMs,
+                rag_ms = ragMs,
+                total_ms = totalMs,
+            )
+        } else {
+            null
+        }
+
+        return result.copy(debug = debug)
+    }
+
+    private fun toDebugRoute(type: ChatRouteType): String {
+        return when (type) {
+            ChatRouteType.ASK_CLARIFICATION -> "CLARIFY"
+            ChatRouteType.TEMPLATE -> "TEMPLATE"
+            ChatRouteType.LLM -> "LLM"
+        }
+    }
+
+    private fun recordRouteRate(type: ChatRouteType) {
+        val route = toDebugRoute(type)
+        meterRegistry.counter("chat_route_total", "route", route.lowercase()).increment()
+        when (type) {
+            ChatRouteType.ASK_CLARIFICATION -> meterRegistry.counter("route_clarify_rate").increment()
+            ChatRouteType.TEMPLATE -> meterRegistry.counter("route_template_rate").increment()
+            ChatRouteType.LLM -> meterRegistry.counter("route_llm_rate").increment()
+        }
+    }
+
     private fun parseStructuredOutputWithRepair(raw: String): StructuredLlmOutput {
         return try {
             structuredChatParser.parseStrict(raw)
         } catch (_: Exception) {
             meterRegistry.counter("chat_json_parse_fail_total", "phase", "primary").increment()
+            meterRegistry.counter("structured_parse_fail_count", "phase", "primary").increment()
             val repaired = llmClient.generate(
                 LlmGenerateRequest(
                     prompt = promptFactory.buildRepairPrompt(raw),
@@ -187,10 +408,14 @@ class ChatService(
             )
             meterRegistry.timer("llm_ms").record(Duration.ofMillis(repaired.elapsedMs.coerceAtLeast(1)))
             try {
-                structuredChatParser.parseStrict(repaired.text)
+                val repairedStructured = structuredChatParser.parseStrict(repaired.text)
+                meterRegistry.counter("structured_repair_success_rate", "result", "success").increment()
+                repairedStructured
             } catch (repairException: Exception) {
                 meterRegistry.counter("chat_json_parse_fail_total", "phase", "repair").increment()
-                throw repairException
+                meterRegistry.counter("structured_parse_fail_count", "phase", "repair").increment()
+                meterRegistry.counter("structured_repair_success_rate", "result", "fail").increment()
+                throw StructuredRepairFailedException(repairException)
             }
         }
     }

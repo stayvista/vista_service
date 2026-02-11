@@ -26,6 +26,7 @@ data class ChatCard(
     val price: String? = null,
     val why: String? = null,
     val source: List<ChatSource> = emptyList(),
+    val sources: List<ChatSource> = source,
     val poi_id: String? = null,
     val property_id: Long? = null,
     val product_id: Long? = null,
@@ -35,6 +36,7 @@ data class ChatCard(
 data class ChatSource(
     val doc_id: String,
     val title: String,
+    val url: String? = null,
     val snippet: String,
     val source_type: String,
 )

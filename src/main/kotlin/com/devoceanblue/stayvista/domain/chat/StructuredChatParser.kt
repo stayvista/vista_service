@@ -68,7 +68,7 @@ class StructuredChatParser(
 
         val type = cardNode.requiredText("type").uppercase()
         val title = cardNode.requiredText("title")
-        val sourceNode = cardNode.path("source")
+        val sourceNode = cardNode.path("sources").takeIf { it.isArray } ?: cardNode.path("source")
         if (!sourceNode.isArray || sourceNode.isEmpty) {
             throw StructuredOutputParseException("card_source_required")
         }
@@ -80,6 +80,7 @@ class StructuredChatParser(
             ChatSource(
                 doc_id = sourceEntry.requiredText("doc_id"),
                 title = sourceEntry.requiredText("title"),
+                url = sourceEntry.path("url").takeIf { it.isTextual }?.asText(),
                 snippet = sourceEntry.requiredText("snippet"),
                 source_type = sourceEntry.requiredText("source_type"),
             )

@@ -33,6 +33,7 @@ class ChatRoutingPolicy {
         message: String,
         slots: ChatSlots,
         ragHits: List<RagHit>,
+        llmAllowed: Boolean = true,
     ): ChatRouteDecision {
         if (slots.city == null) {
             return ChatRouteDecision(
@@ -60,10 +61,16 @@ class ChatRoutingPolicy {
         val llmKeywords = listOf("일정", "plan", "itinerary", "코스", "동선", "why", "설명", "비교")
         val shouldUseLlm = llmKeywords.any { normalized.contains(it) } || normalized.length >= 45
 
-        return if (shouldUseLlm) {
+        return if (shouldUseLlm && llmAllowed) {
             ChatRouteDecision(
                 type = ChatRouteType.LLM,
                 reason = "natural_language_needed",
+            )
+        } else if (shouldUseLlm) {
+            ChatRouteDecision(
+                type = ChatRouteType.TEMPLATE,
+                reason = "llm_disabled",
+                followups = defaultFollowups(slots),
             )
         } else {
             ChatRouteDecision(

@@ -1,0 +1,93 @@
+{
+  "annotations": {"list": []},
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Chat Stream TTFB p95 (ms)",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(chat_ttfb_ms_seconds_bucket[5m])) by (le)) * 1000",
+          "legendFormat": "ttfb_p95_ms",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Chat Stream Complete p95 (ms)",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(chat_stream_duration_ms_seconds_bucket[5m])) by (le)) * 1000",
+          "legendFormat": "complete_p95_ms",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "LLM Queue Depth / Inflight",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+      "targets": [
+        {"expr": "llm_queue_depth", "legendFormat": "queue_depth", "refId": "A"},
+        {"expr": "llm_inflight", "legendFormat": "inflight", "refId": "B"}
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "LLM Reject / Timeout / Error rate",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+      "targets": [
+        {"expr": "sum(rate(llm_reject_rate_total[5m]))", "legendFormat": "reject_rate", "refId": "A"},
+        {"expr": "sum(rate(llm_timeout_count_total[5m]))", "legendFormat": "timeout_rate", "refId": "B"},
+        {"expr": "sum(rate(llm_error_count_total[5m]))", "legendFormat": "error_rate", "refId": "C"}
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Cache Hit Rate",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
+      "targets": [
+        {
+          "expr": "sum(rate(cache_hit_rate_retrieval_total{result=\"hit\"}[5m])) / clamp_min(sum(rate(cache_hit_rate_retrieval_total[5m])), 0.0001)",
+          "legendFormat": "retrieval_hit_rate",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(cache_hit_rate_prompt_total{result=\"hit\"}[5m])) / clamp_min(sum(rate(cache_hit_rate_prompt_total[5m])), 0.0001)",
+          "legendFormat": "prompt_hit_rate",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Route Mix",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
+      "targets": [
+        {"expr": "sum(rate(route_clarify_rate_total[5m]))", "legendFormat": "clarify", "refId": "A"},
+        {"expr": "sum(rate(route_template_rate_total[5m]))", "legendFormat": "template", "refId": "B"},
+        {"expr": "sum(rate(route_llm_rate_total[5m]))", "legendFormat": "llm", "refId": "C"}
+      ]
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "style": "dark",
+  "tags": ["stayvista", "chat", "slo"],
+  "templating": {"list": []},
+  "time": {"from": "now-6h", "to": "now"},
+  "timepicker": {},
+  "timezone": "",
+  "title": "StayVista Chat SLO",
+  "uid": "stayvista-chat-slo",
+  "version": 1,
+  "weekStart": ""
+}

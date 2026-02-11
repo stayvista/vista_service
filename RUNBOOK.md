@@ -59,11 +59,16 @@
 1) `/internal/llm/healthz`, `/internal/llm/readyz` 상태 확인
 2) 애플리케이션 지표 확인
    - `llm_ms`
+   - `llm_timeout_count`
+   - `llm_error_count`
+   - `llm_used_rate`
+   - `route_clarify_rate`, `route_template_rate`, `route_llm_rate`
    - `llm_inflight`
    - `llm_queue_depth`
    - `llm_queue_wait_ms`
    - `llm_reject_rate`
 3) 즉시 조치
+   - `CHAT_LLM_ENABLED=false`로 LLM 경로를 즉시 차단하고 TEMPLATE로 degrade
    - `stayvista.chat.llm.max-concurrency` 하향/상향 조정
    - `stayvista.chat.llm.max-queue-wait-ms` 단축하여 빠른 degrade
    - `stayvista.chat.llm.active-model`을 더 작은 모델로 전환
@@ -76,6 +81,10 @@
 ### 3.1 서비스 기동
 ```bash
 ./services/infra/llm/up.sh
+```
+또는
+```bash
+docker compose -f services/docker/docker-compose.yml --profile llm up -d
 ```
 
 ### 3.2 health / ready
@@ -104,7 +113,7 @@
 ./services/infra/llm/swap-model.sh llama3.1:8b-instruct bge-m3
 ```
 - 앱 설정 반영:
-  - `CHAT_LLM_ACTIVE_MODEL`
+  - `LLM_MODEL_CHAT` (또는 `CHAT_LLM_ACTIVE_MODEL`)
   - `CHAT_EMBED_ACTIVE_MODEL`
 - 순서: pull/warmup -> 일부 트래픽 확인 -> 전체 전환
 

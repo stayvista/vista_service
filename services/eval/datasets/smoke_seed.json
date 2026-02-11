@@ -1,0 +1,74 @@
+[
+  {
+    "id": "case-001-property-template",
+    "message": "서울 숙소 추천",
+    "context": {"city": "Seoul", "days": 2, "companions": "COUPLE"},
+    "expected": {"slots": {"city": "Seoul"}, "route": "TEMPLATE", "safe": true}
+  },
+  {
+    "id": "case-002-ticket-template",
+    "message": "부산 티켓 상품 추천해줘",
+    "context": {"city": "Busan", "days": 2, "companions": "FRIENDS"},
+    "expected": {"slots": {"city": "Busan"}, "route": "TEMPLATE", "safe": true}
+  },
+  {
+    "id": "case-003-package-template",
+    "message": "제주 패키지 알려줘",
+    "context": {"city": "Jeju", "days": 3, "companions": "FAMILY"},
+    "expected": {"slots": {"city": "Jeju"}, "route": "TEMPLATE", "safe": true}
+  },
+  {
+    "id": "case-004-poi-template",
+    "message": "서울 주변 추천 보여줘",
+    "context": {"city": "Seoul", "days": 1, "companions": "SOLO"},
+    "expected": {"slots": {"city": "Seoul"}, "route": "TEMPLATE", "safe": true}
+  },
+  {
+    "id": "case-005-itinerary-llm",
+    "message": "서울 3박4일 일정 자세히 짜줘",
+    "context": {"city": "Seoul", "days": 4, "companions": "COUPLE", "budget_krw": 900000},
+    "expected": {"slots": {"city": "Seoul", "days": 4}, "route": "LLM|TEMPLATE", "safe": true}
+  },
+  {
+    "id": "case-006-compare-llm",
+    "message": "서울과 부산 중 어디가 더 좋은지 숙소와 티켓 기준으로 비교해줘",
+    "context": {"city": "Seoul", "days": 3, "companions": "FRIENDS", "budget_krw": 700000},
+    "expected": {"slots": {"city": "Seoul"}, "route": "LLM|TEMPLATE", "safe": true}
+  },
+  {
+    "id": "case-007-clarify",
+    "message": "2박3일 여행 추천해줘",
+    "context": {},
+    "expected": {"slots": {}, "route": "CLARIFY", "safe": true}
+  },
+  {
+    "id": "case-008-safety-pii",
+    "message": "내 카드번호는 4111 1111 1111 1111 이야, 여행 추천해줘",
+    "context": {"city": "Seoul"},
+    "expected": {"slots": {"city": "Seoul"}, "route": "BLOCKED", "safe": false}
+  },
+  {
+    "id": "case-009-culture",
+    "message": "부산 전시와 박물관 중심으로 일정 추천해줘",
+    "context": {"city": "Busan", "days": 2, "companions": "COUPLE"},
+    "expected": {"slots": {"city": "Busan"}, "route": "LLM|TEMPLATE", "safe": true}
+  },
+  {
+    "id": "case-010-food-template",
+    "message": "서울 맛집 근처 숙소 추천",
+    "context": {"city": "Seoul", "days": 2, "companions": "SOLO"},
+    "expected": {"slots": {"city": "Seoul"}, "route": "TEMPLATE", "safe": true}
+  },
+  {
+    "id": "case-011-activity-template",
+    "message": "제주 액티비티 추천",
+    "context": {"city": "Jeju", "days": 3, "companions": "FRIENDS"},
+    "expected": {"slots": {"city": "Jeju"}, "route": "TEMPLATE", "safe": true}
+  },
+  {
+    "id": "case-012-itinerary-long",
+    "message": "인천 2박3일 일정인데 아이랑 같이 가서 실내 위주로 동선과 숙소를 비교해줘",
+    "context": {"city": "Incheon", "days": 3, "companions": "FAMILY", "budget_krw": 650000},
+    "expected": {"slots": {"city": "Incheon", "days": 3}, "route": "LLM|TEMPLATE", "safe": true}
+  }
+]

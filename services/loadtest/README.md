@@ -31,6 +31,16 @@ AUTH_TOKEN="$AUTH_TOKEN" ROOM_TYPE_ID=1 k6 run services/loadtest/k6/full_funnel.
 ```bash
 k6 run services/loadtest/k6/chat_recommend.js
 ```
+5. Chat stream SLO (steady + spike + cache-hit)
+```bash
+# LLM off 구간 검증 시
+CHAT_LLM_ENABLED=false k6 run services/loadtest/k6/chat_stream_slo.js \
+  --summary-export /tmp/chat_stream_slo_summary.json
+
+# 기본(LLM on + stream)
+k6 run services/loadtest/k6/chat_stream_slo.js \
+  --summary-export /tmp/chat_stream_slo_summary.json
+```
 
 ## Key metrics
 - `http_req_duration`, `http_req_failed`
@@ -39,6 +49,8 @@ k6 run services/loadtest/k6/chat_recommend.js
 - `funnel_search_duration`, `funnel_hold_duration`, `funnel_confirm_duration`
 - `chat_rules_p95`, `chat_llm_p95`, `chat_cache_p95`
 - `chat_llm_used_rate`, `chat_req_failed`
+- `chat_llm_off_p95`
+- `chat_stream_ttfb_ms`, `chat_stream_complete_ms`, `chat_stream_failed`
 
 ## Example report export
 ```bash
@@ -55,3 +67,12 @@ k6 run services/loadtest/k6/booking_hold.js \
 - LLM off(template/rules): `chat_rules_p95 < 300ms`
 - LLM on: `chat_llm_p95 < 1200ms`
 - hard timeout guard: app config `CHAT_LLM_HARD_TIMEOUT_MS=6000`
+
+## Chat stream SLO check (B-0459)
+- LLM off: `chat_llm_off_p95 < 250ms`
+- LLM on(stream): `chat_stream_ttfb_ms p95 < 500ms`
+- LLM on(stream): `chat_stream_complete_ms p95 < 2000ms`
+- hard timeout guard: app config `LLM_TIMEOUT_HARD_MS=5000` 또는 `CHAT_LLM_HARD_TIMEOUT_MS=5000`
+
+## Dashboard
+- Grafana import JSON: `services/loadtest/grafana/chat_slo_dashboard.json`

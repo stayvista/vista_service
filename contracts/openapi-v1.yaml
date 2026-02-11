@@ -292,6 +292,25 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/EnvelopeChatRecommend'
+  /v1/chat/recommend:stream:
+    post:
+      summary: Chat recommendations streaming (SSE)
+      parameters:
+      - $ref: '#/components/parameters/XUserId'
+      - $ref: '#/components/parameters/XRequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChatRecommendRequest'
+      responses:
+        '200':
+          description: OK (server-sent events)
+          content:
+            text/event-stream:
+              schema:
+                type: string
 components:
   parameters:
     XRequestId:

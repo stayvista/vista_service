@@ -8,6 +8,7 @@ import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
+import java.net.http.HttpTimeoutException
 import java.time.Duration
 import java.util.concurrent.CancellationException
 import java.util.concurrent.CompletableFuture
@@ -54,6 +55,7 @@ class LocalLlmClient(
     @Value("\${stayvista.chat.llm.base-url:http://127.0.0.1:11434}") private val baseUrl: String,
     @Value("\${stayvista.chat.llm.soft-timeout-ms:2500}") private val softTimeoutMs: Long,
     @Value("\${stayvista.chat.llm.hard-timeout-ms:6000}") private val hardTimeoutMs: Long,
+    @Value("\${stayvista.chat.llm.streaming-enabled:true}") private val streamingEnabled: Boolean,
 ) : LlmClient {
     private val httpClient: HttpClient = HttpClient.newBuilder()
         .connectTimeout(Duration.ofMillis(1200))
@@ -78,19 +80,30 @@ class LocalLlmClient(
         } catch (_: TimeoutException) {
             task.cancel(true)
             meterRegistry.counter("llm_errors_total", "reason", "soft_timeout").increment()
+            meterRegistry.counter("llm_timeout_count", "type", "soft").increment()
+            meterRegistry.counter("llm_error_count", "reason", "soft_timeout").increment()
             throw LlmSoftTimeoutException("LLM soft timeout exceeded ${softTimeoutMs}ms")
         } catch (ex: Exception) {
             task.cancel(true)
             if (ex is CancellationException) {
                 meterRegistry.counter("llm_errors_total", "reason", "cancelled").increment()
+                meterRegistry.counter("llm_error_count", "reason", "cancelled").increment()
                 throw LlmUnavailableException("LLM request cancelled", ex)
             }
             val root = ex.cause ?: ex
             if (root is ConnectException) {
                 meterRegistry.counter("llm_errors_total", "reason", "connect").increment()
+                meterRegistry.counter("llm_error_count", "reason", "connect").increment()
                 throw LlmUnavailableException("LLM endpoint is unavailable", root)
             }
+            if (root is HttpTimeoutException) {
+                meterRegistry.counter("llm_errors_total", "reason", "hard_timeout").increment()
+                meterRegistry.counter("llm_timeout_count", "type", "hard").increment()
+                meterRegistry.counter("llm_error_count", "reason", "hard_timeout").increment()
+                throw LlmUnavailableException("LLM hard timeout exceeded ${hardTimeoutMs}ms", root)
+            }
             meterRegistry.counter("llm_errors_total", "reason", "unknown").increment()
+            meterRegistry.counter("llm_error_count", "reason", "unknown").increment()
             throw LlmUnavailableException("LLM request failed", root)
         }
     }
@@ -100,6 +113,14 @@ class LocalLlmClient(
         onChunk: (String) -> Unit,
         cancelSignal: () -> Boolean,
     ): LlmGenerateResponse {
+        if (!streamingEnabled) {
+            val response = generate(request)
+            if (response.text.isNotBlank()) {
+                onChunk(response.text)
+            }
+            return response
+        }
+
         val startedAt = System.nanoTime()
         val payload = mapOf(
             "model" to request.model,
@@ -123,11 +144,18 @@ class LocalLlmClient(
             httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofInputStream())
         } catch (ex: Exception) {
             meterRegistry.counter("llm_errors_total", "reason", "stream_connect").increment()
+            if (ex is HttpTimeoutException) {
+                meterRegistry.counter("llm_timeout_count", "type", "hard").increment()
+                meterRegistry.counter("llm_error_count", "reason", "stream_hard_timeout").increment()
+            } else {
+                meterRegistry.counter("llm_error_count", "reason", "stream_connect").increment()
+            }
             throw LlmUnavailableException("LLM streaming endpoint is unavailable", ex)
         }
 
         if (response.statusCode() !in 200..299) {
             meterRegistry.counter("llm_errors_total", "reason", "stream_http_${response.statusCode()}").increment()
+            meterRegistry.counter("llm_error_count", "reason", "stream_http_${response.statusCode()}").increment()
             throw LlmUnavailableException("LLM streaming failed: HTTP ${response.statusCode()}")
         }
 
@@ -136,6 +164,7 @@ class LocalLlmClient(
             while (true) {
                 if (cancelSignal()) {
                     meterRegistry.counter("llm_stream_cancel_total").increment()
+                    meterRegistry.counter("llm_error_count", "reason", "stream_cancelled").increment()
                     throw CancellationException("client disconnected")
                 }
                 val line = reader.readLine() ?: break
@@ -184,6 +213,7 @@ class LocalLlmClient(
         val response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString())
         if (response.statusCode() !in 200..299) {
             meterRegistry.counter("llm_errors_total", "reason", "http_${response.statusCode()}").increment()
+            meterRegistry.counter("llm_error_count", "reason", "http_${response.statusCode()}").increment()
             throw LlmUnavailableException("LLM request failed: HTTP ${response.statusCode()} ${response.body()}")
         }
         val node = parseJson(response.body())
@@ -191,6 +221,7 @@ class LocalLlmClient(
         val text = node.path("response").asText("").trim()
         if (text.isBlank()) {
             meterRegistry.counter("llm_errors_total", "reason", "empty_response").increment()
+            meterRegistry.counter("llm_error_count", "reason", "empty_response").increment()
             throw LlmUnavailableException("LLM returned empty response")
         }
         return LlmGenerateResponse(

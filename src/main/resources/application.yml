@@ -74,11 +74,13 @@ stayvista:
       retrieval-ttl-seconds: ${CHAT_RETRIEVAL_CACHE_TTL_SECONDS:900}
       prompt-ttl-seconds: ${CHAT_PROMPT_CACHE_TTL_SECONDS:180}
     llm:
-      base-url: ${CHAT_LLM_BASE_URL:http://127.0.0.1:21434}
-      active-model: ${CHAT_LLM_ACTIVE_MODEL:llama3.1:8b-instruct}
+      enabled: ${CHAT_LLM_ENABLED:true}
+      base-url: ${LLM_BASE_URL:${CHAT_LLM_BASE_URL:http://127.0.0.1:21434}}
+      active-model: ${LLM_MODEL_CHAT:${CHAT_LLM_ACTIVE_MODEL:llama3.1:8b-instruct}}
       fallback-model: ${CHAT_LLM_FALLBACK_MODEL:}
-      soft-timeout-ms: ${CHAT_LLM_SOFT_TIMEOUT_MS:2500}
-      hard-timeout-ms: ${CHAT_LLM_HARD_TIMEOUT_MS:6000}
+      soft-timeout-ms: ${LLM_TIMEOUT_SOFT_MS:${CHAT_LLM_SOFT_TIMEOUT_MS:2500}}
+      hard-timeout-ms: ${LLM_TIMEOUT_HARD_MS:${CHAT_LLM_HARD_TIMEOUT_MS:6000}}
+      streaming-enabled: ${LLM_STREAMING_ENABLED:true}
       max-concurrency: ${CHAT_LLM_MAX_CONCURRENCY:8}
       max-queue-wait-ms: ${CHAT_LLM_MAX_QUEUE_WAIT_MS:350}
     embed:

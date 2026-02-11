@@ -20,10 +20,11 @@ class ChatPromptFactory {
                   "title": string,
                   "price": string | null,
                   "why": string,
-                  "source": [
+                  "sources": [
                     {
                       "doc_id": string,
                       "title": string,
+                      "url": string | null,
                       "snippet": string,
                       "source_type": string
                     }
@@ -36,7 +37,7 @@ class ChatPromptFactory {
             }
             
             Rules:
-            - source must include at least one entry for each card.
+            - sources must include at least one entry for each card.
             - keep followups up to 2 items.
             - if evidence is weak, reduce cards and explain constraints.
         """.trimIndent()
@@ -75,6 +76,7 @@ class ChatPromptFactory {
             Convert the following text into valid JSON that strictly matches the schema.
             Do not add markdown.
             Keep factual details from the original text.
+            Use "sources" for card citations.
 
             TEXT:
             $rawOutput

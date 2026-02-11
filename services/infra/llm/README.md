@@ -12,7 +12,19 @@ StayVista AI 컨시어지의 로컬 LLM/임베딩을 내부망에서만 호출�
 ```bash
 ./services/infra/llm/up.sh
 ```
-(`compose.yaml` 단일 파일의 `llm`/`llm-init` 서비스를 사용합니다.)
+(`compose.yaml`의 `llm`/`llm-init`와 `services/docker/docker-compose.yml`의 `ollama`/`ollama-init`는 동일 설정입니다.)
+
+직접 기동:
+```bash
+docker compose -f services/docker/docker-compose.yml --profile llm up -d
+```
+
+애플리케이션 환경변수:
+- `CHAT_LLM_ENABLED` (`false`면 LLM 호출 없이 RAG 템플릿 경로로 degrade)
+- `LLM_BASE_URL` (default `http://127.0.0.1:21434`)
+- `LLM_MODEL_CHAT` (default `llama3.1:8b-instruct`)
+- `LLM_TIMEOUT_SOFT_MS` / `LLM_TIMEOUT_HARD_MS`
+- `LLM_STREAMING_ENABLED`
 
 ## 헬스/레디니스
 ```bash
