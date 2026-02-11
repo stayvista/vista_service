@@ -1,6 +1,7 @@
 package com.devoceanblue.stayvista.domain.chat
 
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 class ChatRoutingPolicyTest {
@@ -113,5 +114,10 @@ class ChatRoutingPolicyTest {
 
         val slots = routingPolicy.extractSlots(request)
         assertEquals(setOf("PROPERTY", "TICKET"), slots.sourceTypes)
+    }
+
+    @Test
+    fun `needsItinerary should detect itinerary intent from message`() {
+        assertTrue(routingPolicy.needsItinerary("서울 2박3일 일정 동선 추천해줘"))
     }
 }

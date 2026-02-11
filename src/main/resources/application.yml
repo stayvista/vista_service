@@ -80,6 +80,10 @@ stayvista:
     cache:
       retrieval-ttl-seconds: ${CHAT_RETRIEVAL_CACHE_TTL_SECONDS:900}
       prompt-ttl-seconds: ${CHAT_PROMPT_CACHE_TTL_SECONDS:180}
+    memory:
+      ttl-seconds: ${CHAT_MEMORY_TTL_SECONDS:604800}
+    preference:
+      ttl-seconds: ${CHAT_PREFERENCE_TTL_SECONDS:2592000}
     llm:
       enabled: ${CHAT_LLM_ENABLED:true}
       base-url: ${LLM_BASE_URL:${CHAT_LLM_BASE_URL:http://127.0.0.1:21434}}

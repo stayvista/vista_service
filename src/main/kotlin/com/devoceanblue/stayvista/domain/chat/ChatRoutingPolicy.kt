@@ -92,6 +92,14 @@ class ChatRoutingPolicy {
         )
     }
 
+    fun needsItinerary(message: String): Boolean {
+        val normalized = message.lowercase()
+        return normalized.contains("일정") ||
+            normalized.contains("동선") ||
+            normalized.contains("itinerary") ||
+            normalized.contains("plan")
+    }
+
     private fun extractCity(message: String): String? {
         return when {
             message.contains("seoul") || message.contains("서울") -> "Seoul"

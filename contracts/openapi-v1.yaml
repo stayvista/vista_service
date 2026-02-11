@@ -311,6 +311,25 @@ paths:
             text/event-stream:
               schema:
                 type: string
+  /v1/chat/preferences/feedback:
+    post:
+      summary: Update chat preference profile from explicit feedback
+      parameters:
+      - $ref: '#/components/parameters/XUserId'
+      - $ref: '#/components/parameters/XRequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChatPreferenceFeedbackRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnvelopePreferenceProfile'
   /v1/admin/chat/rag/reindex:
     post:
       summary: Rebuild chat RAG index
@@ -667,26 +686,181 @@ components:
       properties:
         type:
           type: string
+        id:
+          type: string
         title:
           type: string
+        price:
+          type: string
+          nullable: true
+        why:
+          type: string
+          nullable: true
+        source:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChatSource'
+        sources:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChatSource'
+        poi_id:
+          type: string
+          nullable: true
+        property_id:
+          type: integer
+          format: int64
+          nullable: true
+        product_id:
+          type: integer
+          format: int64
+          nullable: true
+        package_id:
+          type: integer
+          format: int64
+          nullable: true
       required:
       - type
       - title
+    ChatSource:
+      type: object
+      properties:
+        doc_id:
+          type: string
+        title:
+          type: string
+        url:
+          type: string
+          nullable: true
+        snippet:
+          type: string
+        source_type:
+          type: string
+      required:
+      - doc_id
+      - title
+      - snippet
+      - source_type
+    ItineraryItem:
+      type: object
+      properties:
+        day:
+          type: integer
+        time_slot:
+          type: string
+        title:
+          type: string
+        item_type:
+          type: string
+        reason:
+          type: string
+        source:
+          $ref: '#/components/schemas/ChatSource'
+      required:
+      - day
+      - time_slot
+      - title
+      - item_type
+      - reason
+      - source
+    ChatDebug:
+      type: object
+      properties:
+        route:
+          type: string
+        model:
+          type: string
+          nullable: true
+        llm_ms:
+          type: integer
+          format: int64
+        rag_ms:
+          type: integer
+          format: int64
+        total_ms:
+          type: integer
+          format: int64
+      required:
+      - route
+      - llm_ms
+      - rag_ms
+      - total_ms
     ChatRecommendData:
       type: object
       properties:
         answer:
           type: string
+        assistant_text:
+          type: string
         cards:
           type: array
           items:
             $ref: '#/components/schemas/ChatCard'
+        itinerary:
+          type: array
+          items:
+            $ref: '#/components/schemas/ItineraryItem'
         followups:
           type: array
           items:
             type: string
+        context_used:
+          type: object
+          additionalProperties: true
+        llm_used:
+          type: boolean
+        sources:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChatSource'
+        debug:
+          $ref: '#/components/schemas/ChatDebug'
       required:
       - answer
+      - assistant_text
+      - cards
+      - followups
+      - context_used
+      - llm_used
+    ChatPreferenceFeedbackRequest:
+      type: object
+      properties:
+        user_id:
+          type: string
+        session_id:
+          type: string
+        conversation_id:
+          type: string
+        like_tags:
+          type: array
+          items:
+            type: string
+        dislike_tags:
+          type: array
+          items:
+            type: string
+        like_categories:
+          type: array
+          items:
+            type: string
+        dislike_categories:
+          type: array
+          items:
+            type: string
+    PreferenceProfileSnapshot:
+      type: object
+      properties:
+        tagWeights:
+          type: object
+          additionalProperties:
+            type: integer
+        categoryWeights:
+          type: object
+          additionalProperties:
+            type: integer
+      required:
+      - tagWeights
+      - categoryWeights
     EnvelopeChatRecommend:
       allOf:
       - $ref: '#/components/schemas/EnvelopeBase'
@@ -694,5 +868,14 @@ components:
         properties:
           data:
             $ref: '#/components/schemas/ChatRecommendData'
+        required:
+        - data
+    EnvelopePreferenceProfile:
+      allOf:
+      - $ref: '#/components/schemas/EnvelopeBase'
+      - type: object
+        properties:
+          data:
+            $ref: '#/components/schemas/PreferenceProfileSnapshot'
         required:
         - data

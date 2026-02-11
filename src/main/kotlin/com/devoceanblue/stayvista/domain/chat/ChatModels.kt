@@ -12,6 +12,7 @@ data class ChatRecommendData(
     val answer: String,
     val assistant_text: String,
     val cards: List<ChatCard>,
+    val itinerary: List<ItineraryItem> = emptyList(),
     val followups: List<String>,
     val context_used: Map<String, Any?>,
     val llm_used: Boolean,

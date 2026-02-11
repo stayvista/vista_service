@@ -70,6 +70,10 @@
    - `chat_rag_ms`
    - `chat_rag_index_ms`
    - `citation_verifier_block_total`
+   - `chat_memory_total`
+   - `chat_pref_profile_total`
+   - `chat_reranker_proxy_score_before`
+   - `chat_reranker_proxy_score_after`
 3) 즉시 조치
    - `CHAT_LLM_ENABLED=false`로 LLM 경로를 즉시 차단하고 TEMPLATE로 degrade
    - `stayvista.chat.llm.max-concurrency` 하향/상향 조정
@@ -78,6 +82,7 @@
 4) 재발 방지
    - prompt/retrieval cache hit ratio 개선
    - 룰/템플릿 라우팅 비율 상향(LLM 사용률 절감)
+   - memory summary 길이/PII 마스킹 점검 (`CHAT_MEMORY_TTL_SECONDS`, `CHAT_PREFERENCE_TTL_SECONDS`)
 
 ## 3) Local LLM 운영 절차 (Ollama)
 
@@ -126,6 +131,13 @@ curl -sS -X POST \"http://localhost:18765/v1/admin/chat/rag/reindex?mode=full\"
 curl -sS -X POST \"http://localhost:18765/v1/admin/chat/rag/reindex?mode=incremental&limit=1000\"
 ```
 - 런타임 검색은 `travel_doc*` 인덱스를 사용하므로, 카탈로그 변경 후 incremental 재빌드를 권장한다.
+
+### 3.6 선호 피드백 반영
+```bash
+curl -sS -X POST "http://localhost:18765/v1/chat/preferences/feedback" \
+  -H "Content-Type: application/json" \
+  -d '{"user_id":"1001","like_tags":["culture"],"like_categories":["POI"]}'
+```
 
 ## 4) 런타임 설정(초안)
 - MySQL: connection pool 상한, 타임아웃, slow query log on

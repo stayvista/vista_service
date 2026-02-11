@@ -22,6 +22,9 @@ class ChatService(
     private val promptFactory: ChatPromptFactory,
     private val structuredChatParser: StructuredChatParser,
     private val citationVerifier: CitationVerifier,
+    private val chatMemoryService: ChatMemoryService,
+    private val preferenceProfileService: PreferenceProfileService,
+    private val itineraryPlannerService: ItineraryPlannerService,
     @Value("\${stayvista.chat.cache.retrieval-ttl-seconds:900}") private val retrievalCacheTtlSeconds: Long,
     @Value("\${stayvista.chat.cache.prompt-ttl-seconds:180}") private val promptCacheTtlSeconds: Long,
     @Value("\${stayvista.chat.llm.enabled:true}") private val llmEnabled: Boolean,
@@ -29,6 +32,10 @@ class ChatService(
     fun recommend(request: ChatRecommendRequest): ChatRecommendData {
         val startedAt = System.nanoTime()
         meterRegistry.counter("chat_requests_total").increment()
+        val message = request.message.trim()
+        val sessionKey = chatMemoryService.resolveSessionKey(request)
+        val profileKey = preferenceProfileService.resolveProfileKey(request)
+        val memory = chatMemoryService.load(sessionKey)
 
         var route = "TEMPLATE"
         var model: String? = null
@@ -36,7 +43,6 @@ class ChatService(
         var ragMs = 0L
 
         val result = runCatching {
-            val message = request.message.trim()
             val safetyDecision = safetyPolicy.evaluateInput(message)
             if (safetyDecision.blocked) {
                 route = "BLOCKED"
@@ -52,6 +58,7 @@ class ChatService(
                         .also { chatCacheService.putRetrievalCache(retrievalKey, it, retrievalCacheTtlSeconds) }
             }
             ragMs = retrieval.retrievalMs
+            preferenceProfileService.recordImplicitFeedback(profileKey, message)
 
             val routeDecision = routingPolicy.decide(message, slots, retrieval.hits, llmAllowed = llmEnabled)
             route = toDebugRoute(routeDecision.type)
@@ -60,49 +67,65 @@ class ChatService(
             when (routeDecision.type) {
                 ChatRouteType.ASK_CLARIFICATION -> {
                     meterRegistry.counter("llm_used_rate", "used", "false").increment()
-                    buildClarificationResponse(slots, routeDecision)
+                    enrichResult(
+                        response = buildClarificationResponse(slots, routeDecision),
+                        message = message,
+                        slots = slots,
+                        retrieval = retrieval,
+                        profileKey = profileKey,
+                        memory = memory,
+                        allowPlanner = false,
+                    )
                 }
 
                 ChatRouteType.TEMPLATE -> {
                     meterRegistry.counter("llm_used_rate", "used", "false").increment()
-                    buildTemplateResponse(
+                    enrichResult(
+                        response = buildTemplateResponse(
+                            slots = slots,
+                            retrieval = retrieval,
+                            followups = routeDecision.followups.ifEmpty { routingPolicy.defaultFollowups(slots) },
+                            contextUsed = mapOf(
+                                "route" to routeDecision.reason,
+                                "embedding_used" to retrieval.usedEmbedding,
+                            ),
+                        ),
+                        message = message,
                         slots = slots,
                         retrieval = retrieval,
-                        followups = routeDecision.followups.ifEmpty { routingPolicy.defaultFollowups(slots) },
-                        contextUsed = mapOf(
-                            "route" to routeDecision.reason,
-                            "embedding_used" to retrieval.usedEmbedding,
-                        ),
+                        profileKey = profileKey,
+                        memory = memory,
                     )
                 }
 
                 ChatRouteType.LLM -> {
                     val promptCacheEnabled = safetyPolicy.cacheAllowed(message)
-                    val promptCacheKey = sha256(
-                        buildString {
-                            append("v3|")
-                            append(modelRegistry.activeModel())
-                            append('|')
-                            append(message.lowercase())
-                            append('|')
-                            append(slots.city ?: "-")
-                            append('|')
-                            append(retrieval.hits.take(4).joinToString(";") { it.document.docId })
-                        },
+                    val promptCacheKey = buildPromptCacheKey(
+                        message = message,
+                        slots = slots,
+                        retrieval = retrieval,
+                        memory = memory,
                     )
 
                     if (promptCacheEnabled) {
                         val cached = chatCacheService.getPromptCache(promptCacheKey)
                         if (cached != null) {
                             meterRegistry.counter("llm_used_rate", "used", "true").increment()
-                            return@runCatching cached
+                            return@runCatching enrichResult(
+                                response = cached,
+                                message = message,
+                                slots = slots,
+                                retrieval = retrieval,
+                                profileKey = profileKey,
+                                memory = memory,
+                            )
                         }
                     }
 
                     val llmResult = llmExecutionGate.run {
                         val llmResponse = llmClient.generate(
                             LlmGenerateRequest(
-                                prompt = promptFactory.buildUserPrompt(request, slots, retrieval.hits.take(6)),
+                                prompt = promptFactory.buildUserPrompt(request, slots, retrieval.hits.take(6), memory),
                                 systemPrompt = promptFactory.buildSystemPrompt(),
                                 model = modelRegistry.activeModel(),
                             ),
@@ -117,14 +140,21 @@ class ChatService(
                     if (llmResult.rejected || llmResult.value == null) {
                         meterRegistry.counter("chat_llm_fail_total", "reason", "queue_rejected").increment()
                         meterRegistry.counter("llm_used_rate", "used", "false").increment()
-                        return@runCatching buildTemplateResponse(
+                        return@runCatching enrichResult(
+                            response = buildTemplateResponse(
+                                slots = slots,
+                                retrieval = retrieval,
+                                followups = routingPolicy.defaultFollowups(slots),
+                                contextUsed = mapOf(
+                                    "route" to "queue_rejected_fallback",
+                                    "embedding_used" to retrieval.usedEmbedding,
+                                ),
+                            ),
+                            message = message,
                             slots = slots,
                             retrieval = retrieval,
-                            followups = routingPolicy.defaultFollowups(slots),
-                            contextUsed = mapOf(
-                                "route" to "queue_rejected_fallback",
-                                "embedding_used" to retrieval.usedEmbedding,
-                            ),
+                            profileKey = profileKey,
+                            memory = memory,
                         )
                     }
 
@@ -139,7 +169,14 @@ class ChatService(
                         chatCacheService.putPromptCache(promptCacheKey, verifiedNormalized, promptCacheTtlSeconds)
                     }
                     meterRegistry.counter("llm_used_rate", "used", "true").increment()
-                    verifiedNormalized
+                    enrichResult(
+                        response = verifiedNormalized,
+                        message = message,
+                        slots = slots,
+                        retrieval = retrieval,
+                        profileKey = profileKey,
+                        memory = memory,
+                    )
                 }
             }
         }.getOrElse { ex ->
@@ -154,14 +191,21 @@ class ChatService(
                 RagSearchResult(emptyList(), retrievalMs = 0L, usedEmbedding = false)
             }
             ragMs = fallbackRetrieval.retrievalMs
-            buildTemplateResponse(
+            enrichResult(
+                response = buildTemplateResponse(
+                    slots = slots,
+                    retrieval = fallbackRetrieval,
+                    followups = routingPolicy.defaultFollowups(slots),
+                    contextUsed = mapOf(
+                        "route" to "exception_fallback",
+                        "error_type" to ex.javaClass.simpleName,
+                    ),
+                ),
+                message = message,
                 slots = slots,
                 retrieval = fallbackRetrieval,
-                followups = routingPolicy.defaultFollowups(slots),
-                contextUsed = mapOf(
-                    "route" to "exception_fallback",
-                    "error_type" to ex.javaClass.simpleName,
-                ),
+                profileKey = profileKey,
+                memory = memory,
             )
         }
 
@@ -179,7 +223,9 @@ class ChatService(
             null
         }
         val verified = citationVerifier.verifyOrMitigate(result)
-        return verified.copy(debug = debug)
+        val finalized = verified.copy(debug = debug)
+        persistTurnIfNeeded(sessionKey, message, finalized, route)
+        return finalized
     }
 
     fun recommendStream(
@@ -190,6 +236,10 @@ class ChatService(
     ): ChatRecommendData {
         val startedAt = System.nanoTime()
         meterRegistry.counter("chat_requests_total").increment()
+        val message = request.message.trim()
+        val sessionKey = chatMemoryService.resolveSessionKey(request)
+        val profileKey = preferenceProfileService.resolveProfileKey(request)
+        val memory = chatMemoryService.load(sessionKey)
 
         var route = "TEMPLATE"
         var model: String? = null
@@ -218,7 +268,6 @@ class ChatService(
         }
 
         val result = runCatching {
-            val message = request.message.trim()
             val safetyDecision = safetyPolicy.evaluateInput(message)
             if (safetyDecision.blocked) {
                 route = "BLOCKED"
@@ -235,6 +284,7 @@ class ChatService(
                         .also { chatCacheService.putRetrievalCache(retrievalKey, it, retrievalCacheTtlSeconds) }
             }
             ragMs = retrieval.retrievalMs
+            preferenceProfileService.recordImplicitFeedback(profileKey, message)
 
             val routeDecision = routingPolicy.decide(message, slots, retrieval.hits, llmAllowed = llmEnabled)
             route = toDebugRoute(routeDecision.type)
@@ -244,20 +294,35 @@ class ChatService(
                 ChatRouteType.ASK_CLARIFICATION -> {
                     meterRegistry.counter("llm_used_rate", "used", "false").increment()
                     emitMeta(mapOf("route" to route, "route_reason" to routeDecision.reason, "llm_used" to false))
-                    buildClarificationResponse(slots, routeDecision)
+                    enrichResult(
+                        response = buildClarificationResponse(slots, routeDecision),
+                        message = message,
+                        slots = slots,
+                        retrieval = retrieval,
+                        profileKey = profileKey,
+                        memory = memory,
+                        allowPlanner = false,
+                    )
                 }
 
                 ChatRouteType.TEMPLATE -> {
                     meterRegistry.counter("llm_used_rate", "used", "false").increment()
                     emitMeta(mapOf("route" to route, "route_reason" to routeDecision.reason, "llm_used" to false))
-                    buildTemplateResponse(
+                    enrichResult(
+                        response = buildTemplateResponse(
+                            slots = slots,
+                            retrieval = retrieval,
+                            followups = routeDecision.followups.ifEmpty { routingPolicy.defaultFollowups(slots) },
+                            contextUsed = mapOf(
+                                "route" to routeDecision.reason,
+                                "embedding_used" to retrieval.usedEmbedding,
+                            ),
+                        ),
+                        message = message,
                         slots = slots,
                         retrieval = retrieval,
-                        followups = routeDecision.followups.ifEmpty { routingPolicy.defaultFollowups(slots) },
-                        contextUsed = mapOf(
-                            "route" to routeDecision.reason,
-                            "embedding_used" to retrieval.usedEmbedding,
-                        ),
+                        profileKey = profileKey,
+                        memory = memory,
                     )
                 }
 
@@ -265,17 +330,11 @@ class ChatService(
                     emitMeta(mapOf("route" to route, "route_reason" to routeDecision.reason, "llm_used" to true))
 
                     val promptCacheEnabled = safetyPolicy.cacheAllowed(message)
-                    val promptCacheKey = sha256(
-                        buildString {
-                            append("v3|")
-                            append(modelRegistry.activeModel())
-                            append('|')
-                            append(message.lowercase())
-                            append('|')
-                            append(slots.city ?: "-")
-                            append('|')
-                            append(retrieval.hits.take(4).joinToString(";") { it.document.docId })
-                        },
+                    val promptCacheKey = buildPromptCacheKey(
+                        message = message,
+                        slots = slots,
+                        retrieval = retrieval,
+                        memory = memory,
                     )
 
                     if (promptCacheEnabled) {
@@ -283,14 +342,21 @@ class ChatService(
                         if (cached != null) {
                             meterRegistry.counter("llm_used_rate", "used", "true").increment()
                             emitToken(cached.assistant_text)
-                            return@runCatching cached
+                            return@runCatching enrichResult(
+                                response = cached,
+                                message = message,
+                                slots = slots,
+                                retrieval = retrieval,
+                                profileKey = profileKey,
+                                memory = memory,
+                            )
                         }
                     }
 
                     val llmResult = llmExecutionGate.run {
                         val llmResponse = llmClient.generateStream(
                             request = LlmGenerateRequest(
-                                prompt = promptFactory.buildUserPrompt(request, slots, retrieval.hits.take(6)),
+                                prompt = promptFactory.buildUserPrompt(request, slots, retrieval.hits.take(6), memory),
                                 systemPrompt = promptFactory.buildSystemPrompt(),
                                 model = modelRegistry.activeModel(),
                             ),
@@ -307,14 +373,21 @@ class ChatService(
                     if (llmResult.rejected || llmResult.value == null) {
                         meterRegistry.counter("chat_llm_fail_total", "reason", "queue_rejected").increment()
                         meterRegistry.counter("llm_used_rate", "used", "false").increment()
-                        return@runCatching buildTemplateResponse(
+                        return@runCatching enrichResult(
+                            response = buildTemplateResponse(
+                                slots = slots,
+                                retrieval = retrieval,
+                                followups = routingPolicy.defaultFollowups(slots),
+                                contextUsed = mapOf(
+                                    "route" to "queue_rejected_fallback",
+                                    "embedding_used" to retrieval.usedEmbedding,
+                                ),
+                            ),
+                            message = message,
                             slots = slots,
                             retrieval = retrieval,
-                            followups = routingPolicy.defaultFollowups(slots),
-                            contextUsed = mapOf(
-                                "route" to "queue_rejected_fallback",
-                                "embedding_used" to retrieval.usedEmbedding,
-                            ),
+                            profileKey = profileKey,
+                            memory = memory,
                         )
                     }
 
@@ -328,7 +401,14 @@ class ChatService(
                         chatCacheService.putPromptCache(promptCacheKey, verifiedNormalized, promptCacheTtlSeconds)
                     }
                     meterRegistry.counter("llm_used_rate", "used", "true").increment()
-                    verifiedNormalized
+                    enrichResult(
+                        response = verifiedNormalized,
+                        message = message,
+                        slots = slots,
+                        retrieval = retrieval,
+                        profileKey = profileKey,
+                        memory = memory,
+                    )
                 }
             }
         }.getOrElse { ex ->
@@ -346,14 +426,21 @@ class ChatService(
                 RagSearchResult(emptyList(), retrievalMs = 0L, usedEmbedding = false)
             }
             ragMs = fallbackRetrieval.retrievalMs
-            buildTemplateResponse(
+            enrichResult(
+                response = buildTemplateResponse(
+                    slots = slots,
+                    retrieval = fallbackRetrieval,
+                    followups = routingPolicy.defaultFollowups(slots),
+                    contextUsed = mapOf(
+                        "route" to "exception_fallback",
+                        "error_type" to ex.javaClass.simpleName,
+                    ),
+                ),
+                message = message,
                 slots = slots,
                 retrieval = fallbackRetrieval,
-                followups = routingPolicy.defaultFollowups(slots),
-                contextUsed = mapOf(
-                    "route" to "exception_fallback",
-                    "error_type" to ex.javaClass.simpleName,
-                ),
+                profileKey = profileKey,
+                memory = memory,
             )
         }
 
@@ -376,7 +463,102 @@ class ChatService(
         }
 
         val verified = citationVerifier.verifyOrMitigate(result)
-        return verified.copy(debug = debug)
+        val finalized = verified.copy(debug = debug)
+        persistTurnIfNeeded(sessionKey, message, finalized, route)
+        return finalized
+    }
+
+    private fun buildPromptCacheKey(
+        message: String,
+        slots: ChatSlots,
+        retrieval: RagSearchResult,
+        memory: ChatMemorySnapshot,
+    ): String {
+        return sha256(
+            buildString {
+                append("v4|")
+                append(modelRegistry.activeModel())
+                append('|')
+                append(message.lowercase())
+                append('|')
+                append(slots.city ?: "-")
+                append('|')
+                append(slots.intent)
+                append('|')
+                append(memory.state)
+                append('|')
+                append(memory.turnCount)
+                append('|')
+                append(sha256(memory.runningSummary.takeLast(240)))
+                append('|')
+                append(retrieval.hits.take(4).joinToString(";") { it.document.docId })
+            },
+        )
+    }
+
+    private fun enrichResult(
+        response: ChatRecommendData,
+        message: String,
+        slots: ChatSlots,
+        retrieval: RagSearchResult,
+        profileKey: String,
+        memory: ChatMemorySnapshot,
+        allowPlanner: Boolean = true,
+    ): ChatRecommendData {
+        val rerankedCards = preferenceProfileService.rerank(profileKey, message, response.cards)
+        val rerankedSources = rerankedCards
+            .flatMap { card -> if (card.source.isNotEmpty()) card.source else card.sources }
+            .distinctBy { it.doc_id }
+            .ifEmpty { response.sources }
+        val itinerary = if (allowPlanner && routingPolicy.needsItinerary(message)) {
+            itineraryPlannerService.plan(
+                cards = rerankedCards,
+                fallbackHits = retrieval.hits,
+                days = slots.days,
+            )
+        } else {
+            emptyList()
+        }
+
+        val enrichedContext = response.context_used + mapOf(
+            "memory_state" to memory.state,
+            "memory_turn_count" to memory.turnCount,
+            "pref_profile_applied" to (profileKey != "anon"),
+        ) + when {
+            itinerary.isNotEmpty() -> mapOf(
+                "planner_mode" to "document_grounded",
+                "itinerary_item_count" to itinerary.size,
+            )
+
+            else -> emptyMap()
+        }
+
+        return response.copy(
+            cards = rerankedCards,
+            itinerary = itinerary,
+            sources = rerankedSources,
+            context_used = enrichedContext,
+        )
+    }
+
+    private fun persistTurnIfNeeded(
+        sessionKey: String,
+        message: String,
+        response: ChatRecommendData,
+        route: String,
+    ) {
+        if (route == "BLOCKED") {
+            return
+        }
+        runCatching {
+            chatMemoryService.appendTurn(
+                sessionKey = sessionKey,
+                userMessage = message,
+                assistantMessage = response.assistant_text,
+            )
+        }.onFailure {
+            meterRegistry.counter("chat_memory_total", "result", "append_error").increment()
+        }
     }
 
     private fun toDebugRoute(type: ChatRouteType): String {

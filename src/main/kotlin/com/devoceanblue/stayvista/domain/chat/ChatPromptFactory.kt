@@ -47,6 +47,7 @@ class ChatPromptFactory {
         request: ChatRecommendRequest,
         slots: ChatSlots,
         hits: List<RagHit>,
+        memory: ChatMemorySnapshot = ChatMemorySnapshot(),
     ): String {
         val evidence = hits.joinToString("\n") { hit ->
             val doc = hit.document
@@ -63,6 +64,9 @@ class ChatPromptFactory {
             budget_krw=${slots.budgetKrw ?: "unknown"}
             companions=${slots.companions ?: "unknown"}
             intent=${slots.intent}
+            memory_state=${memory.state}
+            memory_turn_count=${memory.turnCount}
+            memory_summary=${memory.runningSummary.replace('\n', ' ').takeLast(320).ifBlank { "none" }}
 
             RETRIEVED_EVIDENCE:
             $evidence
