@@ -16,9 +16,14 @@ function withAuthHeaders(extraHeaders: Record<string, string>): Record<string, s
   return headers;
 }
 
-export async function apiGet<T>(path: string, extraHeaders: Record<string, string> = {}): Promise<ApiEnvelope<T>> {
+export async function apiGet<T>(
+  path: string,
+  extraHeaders: Record<string, string> = {},
+  signal?: AbortSignal
+): Promise<ApiEnvelope<T>> {
   const response = await fetch(`${API_BASE}${path}`, {
     headers: withAuthHeaders(extraHeaders),
+    signal,
   });
   if (!response.ok) {
     await handleError(response);
