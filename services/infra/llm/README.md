@@ -34,6 +34,7 @@ docker compose -f services/docker/docker-compose.yml --profile llm up -d
 - backend probe:
   - `GET /internal/llm/healthz`
   - `GET /internal/llm/readyz`
+- `readyz`는 모델 태그 확인 + 실제 generate/embed probe까지 통과해야 `ready`를 반환합니다.
 
 ## 워밍업
 ```bash
@@ -45,4 +46,16 @@ docker compose -f services/docker/docker-compose.yml --profile llm up -d
 ```bash
 ./services/infra/llm/swap-model.sh llama3.1:70b-instruct bge-m3
 ./services/infra/llm/swap-model.sh llama3.1:8b-instruct bge-m3
+```
+- `swap-model.sh`는 pull -> readyz -> warmup -> canary 순서로 검증합니다.
+
+카나리 단독 실행:
+```bash
+./services/infra/llm/canary.sh llama3.1:70b-instruct
+```
+
+빠른 롤백(1분 내):
+```bash
+OLLAMA_PREV_CHAT_MODEL=llama3.1:70b-instruct \
+  ./services/infra/llm/swap-model.sh llama3.1:8b-instruct bge-m3
 ```

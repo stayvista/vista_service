@@ -943,6 +943,29 @@ button:disabled {
   color: #5f6f87;
 }
 
+.trust-badge {
+  border-radius: 14px;
+  padding: 10px 12px;
+  display: grid;
+  gap: 2px;
+  border: 1px solid #d7e2f3;
+}
+
+.trust-badge.high {
+  border-color: #b7dfca;
+  background: linear-gradient(180deg, #f3fff8 0%, #ebf8f1 100%);
+}
+
+.trust-badge.medium {
+  border-color: #e9dcb8;
+  background: linear-gradient(180deg, #fffaf0 0%, #fff5e5 100%);
+}
+
+.trust-badge.low {
+  border-color: #e7c3bf;
+  background: linear-gradient(180deg, #fff7f6 0%, #fff0ef 100%);
+}
+
 .notice {
   margin: 10px 0;
   padding: 10px 12px;
@@ -1093,6 +1116,45 @@ button:disabled {
   color: #fff;
   font-weight: 700;
   width: fit-content;
+}
+
+.inline-ghost {
+  border-radius: 10px;
+  padding: 8px 10px;
+  border: 1px solid #c8d7ee;
+  background: #f7faff;
+  color: #244a82;
+  width: fit-content;
+  box-shadow: none;
+}
+
+.inline-ghost:hover {
+  transform: none;
+  box-shadow: none;
+  background: #eff5ff;
+}
+
+.evidence-panel {
+  border: 1px solid #d6e3f5;
+  border-radius: 12px;
+  background: #f8fbff;
+  padding: 10px;
+}
+
+.evidence-panel ul {
+  margin: 0;
+  padding-left: 16px;
+  display: grid;
+  gap: 8px;
+}
+
+.evidence-panel li {
+  color: #38527a;
+}
+
+.evidence-panel li p {
+  margin: 4px 0 0;
+  color: #5e7191;
 }
 
 .status-pill {

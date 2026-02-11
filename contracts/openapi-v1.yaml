@@ -437,6 +437,76 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/EnvelopeChatExperiment'
+  /v1/admin/chat/curation/rules:
+    get:
+      summary: List chat curation rules
+      parameters:
+      - $ref: '#/components/parameters/XRequestId'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnvelopeChatCurationRuleList'
+    post:
+      summary: Upsert chat curation rule
+      parameters:
+      - $ref: '#/components/parameters/XRequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChatCurationUpsertRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnvelopeChatCurationRule'
+  /v1/admin/chat/curation/rules/{ruleId}:
+    patch:
+      summary: Update chat curation rule
+      parameters:
+      - $ref: '#/components/parameters/XRequestId'
+      - name: ruleId
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChatCurationUpdateRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnvelopeChatCurationRule'
+    delete:
+      summary: Delete chat curation rule
+      parameters:
+      - $ref: '#/components/parameters/XRequestId'
+      - name: ruleId
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
 components:
   parameters:
     XRequestId:
@@ -1047,6 +1117,65 @@ components:
         parameters_json:
           type: object
           additionalProperties: true
+    ChatCurationRule:
+      type: object
+      properties:
+        rule_id:
+          type: integer
+          format: int64
+        doc_id:
+          type: string
+        rule_type:
+          type: string
+          enum: [BLACKLIST, TOP_PICK]
+        weight:
+          type: integer
+        enabled:
+          type: boolean
+        updated_at:
+          type: string
+      required:
+      - rule_id
+      - doc_id
+      - rule_type
+      - weight
+      - enabled
+      - updated_at
+    ChatCurationUpsertRequest:
+      type: object
+      properties:
+        doc_id:
+          type: string
+        rule_type:
+          type: string
+          enum: [BLACKLIST, TOP_PICK]
+        weight:
+          type: integer
+          minimum: 1
+          maximum: 500
+        enabled:
+          type: boolean
+      required:
+      - doc_id
+      - rule_type
+    ChatCurationUpdateRequest:
+      type: object
+      properties:
+        weight:
+          type: integer
+          minimum: 1
+          maximum: 500
+        enabled:
+          type: boolean
+    ChatCurationRuleList:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChatCurationRule'
+      required:
+      - items
     EnvelopeChatRecommend:
       allOf:
       - $ref: '#/components/schemas/EnvelopeBase'
@@ -1090,5 +1219,23 @@ components:
         properties:
           data:
             $ref: '#/components/schemas/ChatExperimentConfig'
+        required:
+        - data
+    EnvelopeChatCurationRule:
+      allOf:
+      - $ref: '#/components/schemas/EnvelopeBase'
+      - type: object
+        properties:
+          data:
+            $ref: '#/components/schemas/ChatCurationRule'
+        required:
+        - data
+    EnvelopeChatCurationRuleList:
+      allOf:
+      - $ref: '#/components/schemas/EnvelopeBase'
+      - type: object
+        properties:
+          data:
+            $ref: '#/components/schemas/ChatCurationRuleList'
         required:
         - data

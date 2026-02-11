@@ -15,6 +15,7 @@ class LocalRagRetriever(
     private val jdbcTemplate: JdbcTemplate,
     private val embedClient: EmbedClient,
     private val modelRegistry: LlmModelRegistry,
+    private val chatCurationService: ChatCurationService,
     private val objectMapper: ObjectMapper,
     private val meterRegistry: MeterRegistry,
     @Value("\${stayvista.chat.rag.candidate-limit:320}") private val candidateLimit: Int,
@@ -30,22 +31,29 @@ class LocalRagRetriever(
             sourceTypes = sourceTypeFilter,
             maxDocs = candidateLimit.coerceIn(50, 1000),
         )
+        val curation = chatCurationService.activeRules()
+        val filteredCandidates = candidates.filterNot { it.docId in curation.blacklistedDocIds }
+        val removedByBlacklist = (candidates.size - filteredCandidates.size).coerceAtLeast(0)
+        if (removedByBlacklist > 0) {
+            meterRegistry.counter("chat_curation_applied_total", "type", "blacklist")
+                .increment(removedByBlacklist.toDouble())
+        }
 
-        if (candidates.isEmpty()) {
+        if (filteredCandidates.isEmpty()) {
             meterRegistry.counter("chat_rag_index_empty_total").increment()
             val elapsed = Duration.ofNanos(System.nanoTime() - startedAt).toMillis().coerceAtLeast(1)
             meterRegistry.timer("chat_rag_ms").record(Duration.ofMillis(elapsed))
             return RagSearchResult(emptyList(), retrievalMs = elapsed, usedEmbedding = false)
         }
 
-        val lexicalOrder = lexicalRank(candidates, query)
+        val lexicalOrder = lexicalRank(filteredCandidates, query)
         var vectorOrder = emptyList<String>()
         var usedEmbedding = false
 
         runCatching {
             val queryVector = embedClient.embed(buildVectorQuery(query, slots))
             if (queryVector.isNotEmpty()) {
-                val vectorByDoc = loadDocumentVectors(candidates.map { it.docId }, modelRegistry.embedModel())
+                val vectorByDoc = loadDocumentVectors(filteredCandidates.map { it.docId }, modelRegistry.embedModel())
                 if (vectorByDoc.isNotEmpty()) {
                     vectorOrder = vectorByDoc.entries
                         .map { (docId, vector) -> docId to cosineSimilarity(queryVector, vector) }
@@ -59,7 +67,7 @@ class LocalRagRetriever(
             meterRegistry.counter("chat_rag_errors_total").increment()
         }
 
-        val updatedAtByDoc = candidates.associate { it.docId to it.updatedAt }
+        val updatedAtByDoc = filteredCandidates.associate { it.docId to it.updatedAt }
         val fused = HybridRanker.fuse(
             vectorOrder = vectorOrder,
             lexicalOrder = lexicalOrder,
@@ -68,9 +76,21 @@ class LocalRagRetriever(
             rrfK = rrfK.coerceAtLeast(1),
             decayWindowDays = decayWindowDays.coerceAtLeast(1.0),
         )
+        val boosted = fused
+            .map { ranked ->
+                val boostWeight = curation.topPickWeights[ranked.docId] ?: return@map ranked
+                val boost = boostWeight.coerceIn(1, 500) / 500.0
+                ranked.copy(score = ranked.score + boost)
+            }
+            .sortedByDescending { it.score }
+        val boostedCount = boosted.count { it.docId in curation.topPickWeights }
+        if (boostedCount > 0) {
+            meterRegistry.counter("chat_curation_applied_total", "type", "top_pick")
+                .increment(boostedCount.toDouble())
+        }
 
-        val candidateById = candidates.associateBy { it.docId }
-        val hits = fused
+        val candidateById = filteredCandidates.associateBy { it.docId }
+        val hits = boosted
             .take(topK)
             .mapNotNull { ranked ->
                 val doc = candidateById[ranked.docId] ?: return@mapNotNull null
@@ -86,7 +106,7 @@ class LocalRagRetriever(
                     }
                 }
             }
-            .ensureMinimum(candidates)
+            .ensureMinimum(filteredCandidates)
 
         val retrievalMs = Duration.ofNanos(System.nanoTime() - startedAt).toMillis().coerceAtLeast(1)
         meterRegistry.timer("chat_rag_ms").record(Duration.ofMillis(retrievalMs))

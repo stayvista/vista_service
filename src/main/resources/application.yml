@@ -69,6 +69,8 @@ stayvista:
     booking-confirm-per-minute: 5
     package-hold-per-minute: 10
     package-confirm-per-minute: 5
+    chat-per-minute: 40
+    bot-strict-per-minute: 8
   chat:
     rag:
       candidate-limit: ${CHAT_RAG_CANDIDATE_LIMIT:320}

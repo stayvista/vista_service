@@ -203,6 +203,27 @@ class TrafficGuardFilterTest {
     }
 
     @Test
+    fun `search should throttle likely bot user-agent with stricter principal`() {
+        given(redisRateLimiter.allow("search", "bot:127.0.0.1", 8)).willReturn(
+            RateLimitDecision(
+                allowed = false,
+                retryAfterSeconds = 7,
+            ),
+        )
+
+        mockMvc.perform(
+            get("/v1/search/properties")
+                .header("User-Agent", "python-requests/2.31.0")
+                .param("city", "Seoul")
+                .param("limit", "10"),
+        )
+            .andExpect(status().isTooManyRequests)
+            .andExpect(header().string("Retry-After", "7"))
+            .andExpect(jsonPath("$.error.code").value("RATE_LIMITED"))
+            .andExpect(jsonPath("$.request_id").isNotEmpty)
+    }
+
+    @Test
     fun `search should return RATE_LIMITED using X-User-Id principal`() {
         given(redisRateLimiter.allow("search", "1001", 60)).willReturn(
             RateLimitDecision(

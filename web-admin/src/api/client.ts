@@ -60,6 +60,15 @@ export async function apiPut<T>(path: string, body: unknown): Promise<ApiEnvelop
   return res.json();
 }
 
+export async function apiDelete<T>(path: string): Promise<ApiEnvelope<T>> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: "DELETE",
+    headers: { ...defaultHeaders() },
+  });
+  if (!res.ok) throw await parseError(res);
+  return res.json();
+}
+
 async function parseError(response: Response): Promise<ApiError> {
   try {
     const payload = (await response.json()) as { error?: ApiError };

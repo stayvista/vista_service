@@ -72,6 +72,10 @@
 - `POST /v1/admin/chat/prompts/rollback`
 - `GET /v1/admin/chat/experiments/chat-core`
 - `POST /v1/admin/chat/experiments/chat-core`
+- `GET /v1/admin/chat/curation/rules`
+- `POST /v1/admin/chat/curation/rules`
+- `PATCH /v1/admin/chat/curation/rules/{ruleId}`
+- `DELETE /v1/admin/chat/curation/rules/{ruleId}`
 
 ## OpenAPI
 - `contracts/openapi-v1.yaml` is the source of truth for request/response shapes.

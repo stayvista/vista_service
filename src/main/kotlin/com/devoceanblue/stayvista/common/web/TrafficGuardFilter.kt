@@ -28,6 +28,8 @@ class TrafficGuardFilter(
     @Value("\${stayvista.rate-limit.booking-confirm-per-minute:5}") private val bookingConfirmPerMinute: Int,
     @Value("\${stayvista.rate-limit.package-hold-per-minute:10}") private val packageHoldPerMinute: Int,
     @Value("\${stayvista.rate-limit.package-confirm-per-minute:5}") private val packageConfirmPerMinute: Int,
+    @Value("\${stayvista.rate-limit.chat-per-minute:40}") private val chatPerMinute: Int,
+    @Value("\${stayvista.rate-limit.bot-strict-per-minute:8}") private val botStrictPerMinute: Int,
     @Value("\${stayvista.queue.enabled:false}") private val queueEnabled: Boolean,
 ) : OncePerRequestFilter() {
     override fun doFilterInternal(
@@ -58,16 +60,50 @@ class TrafficGuardFilter(
         if (rateLimitEnabled) {
             val policy = ratePolicy(method, path)
             if (policy != null) {
-                val principal = request.getHeader("X-User-Id")
+                val basePrincipal = request.getHeader("X-User-Id")
                     ?.takeIf { it.isNotBlank() }
                     ?: request.remoteAddr.orEmpty()
-                val decision = redisRateLimiter.allow(policy.name, principal, policy.limitPerMinute)
-                if (!decision.allowed) {
-                    meterRegistry.counter("rate_limited_total", "endpoint_group", policy.name).increment()
-                    response.setHeader("Retry-After", decision.retryAfterSeconds.toString())
+                val botRequest = isLikelyBot(request.getHeader("User-Agent"))
+                val principal = if (botRequest) "bot:$basePrincipal" else basePrincipal
+                val effectiveLimit = if (botRequest) {
+                    minOf(policy.limitPerMinute, botStrictPerMinute.coerceAtLeast(1))
+                } else {
+                    policy.limitPerMinute
+                }
+
+                var finalDecision = RateLimitDecision(true, 1)
+                val cost = requestCost(policy.name, request, botRequest)
+                repeat(cost) {
+                    finalDecision = redisRateLimiter.allow(policy.name, principal, effectiveLimit)
+                    if (!finalDecision.allowed) {
+                        return@repeat
+                    }
+                }
+
+                if (!finalDecision.allowed) {
+                    meterRegistry.counter(
+                        "rate_limited_total",
+                        "endpoint_group",
+                        policy.name,
+                        "reason",
+                        if (botRequest) "bot_or_abuse" else "quota",
+                    ).increment()
+                    meterRegistry.counter("abuse_block_total", "policy", policy.name).increment()
+                    response.setHeader("Retry-After", finalDecision.retryAfterSeconds.toString())
                     writeError(response, ErrorCode.RATE_LIMITED, "Too many requests")
                     return
                 }
+
+                if (botRequest && isSensitivePath(path)) {
+                    val burstDecision = redisRateLimiter.allow("abuse_burst", principal, botStrictPerMinute.coerceAtLeast(1))
+                    if (!burstDecision.allowed) {
+                        meterRegistry.counter("abuse_block_total", "policy", policy.name).increment()
+                        response.setHeader("Retry-After", burstDecision.retryAfterSeconds.toString())
+                        writeError(response, ErrorCode.RATE_LIMITED, "Suspicious traffic throttled")
+                        return
+                    }
+                }
+
             }
         }
 
@@ -90,6 +126,9 @@ class TrafficGuardFilter(
         if (method == "POST" && path.matches(Regex("/v1/packages/.+/confirm"))) {
             return RatePolicy("package_confirm", packageConfirmPerMinute)
         }
+        if (method == "POST" && (path == "/v1/chat/recommend" || path == "/v1/chat/recommend:stream")) {
+            return RatePolicy("chat", chatPerMinute)
+        }
         return null
     }
 
@@ -101,6 +140,31 @@ class TrafficGuardFilter(
             path.matches(Regex("/v1/tickets/orders/.+/confirm")) ||
             path.matches(Regex("/v1/packages/.+/holds")) ||
             path.matches(Regex("/v1/packages/.+/confirm"))
+    }
+
+    private fun isLikelyBot(userAgent: String?): Boolean {
+        val ua = userAgent?.lowercase()?.trim().orEmpty()
+        if (ua.isBlank()) return false
+        val signatures = listOf("bot", "crawler", "spider", "scrapy", "python-requests", "curl/")
+        return signatures.any { ua.contains(it) }
+    }
+
+    private fun requestCost(policyName: String, request: HttpServletRequest, botRequest: Boolean): Int {
+        var cost = 1
+        if (botRequest) {
+            cost += 2
+        }
+        if (policyName == "chat") {
+            val contentLength = request.contentLengthLong
+            if (contentLength > 2_048) {
+                cost += 1
+            }
+        }
+        return cost.coerceAtMost(4)
+    }
+
+    private fun isSensitivePath(path: String): Boolean {
+        return path.startsWith("/v1/chat/") || path.startsWith("/v1/search/")
     }
 
     private fun writeError(response: HttpServletResponse, errorCode: ErrorCode, message: String) {

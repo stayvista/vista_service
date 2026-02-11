@@ -80,6 +80,7 @@
    - `chat_experiment_assignment_total`
    - `chat_shadow_total`
    - `chat_prompt_registry_total`
+   - `abuse_block_total`
 3) 즉시 조치
    - `CHAT_LLM_ENABLED=false`로 LLM 경로를 즉시 차단하고 TEMPLATE로 degrade
    - `stayvista.chat.llm.max-concurrency` 하향/상향 조정
@@ -127,6 +128,9 @@ docker compose -f services/docker/docker-compose.yml --profile llm up -d
 
 # 롤백
 ./services/infra/llm/swap-model.sh llama3.1:8b-instruct bge-m3
+
+# 카나리 단독 실행
+./services/infra/llm/canary.sh llama3.1:70b-instruct
 ```
 - 앱 설정 반영:
   - `LLM_MODEL_CHAT` (또는 `CHAT_LLM_ACTIVE_MODEL`)
@@ -164,6 +168,29 @@ curl -sS -X POST "http://localhost:18765/v1/admin/chat/experiments/chat-core" \
   -H "Content-Type: application/json" \
   -d '{"enabled":true,"rollout_percent":50,"treatment_model":"llama3.1:70b-instruct","prompt_version":"v3"}'
 ```
+
+### 3.8 Chat SLO Burn-rate Alert 점검(staging)
+```bash
+./services/loadtest/alerts/staging_alert_smoke.sh
+```
+- alert rules 파일: `services/loadtest/alerts/chat_slo_burn_rate_rules.yml`
+- staging에서 k6 스파이크 후 expression/alert 상태를 재확인한다.
+
+### 3.9 추천 큐레이션 운영(Admin)
+```bash
+# TOP_PICK 등록
+curl -sS -X POST "http://localhost:18765/v1/admin/chat/curation/rules" \
+  -H "Content-Type: application/json" \
+  -H "X-Admin-Id: 9001" \
+  -d '{"doc_id":"property:1001","rule_type":"TOP_PICK","weight":180,"enabled":true}'
+
+# BLACKLIST 등록
+curl -sS -X POST "http://localhost:18765/v1/admin/chat/curation/rules" \
+  -H "Content-Type: application/json" \
+  -H "X-Admin-Id: 9001" \
+  -d '{"doc_id":"poi:900","rule_type":"BLACKLIST","enabled":true}'
+```
+- 큐레이션은 chat retrieval 시 즉시 반영된다(재기동/재색인 불필요).
 
 ## 4) 런타임 설정(초안)
 - MySQL: connection pool 상한, 타임아웃, slow query log on

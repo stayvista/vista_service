@@ -1,0 +1,59 @@
+groups:
+  - name: stayvista-chat-slo
+    interval: 30s
+    rules:
+      - alert: ChatErrorBurnRateFast
+        expr: |
+          (
+            sum(rate(chat_llm_fail_total[5m])) / clamp_min(sum(rate(chat_requests_total[5m])), 1)
+          ) > 0.02
+          and
+          (
+            sum(rate(chat_llm_fail_total[1h])) / clamp_min(sum(rate(chat_requests_total[1h])), 1)
+          ) > 0.01
+        for: 5m
+        labels:
+          severity: page
+          service: chat
+        annotations:
+          summary: "Chat error burn-rate fast"
+          description: "5m/1h burn-rate exceeded. Investigate queue rejects, timeouts, and fallback spikes."
+
+      - alert: ChatErrorBurnRateSlow
+        expr: |
+          (
+            sum(rate(chat_llm_fail_total[30m])) / clamp_min(sum(rate(chat_requests_total[30m])), 1)
+          ) > 0.01
+          and
+          (
+            sum(rate(chat_llm_fail_total[6h])) / clamp_min(sum(rate(chat_requests_total[6h])), 1)
+          ) > 0.005
+        for: 15m
+        labels:
+          severity: ticket
+          service: chat
+        annotations:
+          summary: "Chat error burn-rate slow"
+          description: "30m/6h burn-rate exceeded. Check degraded quality and ongoing fallback ratio."
+
+      - alert: ChatLlmRejectRateHigh
+        expr: |
+          sum(rate(llm_reject_rate_total[5m])) > 1
+        for: 10m
+        labels:
+          severity: page
+          service: chat
+        annotations:
+          summary: "LLM queue reject sustained"
+          description: "LLM queue rejects are sustained over 10m. Tune budget/concurrency or reduce LLM usage."
+
+      - alert: ChatLatencyP95High
+        expr: |
+          max_over_time(chat_latency_seconds_max[5m]) > 1.2
+        for: 10m
+        labels:
+          severity: ticket
+          service: chat
+        annotations:
+          summary: "Chat latency p95 above SLO"
+          description: "chat_latency_seconds p95 exceeded 1.2s for 10m."
