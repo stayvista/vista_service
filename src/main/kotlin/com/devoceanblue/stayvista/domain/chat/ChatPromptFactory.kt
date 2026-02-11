@@ -3,7 +3,9 @@ package com.devoceanblue.stayvista.domain.chat
 import org.springframework.stereotype.Component
 
 @Component
-class ChatPromptFactory {
+class ChatPromptFactory(
+    private val safetyPolicy: ChatSafetyPolicy,
+) {
     fun buildSystemPrompt(): String {
         return """
             You are StayVista AI concierge.
@@ -51,7 +53,9 @@ class ChatPromptFactory {
     ): String {
         val evidence = hits.joinToString("\n") { hit ->
             val doc = hit.document
-            "- ${doc.docId} | ${doc.sourceType} | ${doc.title} | ${doc.snippet} | score=${"%.4f".format(hit.score)}"
+            val safeTitle = safetyPolicy.sanitizeEvidenceText(doc.title)
+            val safeSnippet = safetyPolicy.sanitizeEvidenceText(doc.snippet)
+            "- ${doc.docId} | ${doc.sourceType} | $safeTitle | $safeSnippet | score=${"%.4f".format(hit.score)}"
         }
 
         return """

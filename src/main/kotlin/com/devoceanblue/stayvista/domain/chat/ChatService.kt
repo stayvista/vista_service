@@ -22,6 +22,8 @@ class ChatService(
     private val promptFactory: ChatPromptFactory,
     private val structuredChatParser: StructuredChatParser,
     private val citationVerifier: CitationVerifier,
+    private val llmBudgetController: LlmBudgetController,
+    private val semanticCacheService: SemanticCacheService,
     private val chatMemoryService: ChatMemoryService,
     private val preferenceProfileService: PreferenceProfileService,
     private val itineraryPlannerService: ItineraryPlannerService,
@@ -59,8 +61,10 @@ class ChatService(
             }
             ragMs = retrieval.retrievalMs
             preferenceProfileService.recordImplicitFeedback(profileKey, message)
+            val llmAllowedByBudget = llmEnabled && llmBudgetController.allowLlm(message)
+            val llmBudgetMode = llmBudgetController.modeLabel()
 
-            val routeDecision = routingPolicy.decide(message, slots, retrieval.hits, llmAllowed = llmEnabled)
+            val routeDecision = routingPolicy.decide(message, slots, retrieval.hits, llmAllowed = llmAllowedByBudget)
             route = toDebugRoute(routeDecision.type)
             recordRouteRate(routeDecision.type)
 
@@ -88,6 +92,7 @@ class ChatService(
                             contextUsed = mapOf(
                                 "route" to routeDecision.reason,
                                 "embedding_used" to retrieval.usedEmbedding,
+                                "llm_budget_mode" to llmBudgetMode,
                             ),
                         ),
                         message = message,
@@ -106,13 +111,30 @@ class ChatService(
                         retrieval = retrieval,
                         memory = memory,
                     )
+                    val semanticNamespace = semanticNamespace(slots, retrieval)
 
                     if (promptCacheEnabled) {
                         val cached = chatCacheService.getPromptCache(promptCacheKey)
                         if (cached != null) {
-                            meterRegistry.counter("llm_used_rate", "used", "true").increment()
+                            meterRegistry.counter("llm_used_rate", "used", "false").increment()
                             return@runCatching enrichResult(
-                                response = cached,
+                                response = cached.copy(
+                                    llm_used = false,
+                                    context_used = cached.context_used + mapOf("cache" to "prompt"),
+                                ),
+                                message = message,
+                                slots = slots,
+                                retrieval = retrieval,
+                                profileKey = profileKey,
+                                memory = memory,
+                            )
+                        }
+
+                        val semanticCached = semanticCacheService.lookup(semanticNamespace, message)
+                        if (semanticCached != null) {
+                            meterRegistry.counter("llm_used_rate", "used", "false").increment()
+                            return@runCatching enrichResult(
+                                response = semanticCached.copy(llm_used = false),
                                 message = message,
                                 slots = slots,
                                 retrieval = retrieval,
@@ -138,6 +160,13 @@ class ChatService(
                     }
 
                     if (llmResult.rejected || llmResult.value == null) {
+                        llmBudgetController.recordOutcome(
+                            attempted = true,
+                            queueWaitMs = llmResult.queueWaitMs,
+                            llmElapsedMs = 0L,
+                            rejected = true,
+                            timeout = false,
+                        )
                         meterRegistry.counter("chat_llm_fail_total", "reason", "queue_rejected").increment()
                         meterRegistry.counter("llm_used_rate", "used", "false").increment()
                         return@runCatching enrichResult(
@@ -148,6 +177,7 @@ class ChatService(
                                 contextUsed = mapOf(
                                     "route" to "queue_rejected_fallback",
                                     "embedding_used" to retrieval.usedEmbedding,
+                                    "llm_budget_mode" to llmBudgetMode,
                                 ),
                             ),
                             message = message,
@@ -167,10 +197,20 @@ class ChatService(
 
                     if (promptCacheEnabled) {
                         chatCacheService.putPromptCache(promptCacheKey, verifiedNormalized, promptCacheTtlSeconds)
+                        semanticCacheService.put(semanticNamespace, message, verifiedNormalized, promptCacheTtlSeconds)
                     }
+                    llmBudgetController.recordOutcome(
+                        attempted = true,
+                        queueWaitMs = llmResult.queueWaitMs,
+                        llmElapsedMs = llmMs,
+                        rejected = false,
+                        timeout = false,
+                    )
                     meterRegistry.counter("llm_used_rate", "used", "true").increment()
                     enrichResult(
-                        response = verifiedNormalized,
+                        response = verifiedNormalized.copy(
+                            context_used = verifiedNormalized.context_used + mapOf("llm_budget_mode" to llmBudgetMode),
+                        ),
                         message = message,
                         slots = slots,
                         retrieval = retrieval,
@@ -180,6 +220,15 @@ class ChatService(
                 }
             }
         }.getOrElse { ex ->
+            if (isTimeoutFailure(ex)) {
+                llmBudgetController.recordOutcome(
+                    attempted = true,
+                    queueWaitMs = 0L,
+                    llmElapsedMs = 0L,
+                    rejected = false,
+                    timeout = true,
+                )
+            }
             meterRegistry.counter("chat_llm_fail_total", "reason", "fallback").increment()
             if (ex is StructuredRepairFailedException) {
                 meterRegistry.counter("fallback_due_to_parse_rate", "route", "sync").increment()
@@ -222,7 +271,8 @@ class ChatService(
         } else {
             null
         }
-        val verified = citationVerifier.verifyOrMitigate(result)
+        val guarded = safetyPolicy.enforceOutputPolicy(result)
+        val verified = citationVerifier.verifyOrMitigate(guarded)
         val finalized = verified.copy(debug = debug)
         persistTurnIfNeeded(sessionKey, message, finalized, route)
         return finalized
@@ -285,8 +335,10 @@ class ChatService(
             }
             ragMs = retrieval.retrievalMs
             preferenceProfileService.recordImplicitFeedback(profileKey, message)
+            val llmAllowedByBudget = llmEnabled && llmBudgetController.allowLlm(message)
+            val llmBudgetMode = llmBudgetController.modeLabel()
 
-            val routeDecision = routingPolicy.decide(message, slots, retrieval.hits, llmAllowed = llmEnabled)
+            val routeDecision = routingPolicy.decide(message, slots, retrieval.hits, llmAllowed = llmAllowedByBudget)
             route = toDebugRoute(routeDecision.type)
             recordRouteRate(routeDecision.type)
 
@@ -316,6 +368,7 @@ class ChatService(
                             contextUsed = mapOf(
                                 "route" to routeDecision.reason,
                                 "embedding_used" to retrieval.usedEmbedding,
+                                "llm_budget_mode" to llmBudgetMode,
                             ),
                         ),
                         message = message,
@@ -336,14 +389,32 @@ class ChatService(
                         retrieval = retrieval,
                         memory = memory,
                     )
+                    val semanticNamespace = semanticNamespace(slots, retrieval)
 
                     if (promptCacheEnabled) {
                         val cached = chatCacheService.getPromptCache(promptCacheKey)
                         if (cached != null) {
-                            meterRegistry.counter("llm_used_rate", "used", "true").increment()
+                            meterRegistry.counter("llm_used_rate", "used", "false").increment()
                             emitToken(cached.assistant_text)
                             return@runCatching enrichResult(
-                                response = cached,
+                                response = cached.copy(
+                                    llm_used = false,
+                                    context_used = cached.context_used + mapOf("cache" to "prompt"),
+                                ),
+                                message = message,
+                                slots = slots,
+                                retrieval = retrieval,
+                                profileKey = profileKey,
+                                memory = memory,
+                            )
+                        }
+
+                        val semanticCached = semanticCacheService.lookup(semanticNamespace, message)
+                        if (semanticCached != null) {
+                            meterRegistry.counter("llm_used_rate", "used", "false").increment()
+                            emitToken(semanticCached.assistant_text)
+                            return@runCatching enrichResult(
+                                response = semanticCached.copy(llm_used = false),
                                 message = message,
                                 slots = slots,
                                 retrieval = retrieval,
@@ -371,6 +442,13 @@ class ChatService(
                     }
 
                     if (llmResult.rejected || llmResult.value == null) {
+                        llmBudgetController.recordOutcome(
+                            attempted = true,
+                            queueWaitMs = llmResult.queueWaitMs,
+                            llmElapsedMs = 0L,
+                            rejected = true,
+                            timeout = false,
+                        )
                         meterRegistry.counter("chat_llm_fail_total", "reason", "queue_rejected").increment()
                         meterRegistry.counter("llm_used_rate", "used", "false").increment()
                         return@runCatching enrichResult(
@@ -381,6 +459,7 @@ class ChatService(
                                 contextUsed = mapOf(
                                     "route" to "queue_rejected_fallback",
                                     "embedding_used" to retrieval.usedEmbedding,
+                                    "llm_budget_mode" to llmBudgetMode,
                                 ),
                             ),
                             message = message,
@@ -399,10 +478,20 @@ class ChatService(
                     val verifiedNormalized = citationVerifier.verifyOrMitigate(normalized)
                     if (promptCacheEnabled) {
                         chatCacheService.putPromptCache(promptCacheKey, verifiedNormalized, promptCacheTtlSeconds)
+                        semanticCacheService.put(semanticNamespace, message, verifiedNormalized, promptCacheTtlSeconds)
                     }
+                    llmBudgetController.recordOutcome(
+                        attempted = true,
+                        queueWaitMs = llmResult.queueWaitMs,
+                        llmElapsedMs = llmMs,
+                        rejected = false,
+                        timeout = false,
+                    )
                     meterRegistry.counter("llm_used_rate", "used", "true").increment()
                     enrichResult(
-                        response = verifiedNormalized,
+                        response = verifiedNormalized.copy(
+                            context_used = verifiedNormalized.context_used + mapOf("llm_budget_mode" to llmBudgetMode),
+                        ),
                         message = message,
                         slots = slots,
                         retrieval = retrieval,
@@ -414,6 +503,15 @@ class ChatService(
         }.getOrElse { ex ->
             if (ex is CancellationException) {
                 throw ex
+            }
+            if (isTimeoutFailure(ex)) {
+                llmBudgetController.recordOutcome(
+                    attempted = true,
+                    queueWaitMs = 0L,
+                    llmElapsedMs = 0L,
+                    rejected = false,
+                    timeout = true,
+                )
             }
             meterRegistry.counter("chat_llm_fail_total", "reason", "fallback").increment()
             if (ex is StructuredRepairFailedException) {
@@ -462,7 +560,8 @@ class ChatService(
             null
         }
 
-        val verified = citationVerifier.verifyOrMitigate(result)
+        val guarded = safetyPolicy.enforceOutputPolicy(result)
+        val verified = citationVerifier.verifyOrMitigate(guarded)
         val finalized = verified.copy(debug = debug)
         persistTurnIfNeeded(sessionKey, message, finalized, route)
         return finalized
@@ -494,6 +593,18 @@ class ChatService(
                 append(retrieval.hits.take(4).joinToString(";") { it.document.docId })
             },
         )
+    }
+
+    private fun semanticNamespace(slots: ChatSlots, retrieval: RagSearchResult): String {
+        return buildString {
+            append(modelRegistry.activeModel())
+            append('|')
+            append(slots.city ?: "-")
+            append('|')
+            append(slots.intent)
+            append('|')
+            append(retrieval.hits.take(3).joinToString(";") { it.document.docId })
+        }
     }
 
     private fun enrichResult(
@@ -559,6 +670,14 @@ class ChatService(
         }.onFailure {
             meterRegistry.counter("chat_memory_total", "result", "append_error").increment()
         }
+    }
+
+    private fun isTimeoutFailure(ex: Throwable): Boolean {
+        if (ex is LlmSoftTimeoutException) return true
+        if (ex is LlmUnavailableException) {
+            return ex.message?.contains("timeout", ignoreCase = true) == true
+        }
+        return false
     }
 
     private fun toDebugRoute(type: ChatRouteType): String {

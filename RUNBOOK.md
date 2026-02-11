@@ -74,11 +74,16 @@
    - `chat_pref_profile_total`
    - `chat_reranker_proxy_score_before`
    - `chat_reranker_proxy_score_after`
+   - `chat_semantic_cache_total`
+   - `chat_llm_budget_mode`
+   - `chat_llm_budget_p99_ms`
 3) 즉시 조치
    - `CHAT_LLM_ENABLED=false`로 LLM 경로를 즉시 차단하고 TEMPLATE로 degrade
    - `stayvista.chat.llm.max-concurrency` 하향/상향 조정
    - `stayvista.chat.llm.max-queue-wait-ms` 단축하여 빠른 degrade
    - `stayvista.chat.llm.active-model`을 더 작은 모델로 전환
+   - `stayvista.chat.llm.budget.*` 임계값을 조정해 자동 degrade 강도를 변경
+   - `stayvista.chat.semantic-cache.similarity-threshold`를 0.88~0.95 범위에서 튜닝
 4) 재발 방지
    - prompt/retrieval cache hit ratio 개선
    - 룰/템플릿 라우팅 비율 상향(LLM 사용률 절감)

@@ -84,6 +84,10 @@ stayvista:
       ttl-seconds: ${CHAT_MEMORY_TTL_SECONDS:604800}
     preference:
       ttl-seconds: ${CHAT_PREFERENCE_TTL_SECONDS:2592000}
+    semantic-cache:
+      enabled: ${CHAT_SEMANTIC_CACHE_ENABLED:true}
+      similarity-threshold: ${CHAT_SEMANTIC_CACHE_SIMILARITY_THRESHOLD:0.92}
+      max-entries: ${CHAT_SEMANTIC_CACHE_MAX_ENTRIES:800}
     llm:
       enabled: ${CHAT_LLM_ENABLED:true}
       base-url: ${LLM_BASE_URL:${CHAT_LLM_BASE_URL:http://127.0.0.1:21434}}
@@ -94,6 +98,17 @@ stayvista:
       streaming-enabled: ${LLM_STREAMING_ENABLED:true}
       max-concurrency: ${CHAT_LLM_MAX_CONCURRENCY:8}
       max-queue-wait-ms: ${CHAT_LLM_MAX_QUEUE_WAIT_MS:350}
+      budget:
+        enabled: ${CHAT_LLM_BUDGET_ENABLED:true}
+        sample-window-size: ${CHAT_LLM_BUDGET_SAMPLE_WINDOW_SIZE:240}
+        p99-protect-ms: ${CHAT_LLM_BUDGET_P99_PROTECT_MS:4200}
+        p99-severe-ms: ${CHAT_LLM_BUDGET_P99_SEVERE_MS:5200}
+        p99-recover-ms: ${CHAT_LLM_BUDGET_P99_RECOVER_MS:2600}
+        reject-rate-threshold: ${CHAT_LLM_BUDGET_REJECT_RATE_THRESHOLD:0.08}
+        reject-rate-severe: ${CHAT_LLM_BUDGET_REJECT_RATE_SEVERE:0.16}
+        timeout-rate-threshold: ${CHAT_LLM_BUDGET_TIMEOUT_RATE_THRESHOLD:0.03}
+        degrade-allow-percent: ${CHAT_LLM_BUDGET_DEGRADE_ALLOW_PERCENT:45}
+        severe-allow-percent: ${CHAT_LLM_BUDGET_SEVERE_ALLOW_PERCENT:20}
     embed:
       base-url: ${CHAT_EMBED_BASE_URL:http://127.0.0.1:21434}
       active-model: ${CHAT_EMBED_ACTIVE_MODEL:bge-m3}
