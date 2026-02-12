@@ -182,6 +182,23 @@ class PoiServiceTest {
     }
 
     @Test
+    fun `nearby should include rows even when geohash is missing`() {
+        val data = poiService.nearby(
+            PoiNearbyQuery(
+                bbox = PoiBoundingBox.parse("37.49,127.03,37.51,127.05"),
+                category = "attraction",
+                limit = 20,
+                offset = 0,
+                sort = PoiSort.DISTANCE,
+                center = PoiCenter.parse("37.5000,127.0400"),
+                radius_m = null,
+            ),
+        )
+
+        assertTrue(data.items.any { it.id == 9104L })
+    }
+
+    @Test
     fun `detail should include links and related hints`() {
         val detail = poiService.getPoiDetail(9102)
 

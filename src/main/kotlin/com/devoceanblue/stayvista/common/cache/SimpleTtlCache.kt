@@ -29,6 +29,22 @@ class SimpleTtlCache(
         )
     }
 
+    fun invalidate(key: String) {
+        store.remove(key)
+    }
+
+    fun invalidatePrefix(prefix: String) {
+        store.keys.forEach { key ->
+            if (key.startsWith(prefix)) {
+                store.remove(key)
+            }
+        }
+    }
+
+    fun clear() {
+        store.clear()
+    }
+
     private data class CacheEntry<T : Any>(
         val value: T,
         val expiresAtMillis: Long,

@@ -387,7 +387,7 @@ class PoiService(
         }
 
         if (prefixes.isNotEmpty()) {
-            sql.append(" AND (")
+            sql.append(" AND (geohash IS NULL OR geohash = '' OR ")
             prefixes.forEachIndexed { index, prefix ->
                 if (index > 0) {
                     sql.append(" OR ")
@@ -599,7 +599,7 @@ class PoiService(
     }
 
     private fun cacheInvalidateNearby() {
-        // short lived nearby cache. explicit wipe is unnecessary with current in-memory cache impl.
+        cache.invalidatePrefix("nearby:")
     }
 
     private fun haversineMeters(lat1: Double, lng1: Double, lat2: Double, lng2: Double): Double {
