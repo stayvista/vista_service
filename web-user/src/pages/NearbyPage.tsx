@@ -382,6 +382,7 @@ export function NearbyPage() {
   const mapRef = useRef<MapLibreMap | null>(null);
   const mapReadyRef = useRef(false);
   const searchDebounceRef = useRef<number | null>(null);
+  const mapResizeFrameRef = useRef<number | null>(null);
   const nearbyAbortRef = useRef<AbortController | null>(null);
   const inflightNearbyRef = useRef<Map<string, Promise<NearbyData>>>(new Map());
   const detailCacheRef = useRef<Map<number, PoiDetail>>(new Map());
@@ -526,6 +527,9 @@ export function NearbyPage() {
       if (searchDebounceRef.current) {
         window.clearTimeout(searchDebounceRef.current);
       }
+      if (mapResizeFrameRef.current != null) {
+        window.cancelAnimationFrame(mapResizeFrameRef.current);
+      }
       map.remove();
       mapRef.current = null;
       mapReadyRef.current = false;
@@ -571,6 +575,19 @@ export function NearbyPage() {
     },
     []
   );
+
+  const scheduleMapResize = useCallback(() => {
+    if (!mapRef.current || !mapReadyRef.current) {
+      return;
+    }
+    if (mapResizeFrameRef.current != null) {
+      window.cancelAnimationFrame(mapResizeFrameRef.current);
+    }
+    mapResizeFrameRef.current = window.requestAnimationFrame(() => {
+      mapRef.current?.resize();
+      mapResizeFrameRef.current = null;
+    });
+  }, []);
 
   const runNearbySearch = useCallback(async () => {
     const map = mapRef.current;
@@ -645,6 +662,10 @@ export function NearbyPage() {
       }
     };
   }, [autoSearch, runNearbySearch, viewportDirty]);
+
+  useEffect(() => {
+    scheduleMapResize();
+  }, [isCompactLayout, listPanePercent, mobileTab, scheduleMapResize, showDesktopDetail, sidebarWidth]);
 
   useEffect(() => {
     if (!mapReady) {
