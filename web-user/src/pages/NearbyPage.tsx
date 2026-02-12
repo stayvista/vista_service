@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import maplibregl, { GeoJSONSource, Map as MapLibreMap } from "maplibre-gl";
+import maplibregl, { GeoJSONSource, Map as MapLibreMap, type StyleSpecification } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { apiGet } from "../api/client";
 
@@ -102,6 +102,31 @@ const POINT_LAYER_ID = "nearby-points";
 const HOVER_LAYER_ID = "nearby-points-hover";
 const SELECTED_LAYER_ID = "nearby-points-selected";
 const SOURCE_ID = "nearby-poi";
+
+const OSM_RASTER_STYLE: StyleSpecification = {
+  version: 8,
+  sources: {
+    osm: {
+      type: "raster",
+      tiles: [
+        "https://a.tile.openstreetmap.org/{z}/{x}/{y}.png",
+        "https://b.tile.openstreetmap.org/{z}/{x}/{y}.png",
+        "https://c.tile.openstreetmap.org/{z}/{x}/{y}.png",
+      ],
+      tileSize: 256,
+      attribution: "&copy; OpenStreetMap contributors",
+    },
+  },
+  layers: [
+    {
+      id: "osm",
+      type: "raster",
+      source: "osm",
+      minzoom: 0,
+      maxzoom: 19,
+    },
+  ],
+};
 
 function parseNumber(raw: string | null, fallback: number): number {
   const value = Number(raw);
@@ -282,6 +307,7 @@ export function NearbyPage() {
   const [error, setError] = useState<string | null>(null);
   const [viewportDirty, setViewportDirty] = useState(false);
   const [mapReady, setMapReady] = useState(false);
+  const [locating, setLocating] = useState(false);
 
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [hoveredId, setHoveredId] = useState<number | null>(null);
@@ -354,7 +380,7 @@ export function NearbyPage() {
 
     const map = new maplibregl.Map({
       container: mapContainerRef.current,
-      style: "https://demotiles.maplibre.org/style.json",
+      style: OSM_RASTER_STYLE,
       center: [centerLng, centerLat],
       zoom,
       minZoom: 4,
@@ -648,6 +674,12 @@ export function NearbyPage() {
       setError("현재 브라우저에서 위치 정보를 사용할 수 없습니다.");
       return;
     }
+    if (locating) {
+      return;
+    }
+
+    setLocating(true);
+    setError(null);
 
     navigator.geolocation.getCurrentPosition(
       (position) => {
@@ -657,9 +689,11 @@ export function NearbyPage() {
         setCenterLng(lng);
         mapRef.current?.flyTo({ center: [lng, lat], zoom: Math.max(mapRef.current.getZoom(), 14), duration: 680 });
         setViewportDirty(true);
+        setLocating(false);
       },
       (geoError) => {
         setError(`위치 정보를 가져오지 못했습니다: ${geoError.message}`);
+        setLocating(false);
       },
       { timeout: 7000, maximumAge: 30_000 }
     );
@@ -745,8 +779,8 @@ export function NearbyPage() {
           자동 검색(400ms debounce)
         </label>
 
-        <button type="button" className="nearby-ghost-btn" onClick={useCurrentLocation}>
-          현재 위치로 이동
+        <button type="button" className="nearby-ghost-btn" onClick={useCurrentLocation} disabled={locating}>
+          {locating ? "위치 확인 중..." : "현재 위치로 이동"}
         </button>
       </section>
 
