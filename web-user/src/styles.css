@@ -2122,6 +2122,35 @@ button:disabled {
   min-height: 660px;
 }
 
+.nearby-zoom-controls {
+  position: absolute;
+  right: 10px;
+  top: 14px;
+  z-index: 7;
+  display: grid;
+  gap: 2px;
+}
+
+.nearby-zoom-controls button {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  border: 1px solid #2f63c7;
+  background: #0f5eff;
+  color: #ffffff;
+  font-size: 1.75rem;
+  line-height: 1;
+  font-weight: 700;
+  box-shadow: 0 10px 24px rgba(15, 45, 95, 0.22);
+  padding: 0;
+}
+
+.nearby-zoom-controls button:hover {
+  transform: none;
+  box-shadow: 0 10px 24px rgba(15, 45, 95, 0.22);
+  background: #0a4dd8;
+}
+
 .nearby-search-area-btn {
   position: absolute;
   left: 50%;

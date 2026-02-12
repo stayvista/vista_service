@@ -450,7 +450,6 @@ export function NearbyPage() {
       maxZoom: 18,
     });
 
-    map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
     map.addControl(new maplibregl.AttributionControl({ compact: true }), "bottom-right");
 
     map.on("load", () => {
@@ -794,6 +793,21 @@ export function NearbyPage() {
         next.add(id);
       }
       return next;
+    });
+  }
+
+  function zoomBy(delta: number) {
+    const map = mapRef.current;
+    if (!map || !mapReadyRef.current) {
+      return;
+    }
+    const currentCenter = map.getCenter();
+    const nextZoom = Math.max(4, Math.min(18, map.getZoom() + delta));
+    map.easeTo({
+      center: [currentCenter.lng, currentCenter.lat],
+      zoom: nextZoom,
+      duration: 220,
+      essential: true,
     });
   }
 
@@ -1144,6 +1158,11 @@ export function NearbyPage() {
 
         <section className="nearby-v2-map-panel" aria-label="주변 추천 지도">
           <div ref={mapContainerRef} className="nearby-map-canvas" />
+
+          <div className="nearby-zoom-controls" aria-label="지도 확대/축소">
+            <button type="button" onClick={() => zoomBy(1)} aria-label="지도 확대">+</button>
+            <button type="button" onClick={() => zoomBy(-1)} aria-label="지도 축소">-</button>
+          </div>
 
           {viewportDirty && (
             <button type="button" className="nearby-search-area-btn" onClick={() => void runNearbySearch()}>
