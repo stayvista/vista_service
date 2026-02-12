@@ -302,6 +302,23 @@ class PoiServiceTest {
         assertTrue(data.items.any { it.id == 999999L })
     }
 
+    @Test
+    fun `nearby should ignore radius filter on wide bbox`() {
+        val data = poiService.nearby(
+            PoiNearbyQuery(
+                bbox = PoiBoundingBox.parse("33.495120,124.376136,38.736020,130.805613"),
+                category = null,
+                limit = 120,
+                offset = 0,
+                sort = PoiSort.DISTANCE,
+                center = PoiCenter.parse("36.159342,127.590874"),
+                radius_m = 500,
+            ),
+        )
+
+        assertTrue(data.items.isNotEmpty())
+    }
+
     private fun insertPoi(
         id: Long,
         name: String,

@@ -31,11 +31,25 @@ class PoiService(
     @Value("\${stayvista.poi.nearby.cache-ttl-seconds:15}") private val nearbyCacheTtlSeconds: Long,
     @Value("\${stayvista.poi.nearby.scan-limit:2000}") private val nearbyScanLimit: Int,
 ) {
+    companion object {
+        private const val RADIUS_VIEWPORT_MAX_LAT_SPAN = 1.0
+        private const val RADIUS_VIEWPORT_MAX_LNG_SPAN = 1.0
+    }
+
     fun nearby(query: PoiNearbyQuery): PoiNearbyData {
         val normalizedCategory = query.category?.trim()?.takeIf { it.isNotEmpty() }
         val center = query.center ?: PoiCenter(query.bbox.centerLat(), query.bbox.centerLng())
+        val effectiveRadius = query.radius_m?.takeIf {
+            query.bbox.latSpan() <= RADIUS_VIEWPORT_MAX_LAT_SPAN &&
+                query.bbox.lngSpan() <= RADIUS_VIEWPORT_MAX_LNG_SPAN
+        }
 
-        val cacheKey = nearbyCacheKey(query = query, normalizedCategory = normalizedCategory, center = center)
+        val cacheKey = nearbyCacheKey(
+            query = query,
+            normalizedCategory = normalizedCategory,
+            center = center,
+            effectiveRadius = effectiveRadius,
+        )
         cache.get<PoiNearbyData>(cacheKey)?.let {
             meterRegistry.counter("cache_hit_rate_nearby", "result", "hit").increment()
             return it
@@ -56,7 +70,7 @@ class PoiService(
                 NearbyCandidate(row = row, distanceMeters = distance)
             }
             .filter { candidate ->
-                val radius = query.radius_m ?: return@filter true
+                val radius = effectiveRadius ?: return@filter true
                 candidate.distanceMeters <= radius
             }
             .sortedWith(
@@ -541,7 +555,12 @@ class PoiService(
         return rows
     }
 
-    private fun nearbyCacheKey(query: PoiNearbyQuery, normalizedCategory: String?, center: PoiCenter): String {
+    private fun nearbyCacheKey(
+        query: PoiNearbyQuery,
+        normalizedCategory: String?,
+        center: PoiCenter,
+        effectiveRadius: Int?,
+    ): String {
         val raw = listOf(
             "bbox=${query.bbox.normalized()}",
             "category=${normalizedCategory.orEmpty()}",
@@ -549,10 +568,10 @@ class PoiService(
             "limit=${query.limit}",
             "offset=${query.offset}",
             "center=%.6f,%.6f".format(center.lat, center.lng),
-            "radius=${query.radius_m ?: ""}",
+            "radius=${effectiveRadius ?: ""}",
         ).joinToString("&")
 
-        return "nearby:${sha256(raw)}:${normalizedCategory.orEmpty()}:${query.sort.apiValue}:${query.limit}:${query.offset}:${query.radius_m ?: 0}"
+        return "nearby:${sha256(raw)}:${normalizedCategory.orEmpty()}:${query.sort.apiValue}:${query.limit}:${query.offset}:${effectiveRadius ?: 0}"
     }
 
     private fun buildNaverLink(poi: PoiRecord): String {
