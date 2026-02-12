@@ -256,6 +256,52 @@ class PoiServiceTest {
         assertTrue((geohash ?: "").isNotBlank())
     }
 
+    @Test
+    fun `nearby should still find center radius items when bbox is wide`() {
+        for (index in 1..450) {
+            insertPoi(
+                id = 100000L + index,
+                name = "Far Candidate $index",
+                category = "food",
+                city = "Seoul",
+                lat = 37.50 + (index * 0.0001),
+                lng = 127.04 + (index * 0.0001),
+                active = true,
+                popularity = 100,
+                rating = 3.5,
+                description = "Far candidate",
+                imageUrls = "[]",
+            )
+        }
+        insertPoi(
+            id = 999999L,
+            name = "Center Hit",
+            category = "food",
+            city = "Daejeon",
+            lat = 36.159342,
+            lng = 127.590874,
+            active = true,
+            popularity = 900,
+            rating = 4.8,
+            description = "Near center",
+            imageUrls = "[]",
+        )
+
+        val data = poiService.nearby(
+            PoiNearbyQuery(
+                bbox = PoiBoundingBox.parse("33.495120,124.376136,38.736020,130.805613"),
+                category = null,
+                limit = 120,
+                offset = 0,
+                sort = PoiSort.DISTANCE,
+                center = PoiCenter.parse("36.159342,127.590874"),
+                radius_m = 500,
+            ),
+        )
+
+        assertTrue(data.items.any { it.id == 999999L })
+    }
+
     private fun insertPoi(
         id: Long,
         name: String,

@@ -67,25 +67,37 @@ class PoiGeohashPrefixPlanner(
     @Value("\${stayvista.poi.geohash.max-prefixes:24}") private val maxPrefixes: Int,
 ) {
     fun resolvePrefixes(bbox: PoiBoundingBox): List<String> {
+        val limit = maxPrefixes.coerceAtLeast(1)
         val prefixLength = pickPrefixLength(bbox)
+        val centerPrefix = PoiGeohash.encode(bbox.centerLat(), bbox.centerLng(), 9).take(prefixLength)
         val latSteps = sampleSteps(bbox.latSpan(), prefixLength)
         val lngSteps = sampleSteps(bbox.lngSpan(), prefixLength)
 
         val prefixes = linkedSetOf<String>()
+        var saturated = false
         for (latStep in 0..latSteps) {
             val lat = bbox.swLat + (bbox.latSpan() * latStep / latSteps)
             for (lngStep in 0..lngSteps) {
                 val lng = bbox.swLng + (bbox.lngSpan() * lngStep / lngSteps)
                 prefixes += PoiGeohash.encode(lat, lng, 9).take(prefixLength)
-                if (prefixes.size >= maxPrefixes) {
-                    return prefixes.toList()
+                if (prefixes.size >= limit) {
+                    saturated = true
+                    break
                 }
+            }
+            if (saturated) {
+                break
             }
         }
 
-        // Safety: include center prefix to avoid edge-only samples.
-        prefixes += PoiGeohash.encode(bbox.centerLat(), bbox.centerLng(), 9).take(prefixLength)
-        return prefixes.toList().take(maxPrefixes)
+        if (!prefixes.contains(centerPrefix)) {
+            if (prefixes.size >= limit) {
+                prefixes.lastOrNull()?.let { prefixes.remove(it) }
+            }
+            prefixes += centerPrefix
+        }
+
+        return prefixes.toList().take(limit)
     }
 
     private fun pickPrefixLength(bbox: PoiBoundingBox): Int {

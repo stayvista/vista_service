@@ -47,6 +47,7 @@ class PoiService(
             bbox = query.bbox,
             category = normalizedCategory,
             fetchLimit = fetchLimit,
+            center = center,
         )
 
         val sorted = candidates
@@ -360,6 +361,7 @@ class PoiService(
         bbox: PoiBoundingBox,
         category: String?,
         fetchLimit: Int,
+        center: PoiCenter?,
     ): List<PoiRecord> {
         val prefixes = geohashPrefixPlanner.resolvePrefixes(bbox)
 
@@ -398,7 +400,15 @@ class PoiService(
             sql.append(")")
         }
 
-        sql.append(" ORDER BY id LIMIT ?")
+        sql.append(" ORDER BY ")
+        if (center != null) {
+            sql.append("((lat - ?) * (lat - ?) + (lng - ?) * (lng - ?)) ASC, ")
+            params += center.lat
+            params += center.lat
+            params += center.lng
+            params += center.lng
+        }
+        sql.append("id LIMIT ?")
         params += fetchLimit.coerceIn(200, 5000)
 
         return jdbcTemplate.query(
