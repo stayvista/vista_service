@@ -104,6 +104,8 @@ class PoiService(
                     lat = candidate.row.lat,
                     lng = candidate.row.lng,
                     distance_m = candidate.distanceMeters.roundToInt(),
+                    rating_score = candidate.row.ratingScore.takeIf { it > 0.0 },
+                    review_count = candidate.row.popularityScore.takeIf { it > 0 },
                     preview = PoiNearbyPreview(
                         thumbnail_url = candidate.row.images.firstOrNull(),
                         address = candidate.row.address,

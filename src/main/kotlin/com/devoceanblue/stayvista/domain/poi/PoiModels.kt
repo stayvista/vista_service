@@ -155,6 +155,8 @@ data class PoiNearbyItem(
     val lat: Double,
     val lng: Double,
     val distance_m: Int,
+    val rating_score: Double? = null,
+    val review_count: Int? = null,
     val preview: PoiNearbyPreview?,
 )
 

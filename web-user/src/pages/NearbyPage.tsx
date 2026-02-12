@@ -14,6 +14,8 @@ type NearbyItem = {
   lat: number;
   lng: number;
   distance_m: number;
+  rating_score?: number;
+  review_count?: number;
   preview?: {
     thumbnail_url?: string;
     address?: string;
@@ -81,6 +83,13 @@ const DEFAULT_LNG = 127.0396;
 const DEFAULT_ZOOM = 13;
 const DEFAULT_RADIUS = 2500;
 const DEFAULT_LIMIT = 120;
+const MOBILE_BREAKPOINT = 760;
+const MIN_SIDEBAR_WIDTH = 320;
+const MAX_SIDEBAR_WIDTH = 640;
+const DEFAULT_SIDEBAR_WIDTH = 420;
+const MIN_LIST_PANE_PERCENT = 35;
+const MAX_LIST_PANE_PERCENT = 78;
+const DEFAULT_LIST_PANE_PERCENT = 56;
 
 const CATEGORY_OPTIONS = [
   { value: "", label: "전체" },
@@ -95,6 +104,13 @@ const SORT_OPTIONS: Array<{ value: NearbySort; label: string }> = [
   { value: "popularity", label: "인기순" },
   { value: "rating", label: "평점순" },
 ];
+
+const CATEGORY_LABELS: Record<string, string> = {
+  attraction: "관광",
+  food: "음식점",
+  shopping: "쇼핑",
+  museum: "전시",
+};
 
 const CLUSTER_LAYER_ID = "nearby-clusters";
 const CLUSTER_COUNT_LAYER_ID = "nearby-cluster-count";
@@ -138,6 +154,28 @@ function parseSort(raw: string | null): NearbySort {
     return raw;
   }
   return "distance";
+}
+
+function categoryLabel(category?: string): string {
+  if (!category) return "기타";
+  return CATEGORY_LABELS[category] ?? category.toUpperCase();
+}
+
+function buildFallbackImage(id: number): string {
+  return `https://picsum.photos/seed/stayvista-poi-${id}/640/420`;
+}
+
+function reviewSummary(rating?: number, reviewCount?: number): string {
+  if (rating && reviewCount) {
+    return `★ ${rating.toFixed(1)} · 리뷰 ${reviewCount.toLocaleString()}`;
+  }
+  if (rating) {
+    return `★ ${rating.toFixed(1)} · 리뷰 정보 준비중`;
+  }
+  if (reviewCount) {
+    return `리뷰 ${reviewCount.toLocaleString()}`;
+  }
+  return "리뷰 정보 준비중";
 }
 
 function toFeatureCollection(items: NearbyItem[]): NearbyFeatureCollection {
@@ -304,6 +342,9 @@ export function NearbyPage() {
   );
   const [autoSearch, setAutoSearch] = useState(searchParams.get("auto") === "1");
   const [mobileTab, setMobileTab] = useState<MobileTab>("map");
+  const [isCompactLayout, setIsCompactLayout] = useState(() => window.innerWidth <= MOBILE_BREAKPOINT);
+  const [sidebarWidth, setSidebarWidth] = useState(DEFAULT_SIDEBAR_WIDTH);
+  const [listPanePercent, setListPanePercent] = useState(DEFAULT_LIST_PANE_PERCENT);
 
   const [centerLat, setCenterLat] = useState(parseNumber(searchParams.get("lat"), DEFAULT_LAT));
   const [centerLng, setCenterLng] = useState(parseNumber(searchParams.get("lng"), DEFAULT_LNG));
@@ -344,13 +385,14 @@ export function NearbyPage() {
   const nearbyAbortRef = useRef<AbortController | null>(null);
   const inflightNearbyRef = useRef<Map<string, Promise<NearbyData>>>(new Map());
   const detailCacheRef = useRef<Map<number, PoiDetail>>(new Map());
-  const itemRefs = useRef<Record<number, HTMLLIElement | null>>({});
+  const leftPanelRef = useRef<HTMLDivElement | null>(null);
   const selectedIdRef = useRef<number | null>(null);
 
   const selectedItem = useMemo(
     () => items.find((item) => item.id === selectedId) ?? null,
     [items, selectedId]
   );
+  const showDesktopDetail = selectedId != null && !isCompactLayout;
 
   useEffect(() => {
     selectedIdRef.current = selectedId;
@@ -359,8 +401,19 @@ export function NearbyPage() {
   const effectiveImages = useMemo(() => {
     if (selectedDetail?.images?.length) return selectedDetail.images;
     if (selectedItem?.preview?.thumbnail_url) return [selectedItem.preview.thumbnail_url];
+    if (selectedItem) return [buildFallbackImage(selectedItem.id)];
     return [];
   }, [selectedDetail, selectedItem]);
+
+  useEffect(() => {
+    const onResize = () => {
+      setIsCompactLayout(window.innerWidth <= MOBILE_BREAKPOINT);
+    };
+    window.addEventListener("resize", onResize);
+    return () => {
+      window.removeEventListener("resize", onResize);
+    };
+  }, []);
 
   useEffect(() => {
     const next = new URLSearchParams();
@@ -442,7 +495,6 @@ export function NearbyPage() {
       setSelectedId(id);
       setPanelOpen(true);
       setMobileTab("map");
-      itemRefs.current[id]?.scrollIntoView({ block: "nearest", behavior: "smooth" });
     });
 
     map.on("mousemove", POINT_LAYER_ID, (event) => {
@@ -626,8 +678,6 @@ export function NearbyPage() {
       }
     }
 
-    itemRefs.current[selectedId]?.scrollIntoView({ behavior: "smooth", block: "nearest" });
-
     const cachedDetail = detailCacheRef.current.get(selectedId);
     if (cachedDetail) {
       setSelectedDetail(cachedDetail);
@@ -726,6 +776,154 @@ export function NearbyPage() {
     });
   }
 
+  function startSidebarResize(event: React.MouseEvent<HTMLDivElement>) {
+    if (isCompactLayout) return;
+    event.preventDefault();
+    const startX = event.clientX;
+    const startWidth = sidebarWidth;
+
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      const delta = moveEvent.clientX - startX;
+      const nextWidth = Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, startWidth + delta));
+      setSidebarWidth(nextWidth);
+    };
+
+    const onMouseUp = () => {
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
+  }
+
+  function startListPaneResize(event: React.MouseEvent<HTMLDivElement>) {
+    if (!showDesktopDetail || !leftPanelRef.current) return;
+    event.preventDefault();
+    const panelHeight = leftPanelRef.current.getBoundingClientRect().height;
+    const startY = event.clientY;
+    const startPercent = listPanePercent;
+
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      const deltaPercent = ((moveEvent.clientY - startY) / Math.max(panelHeight, 360)) * 100;
+      const nextPercent = Math.min(MAX_LIST_PANE_PERCENT, Math.max(MIN_LIST_PANE_PERCENT, startPercent + deltaPercent));
+      setListPanePercent(nextPercent);
+    };
+
+    const onMouseUp = () => {
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+
+    document.body.style.cursor = "row-resize";
+    document.body.style.userSelect = "none";
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
+  }
+
+  const detailReviewCount = selectedItem?.review_count;
+  const detailBlogReviewCount = detailReviewCount ? Math.max(1, Math.round(detailReviewCount * 0.18)) : null;
+
+  const detailContent = (
+    <>
+      {detailLoading && <p className="notice info">상세 정보를 불러오는 중입니다...</p>}
+
+      {detailError && (
+        <div className="nearby-detail-error">
+          <p>{detailError}</p>
+          <button type="button" onClick={retryDetail}>다시 시도</button>
+        </div>
+      )}
+
+      {!detailLoading && (
+        <>
+          {effectiveImages.length > 0 && (
+            <div className="nearby-carousel">
+              <img src={effectiveImages[imageIndex % effectiveImages.length]} alt="POI 이미지" />
+              {effectiveImages.length > 1 && (
+                <div className="nearby-carousel-nav">
+                  <button
+                    type="button"
+                    onClick={() => setImageIndex((previous) => (previous - 1 + effectiveImages.length) % effectiveImages.length)}
+                  >
+                    이전
+                  </button>
+                  <span>{(imageIndex % effectiveImages.length) + 1} / {effectiveImages.length}</span>
+                  <button
+                    type="button"
+                    onClick={() => setImageIndex((previous) => (previous + 1) % effectiveImages.length)}
+                  >
+                    다음
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
+          <p className="nearby-detail-review">{reviewSummary(selectedItem?.rating_score, selectedItem?.review_count)}</p>
+          {detailReviewCount && (
+            <p className="nearby-detail-review-count">
+              방문 리뷰 {detailReviewCount.toLocaleString()}
+              {detailBlogReviewCount ? ` · 블로그 리뷰 ${detailBlogReviewCount.toLocaleString()}` : ""}
+            </p>
+          )}
+
+          <p className="nearby-detail-address">{selectedDetail?.address ?? selectedItem?.preview?.address ?? "주소 정보 없음"}</p>
+          <p className="nearby-detail-description">{selectedDetail?.description ?? selectedItem?.preview?.snippet ?? "소개 정보 없음"}</p>
+
+          <div className="nearby-detail-actions">
+            {selectedDetail?.links?.google && (
+              <a href={selectedDetail.links.google} target="_blank" rel="noreferrer">길찾기</a>
+            )}
+            {selectedId != null && (
+              <button type="button" onClick={() => toggleSave(selectedId)}>
+                {savedIds.has(selectedId) ? "저장 해제" : "저장"}
+              </button>
+            )}
+            {selectedDetail?.links?.naver && (
+              <a href={selectedDetail.links.naver} target="_blank" rel="noreferrer">네이버 지도</a>
+            )}
+          </div>
+
+          {selectedDetail && (
+            <div className="nearby-related-wrap">
+              <div>
+                <h4>연관 숙소</h4>
+                <ul>
+                  {selectedDetail.related.properties.map((property) => (
+                    <li key={property.property_id}>
+                      <Link to={`/properties/${property.property_id}`}>
+                        {property.name} {property.city ? `· ${property.city}` : ""}
+                      </Link>
+                    </li>
+                  ))}
+                  {selectedDetail.related.properties.length === 0 && <li>연관 숙소 없음</li>}
+                </ul>
+              </div>
+              <div>
+                <h4>연관 티켓/상품</h4>
+                <ul>
+                  {selectedDetail.related.products.map((product) => (
+                    <li key={product.product_id}>
+                      <Link to={`/tickets/${product.product_id}`}>{product.name}</Link>
+                    </li>
+                  ))}
+                  {selectedDetail.related.products.length === 0 && <li>연관 상품 없음</li>}
+                </ul>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </>
+  );
+
   return (
     <section className="page nearby-v2-page">
       <header className="page-head nearby-v2-head">
@@ -822,68 +1020,106 @@ export function NearbyPage() {
       </section>
 
       <section className={`nearby-v2-layout ${mobileTab === "list" ? "mobile-list" : "mobile-map"}`}>
-        <aside className="nearby-v2-list-panel" aria-label="주변 추천 목록">
-          {loading && <p className="notice info">주변 추천을 불러오는 중입니다...</p>}
-          {error && <p className="notice error">{error}</p>}
-          {!loading && !error && items.length === 0 && (
-            <p className="notice warning">현재 화면/필터 조건에서 결과를 찾지 못했습니다.</p>
-          )}
+        <aside
+          className="nearby-v2-list-panel"
+          aria-label="주변 추천 목록"
+          style={!isCompactLayout ? { width: `${sidebarWidth}px` } : undefined}
+        >
+          <div className={`nearby-left-stack ${showDesktopDetail ? "has-detail" : ""}`} ref={leftPanelRef}>
+            <div
+              className="nearby-list-pane"
+              style={showDesktopDetail ? { flex: `0 0 ${listPanePercent}%` } : { flex: "1 1 auto" }}
+            >
+              {loading && <p className="notice info">주변 추천을 불러오는 중입니다...</p>}
+              {error && <p className="notice error">{error}</p>}
+              {!loading && !error && items.length === 0 && (
+                <p className="notice warning">현재 화면/필터 조건에서 결과를 찾지 못했습니다.</p>
+              )}
 
-          <ul className="nearby-result-list">
-            {items.map((item) => {
-              const selected = item.id === selectedId;
-              const hovered = item.id === hoveredId;
-              const saved = savedIds.has(item.id);
-              return (
-                <li
-                  key={item.id}
-                  ref={(element) => {
-                    itemRefs.current[item.id] = element;
-                  }}
-                  className={`nearby-result-card ${selected ? "selected" : ""} ${hovered ? "hovered" : ""}`}
-                  onMouseEnter={() => setHoveredId(item.id)}
-                  onMouseLeave={() => setHoveredId((previous) => (previous === selectedId ? previous : null))}
-                >
-                  <button
-                    type="button"
-                    className="nearby-card-main"
-                    onClick={() => {
-                      setSelectedId(item.id);
-                      setPanelOpen(true);
-                      setMobileTab("map");
-                    }}
-                  >
-                    {item.preview?.thumbnail_url ? (
-                      <img src={item.preview.thumbnail_url} alt={`${item.name} 썸네일`} />
-                    ) : (
-                      <div className="nearby-thumb-fallback">POI</div>
-                    )}
-                    <div>
-                      <p className="nearby-card-category">{item.category ?? "기타"}</p>
-                      <h3>{item.name}</h3>
-                      <p>{item.distance_m.toLocaleString()}m · {item.preview?.address ?? "주소 정보 없음"}</p>
-                    </div>
-                  </button>
-                  <div className="nearby-card-actions">
-                    <button type="button" className={saved ? "active" : ""} onClick={() => toggleSave(item.id)}>
-                      {saved ? "저장됨" : "저장"}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSelectedId(item.id);
-                        setPanelOpen(true);
-                        setMobileTab("map");
-                      }}
+              <ul className="nearby-result-list">
+                {items.map((item) => {
+                  const selected = item.id === selectedId;
+                  const hovered = item.id === hoveredId;
+                  const saved = savedIds.has(item.id);
+                  const thumbnail = item.preview?.thumbnail_url ?? buildFallbackImage(item.id);
+                  return (
+                    <li
+                      key={item.id}
+                      className={`nearby-result-card ${selected ? "selected" : ""} ${hovered ? "hovered" : ""}`}
+                      onMouseEnter={() => setHoveredId(item.id)}
+                      onMouseLeave={() => setHoveredId((previous) => (previous === selectedId ? previous : null))}
                     >
-                      상세보기
-                    </button>
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
+                      <button
+                        type="button"
+                        className="nearby-card-main"
+                        onClick={() => {
+                          setSelectedId(item.id);
+                          setPanelOpen(true);
+                          setMobileTab("map");
+                        }}
+                      >
+                        <img src={thumbnail} alt={`${item.name} 썸네일`} />
+                        <div>
+                          <p className="nearby-card-category">{categoryLabel(item.category)}</p>
+                          <h3>{item.name}</h3>
+                          <p>{item.distance_m.toLocaleString()}m · {item.preview?.address ?? "주소 정보 없음"}</p>
+                          <p className="nearby-card-review">{reviewSummary(item.rating_score, item.review_count)}</p>
+                          <p className="nearby-card-snippet">{item.preview?.snippet ?? "소개 정보 준비중입니다."}</p>
+                        </div>
+                      </button>
+                      <div className="nearby-card-actions">
+                        <button type="button" className={saved ? "active" : ""} onClick={() => toggleSave(item.id)}>
+                          {saved ? "저장됨" : "저장"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedId(item.id);
+                            setPanelOpen(true);
+                            setMobileTab("map");
+                          }}
+                        >
+                          상세보기
+                        </button>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+
+            {showDesktopDetail && (
+              <>
+                <div
+                  className="nearby-list-detail-divider"
+                  role="separator"
+                  aria-orientation="horizontal"
+                  onMouseDown={startListPaneResize}
+                />
+                <article className="nearby-left-detail-pane" style={{ flex: `0 0 ${100 - listPanePercent}%` }}>
+                  <header className="nearby-left-detail-head">
+                    <div>
+                      <p>{categoryLabel(selectedItem?.category ?? selectedDetail?.category)}</p>
+                      <h3>{selectedItem?.name ?? selectedDetail?.name ?? "POI 상세"}</h3>
+                      <span>{selectedItem ? `${selectedItem.distance_m.toLocaleString()}m` : "거리 정보 없음"}</span>
+                    </div>
+                    <button type="button" onClick={closePanel} aria-label="상세 패널 닫기">닫기</button>
+                  </header>
+                  {detailContent}
+                </article>
+              </>
+            )}
+          </div>
         </aside>
+
+        {!isCompactLayout && (
+          <div
+            className="nearby-panel-divider"
+            role="separator"
+            aria-orientation="vertical"
+            onMouseDown={startSidebarResize}
+          />
+        )}
 
         <section className="nearby-v2-map-panel" aria-label="주변 추천 지도">
           <div ref={mapContainerRef} className="nearby-map-canvas" />
@@ -900,98 +1136,19 @@ export function NearbyPage() {
             </p>
           )}
 
-          <article className={`nearby-detail-sheet ${panelOpen ? "open" : ""}`}>
-            <header>
-              <div>
-                <p>{selectedItem?.category ?? selectedDetail?.category ?? "POI"}</p>
-                <h3>{selectedItem?.name ?? selectedDetail?.name ?? "POI 상세"}</h3>
-                <span>{selectedItem?.distance_m.toLocaleString()}m</span>
-              </div>
-              <button type="button" onClick={closePanel} aria-label="상세 패널 닫기">닫기</button>
-            </header>
-
-            {detailLoading && <p className="notice info">상세 정보를 불러오는 중입니다...</p>}
-
-            {detailError && (
-              <div className="nearby-detail-error">
-                <p>{detailError}</p>
-                <button type="button" onClick={retryDetail}>다시 시도</button>
-              </div>
-            )}
-
-            {!detailLoading && (
-              <>
-                {effectiveImages.length > 0 && (
-                  <div className="nearby-carousel">
-                    <img src={effectiveImages[imageIndex % effectiveImages.length]} alt="POI 이미지" />
-                    {effectiveImages.length > 1 && (
-                      <div className="nearby-carousel-nav">
-                        <button
-                          type="button"
-                          onClick={() => setImageIndex((previous) => (previous - 1 + effectiveImages.length) % effectiveImages.length)}
-                        >
-                          이전
-                        </button>
-                        <span>{(imageIndex % effectiveImages.length) + 1} / {effectiveImages.length}</span>
-                        <button
-                          type="button"
-                          onClick={() => setImageIndex((previous) => (previous + 1) % effectiveImages.length)}
-                        >
-                          다음
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                <p className="nearby-detail-address">{selectedDetail?.address ?? selectedItem?.preview?.address ?? "주소 정보 없음"}</p>
-                <p className="nearby-detail-description">{selectedDetail?.description ?? selectedItem?.preview?.snippet ?? "소개 정보 없음"}</p>
-
-                <div className="nearby-detail-actions">
-                  {selectedDetail?.links?.google && (
-                    <a href={selectedDetail.links.google} target="_blank" rel="noreferrer">길찾기</a>
-                  )}
-                  {selectedId != null && (
-                    <button type="button" onClick={() => toggleSave(selectedId)}>
-                      {savedIds.has(selectedId) ? "저장 해제" : "저장"}
-                    </button>
-                  )}
-                  {selectedDetail?.links?.naver && (
-                    <a href={selectedDetail.links.naver} target="_blank" rel="noreferrer">네이버 지도</a>
-                  )}
+          {!showDesktopDetail && (
+            <article className={`nearby-detail-sheet ${panelOpen ? "open" : ""}`}>
+              <header>
+                <div>
+                  <p>{categoryLabel(selectedItem?.category ?? selectedDetail?.category)}</p>
+                  <h3>{selectedItem?.name ?? selectedDetail?.name ?? "POI 상세"}</h3>
+                  <span>{selectedItem ? `${selectedItem.distance_m.toLocaleString()}m` : "거리 정보 없음"}</span>
                 </div>
-
-                {selectedDetail && (
-                  <div className="nearby-related-wrap">
-                    <div>
-                      <h4>연관 숙소</h4>
-                      <ul>
-                        {selectedDetail.related.properties.map((property) => (
-                          <li key={property.property_id}>
-                            <Link to={`/properties/${property.property_id}`}>
-                              {property.name} {property.city ? `· ${property.city}` : ""}
-                            </Link>
-                          </li>
-                        ))}
-                        {selectedDetail.related.properties.length === 0 && <li>연관 숙소 없음</li>}
-                      </ul>
-                    </div>
-                    <div>
-                      <h4>연관 티켓/상품</h4>
-                      <ul>
-                        {selectedDetail.related.products.map((product) => (
-                          <li key={product.product_id}>
-                            <Link to={`/tickets/${product.product_id}`}>{product.name}</Link>
-                          </li>
-                        ))}
-                        {selectedDetail.related.products.length === 0 && <li>연관 상품 없음</li>}
-                      </ul>
-                    </div>
-                  </div>
-                )}
-              </>
-            )}
-          </article>
+                <button type="button" onClick={closePanel} aria-label="상세 패널 닫기">닫기</button>
+              </header>
+              {detailContent}
+            </article>
+          )}
         </section>
       </section>
     </section>
