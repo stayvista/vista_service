@@ -686,18 +686,6 @@ export function NearbyPage() {
     setDetailError(null);
     setImageIndex(0);
 
-    if (mapRef.current) {
-      const item = items.find((value) => value.id === selectedId);
-      if (item) {
-        mapRef.current.flyTo({
-          center: [item.lng, item.lat],
-          zoom: Math.max(mapRef.current.getZoom(), 14),
-          essential: true,
-          duration: 620,
-        });
-      }
-    }
-
     const cachedDetail = detailCacheRef.current.get(selectedId);
     if (cachedDetail) {
       setSelectedDetail(cachedDetail);
@@ -716,7 +704,7 @@ export function NearbyPage() {
       .finally(() => {
         setDetailLoading(false);
       });
-  }, [items, selectedId]);
+  }, [selectedId]);
 
   useEffect(() => {
     if (selectedId == null) {
@@ -808,6 +796,26 @@ export function NearbyPage() {
       zoom: nextZoom,
       duration: 220,
       essential: true,
+    });
+  }
+
+  function selectItem(id: number, focusMap: boolean) {
+    setSelectedId(id);
+    setPanelOpen(true);
+    setMobileTab("map");
+
+    if (!focusMap || !mapRef.current) {
+      return;
+    }
+    const item = items.find((value) => value.id === id);
+    if (!item) {
+      return;
+    }
+    mapRef.current.flyTo({
+      center: [item.lng, item.lat],
+      zoom: Math.max(mapRef.current.getZoom(), 14),
+      essential: true,
+      duration: 620,
     });
   }
 
@@ -1088,9 +1096,7 @@ export function NearbyPage() {
                         type="button"
                         className="nearby-card-main"
                         onClick={() => {
-                          setSelectedId(item.id);
-                          setPanelOpen(true);
-                          setMobileTab("map");
+                          selectItem(item.id, true);
                         }}
                       >
                         <img src={thumbnail} alt={`${item.name} 썸네일`} />
@@ -1109,9 +1115,7 @@ export function NearbyPage() {
                         <button
                           type="button"
                           onClick={() => {
-                            setSelectedId(item.id);
-                            setPanelOpen(true);
-                            setMobileTab("map");
+                            selectItem(item.id, true);
                           }}
                         >
                           상세보기
