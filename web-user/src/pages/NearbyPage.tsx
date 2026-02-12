@@ -165,6 +165,14 @@ function normalizeBounds(map: MapLibreMap): string {
   return `${sw.lat.toFixed(6)},${sw.lng.toFixed(6)},${ne.lat.toFixed(6)},${ne.lng.toFixed(6)}`;
 }
 
+function shouldApplyRadiusFilter(map: MapLibreMap): boolean {
+  const bounds = map.getBounds();
+  const latSpan = Math.abs(bounds.getNorth() - bounds.getSouth());
+  const lngSpan = Math.abs(bounds.getEast() - bounds.getWest());
+  // Wide viewport search should use bbox-first semantics; radius becomes too restrictive.
+  return latSpan <= 1.0 && lngSpan <= 1.0;
+}
+
 function formatError(error: unknown, fallback: string): string {
   const apiError = error as ApiError;
   if (apiError?.code || apiError?.message) {
@@ -308,6 +316,7 @@ export function NearbyPage() {
   const [viewportDirty, setViewportDirty] = useState(false);
   const [mapReady, setMapReady] = useState(false);
   const [locating, setLocating] = useState(false);
+  const [radiusEnabledForViewport, setRadiusEnabledForViewport] = useState(true);
 
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [hoveredId, setHoveredId] = useState<number | null>(null);
@@ -519,18 +528,24 @@ export function NearbyPage() {
 
     const bbox = normalizeBounds(map);
     const center = `${map.getCenter().lat.toFixed(6)},${map.getCenter().lng.toFixed(6)}`;
+    const applyRadius = shouldApplyRadiusFilter(map);
     const query = new URLSearchParams({
       bbox,
       sort,
       limit: String(DEFAULT_LIMIT),
       center,
-      radius_m: String(radius),
     });
+    if (applyRadius) {
+      query.set("radius_m", String(radius));
+    }
     if (category) {
       query.set("category", category);
     }
 
-    const requestKey = `${bbox}|${category}|${sort}|${radius}`;
+    setRadiusEnabledForViewport(applyRadius);
+
+    const radiusKey = applyRadius ? String(radius) : "none";
+    const requestKey = `${bbox}|${category}|${sort}|${radiusKey}`;
     let signal: AbortSignal | undefined;
     if (!inflightNearbyRef.current.has(requestKey)) {
       nearbyAbortRef.current?.abort();
@@ -760,6 +775,7 @@ export function NearbyPage() {
 
         <label className="field-group">
           반경 필터 ({radius}m)
+          {!radiusEnabledForViewport && " · 광역 뷰에서는 자동 해제"}
           <input
             type="range"
             min={500}
