@@ -11,6 +11,10 @@ group = 'com.devoceanblue'
 version = '0.0.1-SNAPSHOT'
 description = 'stayvista'
 
+springBoot {
+    mainClass = 'com.devoceanblue.stayvista.StayvistaApplicationKt'
+}
+
 java {
     toolchain {
         languageVersion = JavaLanguageVersion.of(21)
