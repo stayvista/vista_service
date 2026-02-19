@@ -26,9 +26,11 @@ class LocalRagRetriever(
         val startedAt = System.nanoTime()
         val topK = limit.coerceIn(2, 20)
         val sourceTypeFilter = resolveSourceTypeFilter(query, slots)
+        val poiCategoryFilter = resolvePoiCategoryFilter(query, slots, sourceTypeFilter)
         val candidates = loadIndexedDocuments(
             city = slots.city,
             sourceTypes = sourceTypeFilter,
+            poiCategories = poiCategoryFilter,
             maxDocs = candidateLimit.coerceIn(50, 1000),
         )
         val curation = chatCurationService.activeRules()
@@ -136,29 +138,40 @@ class LocalRagRetriever(
     private fun loadIndexedDocuments(
         city: String?,
         sourceTypes: Set<String>,
+        poiCategories: Set<String>,
         maxDocs: Int,
     ): List<IndexedDoc> {
         val params = mutableListOf<Any>()
         val sql = StringBuilder(
             """
             SELECT doc_id, source_type, ref_id, city, title, body, source_updated_at, updated_at
-            FROM travel_doc
+            FROM travel_doc td
             WHERE 1=1
             """.trimIndent(),
         )
 
         if (!city.isNullOrBlank()) {
-            sql.append(" AND (city = ? OR city IS NULL)")
+            sql.append(" AND (td.city = ? OR td.city IS NULL)")
             params += city
         }
 
         if (sourceTypes.isNotEmpty()) {
             val placeholders = sourceTypes.joinToString(",") { "?" }
-            sql.append(" AND source_type IN ($placeholders)")
+            sql.append(" AND td.source_type IN ($placeholders)")
             params.addAll(sourceTypes.toList())
         }
 
-        sql.append(" ORDER BY source_updated_at DESC, updated_at DESC")
+        if (poiCategories.isNotEmpty()) {
+            val placeholders = poiCategories.joinToString(",") { "?" }
+            sql.append(
+                " AND (td.source_type <> 'POI' OR EXISTS (" +
+                    "SELECT 1 FROM poi p WHERE p.id = td.ref_id " +
+                    "AND LOWER(COALESCE(p.category, '')) IN ($placeholders)))",
+            )
+            params.addAll(poiCategories.toList())
+        }
+
+        sql.append(" ORDER BY td.source_updated_at DESC, td.updated_at DESC")
         sql.append(" LIMIT ?")
         params += maxDocs
 
@@ -284,10 +297,35 @@ class LocalRagRetriever(
 
         val normalized = query.lowercase()
         return when {
+            slots.intent == "FOOD" -> setOf("POI")
+            slots.intent == "CULTURE" -> setOf("POI")
             normalized.contains("패키지") || normalized.contains("package") -> setOf("PACKAGE")
             normalized.contains("티켓") || normalized.contains("체험") || normalized.contains("ticket") -> setOf("TICKET", "PACKAGE")
             normalized.contains("숙소") || normalized.contains("hotel") || normalized.contains("property") -> setOf("PROPERTY", "PACKAGE")
+            normalized.contains("맛집") || normalized.contains("음식") || normalized.contains("식당") || normalized.contains("food") || normalized.contains("restaurant") -> setOf("POI")
+            normalized.contains("쇼핑") || normalized.contains("shopping") || normalized.contains("팝업") -> setOf("POI")
+            normalized.contains("전시") || normalized.contains("museum") -> setOf("POI")
             normalized.contains("주변") || normalized.contains("관광") || normalized.contains("poi") -> setOf("POI")
+            else -> emptySet()
+        }
+    }
+
+    private fun resolvePoiCategoryFilter(query: String, slots: ChatSlots, sourceTypes: Set<String>): Set<String> {
+        if (sourceTypes.isNotEmpty() && "POI" !in sourceTypes) {
+            return emptySet()
+        }
+
+        val normalized = query.lowercase()
+        return when {
+            slots.intent == "FOOD" ||
+                normalized.contains("맛집") ||
+                normalized.contains("음식") ||
+                normalized.contains("식당") ||
+                normalized.contains("food") ||
+                normalized.contains("restaurant") -> setOf("food")
+            slots.intent == "CULTURE" || normalized.contains("전시") || normalized.contains("museum") -> setOf("museum")
+            normalized.contains("쇼핑") || normalized.contains("shopping") || normalized.contains("팝업") -> setOf("shopping")
+            normalized.contains("관광") || normalized.contains("명소") || normalized.contains("attraction") -> setOf("attraction")
             else -> emptySet()
         }
     }
@@ -297,9 +335,14 @@ class LocalRagRetriever(
             return this
         }
         val seeded = this.toMutableList()
-        candidates.take(2 - this.size).forEach { doc ->
-            seeded += RagHit(document = doc.toRagDocument(), score = 0.0)
-        }
+        val existingDocIds = seeded.map { it.document.docId }.toMutableSet()
+        candidates.asSequence()
+            .filter { doc -> doc.docId !in existingDocIds }
+            .take((2 - seeded.size).coerceAtLeast(0))
+            .forEach { doc ->
+                seeded += RagHit(document = doc.toRagDocument(), score = 0.0)
+                existingDocIds += doc.docId
+            }
         return seeded
     }
 

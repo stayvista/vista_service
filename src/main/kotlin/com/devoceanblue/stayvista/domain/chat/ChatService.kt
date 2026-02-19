@@ -895,6 +895,7 @@ class ChatService(
         val cards = retrieval.hits
             .take(cardLimit)
             .map { hit -> toCardFromHit(hit) }
+            .distinctBy { card -> card.id ?: card.title }
             .let { safetyPolicy.filterCardsWithSource(it) }
 
         val sources = retrieval.hits
@@ -1118,7 +1119,8 @@ class ChatService(
 
     private fun retrievalCacheKey(slots: ChatSlots, message: String): String {
         val normalized = message.lowercase().replace(Regex("\\s+"), " ").trim()
-        return "${slots.city ?: "-"}|${slots.intent}|$normalized"
+        val sourceTypePart = if (slots.sourceTypes.isEmpty()) "-" else slots.sourceTypes.sorted().joinToString(",")
+        return "retrieval_v2|${slots.city ?: "-"}|${slots.intent}|$sourceTypePart|$normalized"
     }
 
     private fun sha256(value: String): String {

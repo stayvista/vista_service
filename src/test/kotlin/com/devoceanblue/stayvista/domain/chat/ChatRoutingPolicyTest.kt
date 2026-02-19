@@ -17,6 +17,27 @@ class ChatRoutingPolicyTest {
     }
 
     @Test
+    fun `decide allows template when intent is food and one source exists`() {
+        val request = ChatRecommendRequest(message = "서울 맛집 추천해줘")
+        val slots = routingPolicy.extractSlots(request)
+        val hits = listOf(
+            RagHit(
+                document = RagDocument(
+                    docId = "poi:1",
+                    title = "food spot",
+                    snippet = "snippet",
+                    sourceType = "POI",
+                ),
+                score = 0.9,
+            ),
+        )
+
+        val decision = routingPolicy.decide(request.message, slots, hits)
+        assertEquals(ChatRouteType.TEMPLATE, decision.type)
+        assertEquals("rag_is_sufficient", decision.reason)
+    }
+
+    @Test
     fun `decide chooses llm when natural language itinerary is requested`() {
         val request = ChatRecommendRequest(message = "서울 3박4일 일정 자세히 짜줘")
         val slots = routingPolicy.extractSlots(request)

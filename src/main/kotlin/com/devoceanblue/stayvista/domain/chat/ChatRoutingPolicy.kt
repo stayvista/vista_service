@@ -49,7 +49,18 @@ class ChatRoutingPolicy {
             )
         }
 
-        if (ragHits.size < 2) {
+        if (ragHits.isEmpty()) {
+            return ChatRouteDecision(
+                type = ChatRouteType.ASK_CLARIFICATION,
+                reason = "insufficient_sources",
+                followups = listOf(
+                    "여행 도시를 조금 더 구체적으로 알려주실 수 있을까요?",
+                    "예산 또는 선호(전시/맛집/자연)를 함께 알려주시면 추천 정확도가 올라갑니다.",
+                ),
+            )
+        }
+
+        if (ragHits.size < 2 && slots.intent == "GENERAL") {
             return ChatRouteDecision(
                 type = ChatRouteType.ASK_CLARIFICATION,
                 reason = "insufficient_sources",
