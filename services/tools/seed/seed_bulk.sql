@@ -395,6 +395,30 @@ ON DUPLICATE KEY UPDATE
   rating_score = VALUES(rating_score),
   active = VALUES(active);
 
+-- Busan shopping POI boost for shopping intent regression coverage
+INSERT INTO poi(
+  id, name, category, city, lat, lng, address, description,
+  popularity_score, rating_score, active
+)
+VALUES
+  (890001, 'Busan 서면 쇼핑몰', 'shopping', 'Busan', 35.1585000, 129.0597000, 'Busan, Seomyeon district', '부산 쇼핑몰과 편집숍이 모인 쇼핑 중심지', 910, 4.7, 1),
+  (890002, 'Busan 광복동 쇼핑거리', 'shopping', 'Busan', 35.0989000, 129.0305000, 'Busan, Gwangbok-dong', '부산 대표 쇼핑 거리와 라이프스타일 스토어', 880, 4.6, 1),
+  (890003, 'Busan 해운대 마린 쇼핑몰', 'shopping', 'Busan', 35.1613000, 129.1640000, 'Busan, Haeundae', '해운대 인근 쇼핑몰과 브랜드 매장', 865, 4.6, 1),
+  (890004, 'Busan 센텀 패션몰', 'shopping', 'Busan', 35.1696000, 129.1294000, 'Busan, Centum', '센텀시티 패션 쇼핑과 트렌드 편집숍', 905, 4.7, 1),
+  (890005, 'Busan 남포동 로컬 쇼핑', 'shopping', 'Busan', 35.0979000, 129.0348000, 'Busan, Nampo-dong', '남포동 로컬 쇼핑 스팟과 소품샵', 835, 4.5, 1),
+  (890006, 'Busan 전포 카페거리 편집샵', 'shopping', 'Busan', 35.1564000, 129.0665000, 'Busan, Jeonpo', '전포 감성 편집숍과 라이프스타일 상점', 820, 4.5, 1)
+ON DUPLICATE KEY UPDATE
+  name = VALUES(name),
+  category = VALUES(category),
+  city = VALUES(city),
+  lat = VALUES(lat),
+  lng = VALUES(lng),
+  address = VALUES(address),
+  description = VALUES(description),
+  popularity_score = VALUES(popularity_score),
+  rating_score = VALUES(rating_score),
+  active = VALUES(active);
+
 -- hot key inventory room_type_id=2001 for 365 nights
 WITH RECURSIVE days AS (
   SELECT 0 AS d

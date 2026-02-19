@@ -76,6 +76,9 @@ data class RagSearchResult(
     val hits: List<RagHit>,
     val retrievalMs: Long,
     val usedEmbedding: Boolean,
+    val sourceTypes: Set<String> = emptySet(),
+    val requestedPoiCategories: Set<String> = emptySet(),
+    val filteredCandidateCount: Int = 0,
 )
 
 enum class ChatRouteType {

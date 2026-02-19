@@ -75,7 +75,7 @@ class ChatService(
                 ChatRouteType.ASK_CLARIFICATION -> {
                     meterRegistry.counter("llm_used_rate", "used", "false").increment()
                     enrichResult(
-                        response = buildClarificationResponse(slots, routeDecision),
+                        response = buildClarificationResponse(slots, routeDecision, retrieval),
                         message = message,
                         slots = slots,
                         retrieval = retrieval,
@@ -380,7 +380,7 @@ class ChatService(
                     meterRegistry.counter("llm_used_rate", "used", "false").increment()
                     emitMeta(mapOf("route" to route, "route_reason" to routeDecision.reason, "llm_used" to false))
                     enrichResult(
-                        response = buildClarificationResponse(slots, routeDecision),
+                        response = buildClarificationResponse(slots, routeDecision, retrieval),
                         message = message,
                         slots = slots,
                         retrieval = retrieval,
@@ -865,11 +865,25 @@ class ChatService(
     private fun buildClarificationResponse(
         slots: ChatSlots,
         routeDecision: ChatRouteDecision,
+        retrieval: RagSearchResult,
     ): ChatRecommendData {
+        val noDataMessage = buildCategoryNoDataMessage(slots, routeDecision, retrieval)
         val text = if (slots.city == null) {
             "도시 정보가 필요합니다. 목적지를 알려주시면 숙소, 티켓, 주변 추천을 바로 정리해 드릴게요."
+        } else if (noDataMessage != null) {
+            noDataMessage
         } else {
             "조건을 조금만 더 알려주시면 맞춤 추천 정확도를 높일 수 있어요."
+        }
+
+        val noDataContext = if (noDataMessage != null) {
+            mapOf(
+                "no_data_reason" to "poi_category_insufficient",
+                "no_data_city" to (slots.city ?: ""),
+                "no_data_categories" to retrieval.requestedPoiCategories.toList(),
+            )
+        } else {
+            emptyMap()
         }
 
         return ChatRecommendData(
@@ -877,10 +891,41 @@ class ChatService(
             assistant_text = text,
             cards = emptyList(),
             followups = routeDecision.followups.ifEmpty { routingPolicy.defaultFollowups(slots) },
-            context_used = mapOf("route" to routeDecision.reason),
+            context_used = mapOf("route" to routeDecision.reason) + noDataContext,
             llm_used = false,
             sources = emptyList(),
         )
+    }
+
+    private fun buildCategoryNoDataMessage(
+        slots: ChatSlots,
+        routeDecision: ChatRouteDecision,
+        retrieval: RagSearchResult,
+    ): String? {
+        if (routeDecision.reason != "insufficient_sources") {
+            return null
+        }
+        if (slots.city == null || retrieval.hits.isNotEmpty()) {
+            return null
+        }
+        if ("POI" !in retrieval.sourceTypes || retrieval.requestedPoiCategories.isEmpty()) {
+            return null
+        }
+        val categories = retrieval.requestedPoiCategories
+            .map { poiCategoryLabel(it) }
+            .distinct()
+        val categoryLabel = categories.joinToString(", ")
+        return "${slots.city}의 ${categoryLabel} 카테고리는 현재 추천 데이터가 부족합니다. 다른 카테고리나 조건으로 다시 요청해 주세요."
+    }
+
+    private fun poiCategoryLabel(category: String): String {
+        return when (category.lowercase()) {
+            "food" -> "맛집"
+            "shopping" -> "쇼핑"
+            "museum" -> "전시"
+            "attraction" -> "관광"
+            else -> category
+        }
     }
 
     private fun buildTemplateResponse(
@@ -1120,7 +1165,7 @@ class ChatService(
     private fun retrievalCacheKey(slots: ChatSlots, message: String): String {
         val normalized = message.lowercase().replace(Regex("\\s+"), " ").trim()
         val sourceTypePart = if (slots.sourceTypes.isEmpty()) "-" else slots.sourceTypes.sorted().joinToString(",")
-        return "retrieval_v2|${slots.city ?: "-"}|${slots.intent}|$sourceTypePart|$normalized"
+        return "retrieval_v3|${slots.city ?: "-"}|${slots.intent}|$sourceTypePart|$normalized"
     }
 
     private fun sha256(value: String): String {

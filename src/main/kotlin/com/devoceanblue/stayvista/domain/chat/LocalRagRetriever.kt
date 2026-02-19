@@ -45,7 +45,14 @@ class LocalRagRetriever(
             meterRegistry.counter("chat_rag_index_empty_total").increment()
             val elapsed = Duration.ofNanos(System.nanoTime() - startedAt).toMillis().coerceAtLeast(1)
             meterRegistry.timer("chat_rag_ms").record(Duration.ofMillis(elapsed))
-            return RagSearchResult(emptyList(), retrievalMs = elapsed, usedEmbedding = false)
+            return RagSearchResult(
+                hits = emptyList(),
+                retrievalMs = elapsed,
+                usedEmbedding = false,
+                sourceTypes = sourceTypeFilter,
+                requestedPoiCategories = poiCategoryFilter,
+                filteredCandidateCount = 0,
+            )
         }
 
         val lexicalOrder = lexicalRank(filteredCandidates, query)
@@ -116,6 +123,9 @@ class LocalRagRetriever(
             hits = hits,
             retrievalMs = retrievalMs,
             usedEmbedding = usedEmbedding,
+            sourceTypes = sourceTypeFilter,
+            requestedPoiCategories = poiCategoryFilter,
+            filteredCandidateCount = filteredCandidates.size,
         )
     }
 

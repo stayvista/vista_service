@@ -627,3 +627,33 @@ ON DUPLICATE KEY UPDATE
   popularity_score = VALUES(popularity_score),
   rating_score = VALUES(rating_score),
   active = VALUES(active);
+
+-- Busan shopping POI boost for Korean shopping intent queries
+INSERT INTO poi(
+  id, name, category, city, lat, lng, address, description,
+  popularity_score, rating_score, active
+)
+VALUES
+  (690001, 'Busan 서면 쇼핑몰', 'shopping', 'Busan', 35.1585000, 129.0597000, 'Busan, Seomyeon district', '부산 쇼핑몰과 편집숍이 모인 쇼핑 중심지', 910, 4.7, 1),
+  (690002, 'Busan 광복동 쇼핑거리', 'shopping', 'Busan', 35.0989000, 129.0305000, 'Busan, Gwangbok-dong', '부산 대표 쇼핑 거리와 라이프스타일 스토어', 880, 4.6, 1),
+  (690003, 'Busan 해운대 마린 쇼핑몰', 'shopping', 'Busan', 35.1613000, 129.1640000, 'Busan, Haeundae', '해운대 인근 쇼핑몰과 브랜드 매장', 865, 4.6, 1),
+  (690004, 'Busan 센텀 패션몰', 'shopping', 'Busan', 35.1696000, 129.1294000, 'Busan, Centum', '센텀시티 패션 쇼핑과 트렌드 편집숍', 905, 4.7, 1),
+  (690005, 'Busan 남포동 로컬 쇼핑', 'shopping', 'Busan', 35.0979000, 129.0348000, 'Busan, Nampo-dong', '남포동 로컬 쇼핑 스팟과 소품샵', 835, 4.5, 1),
+  (690006, 'Busan 전포 카페거리 편집샵', 'shopping', 'Busan', 35.1564000, 129.0665000, 'Busan, Jeonpo', '전포 감성 편집숍과 라이프스타일 상점', 820, 4.5, 1),
+  (690007, 'Busan 부산역 쇼핑센터', 'shopping', 'Busan', 35.1154000, 129.0410000, 'Busan Station area', '부산역 근처 쇼핑센터와 기념품 상점', 790, 4.4, 1),
+  (690008, 'Busan 광안리 라이프스타일몰', 'shopping', 'Busan', 35.1535000, 129.1186000, 'Busan, Gwangalli', '광안리 주변 라이프스타일 쇼핑몰', 810, 4.5, 1),
+  (690009, 'Busan 사상 쇼핑타운', 'shopping', 'Busan', 35.1624000, 128.9845000, 'Busan, Sasang', '사상권 대형 쇼핑타운과 아울렛', 760, 4.4, 1),
+  (690010, 'Busan 동래 쇼핑플라자', 'shopping', 'Busan', 35.2050000, 129.0787000, 'Busan, Dongnae', '동래권 쇼핑플라자와 생활 매장', 770, 4.4, 1),
+  (690011, 'Busan 연산동 쇼핑스퀘어', 'shopping', 'Busan', 35.1866000, 129.0821000, 'Busan, Yeonsan', '연산동 쇼핑스퀘어와 팝업 스토어', 745, 4.3, 1),
+  (690012, 'Busan 덕천 패밀리 쇼핑몰', 'shopping', 'Busan', 35.2103000, 129.0057000, 'Busan, Deokcheon', '가족 단위 방문이 많은 부산 쇼핑몰', 730, 4.3, 1)
+ON DUPLICATE KEY UPDATE
+  name = VALUES(name),
+  category = VALUES(category),
+  city = VALUES(city),
+  lat = VALUES(lat),
+  lng = VALUES(lng),
+  address = VALUES(address),
+  description = VALUES(description),
+  popularity_score = VALUES(popularity_score),
+  rating_score = VALUES(rating_score),
+  active = VALUES(active);

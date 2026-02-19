@@ -145,6 +145,38 @@ export function ChatPage() {
     }
   }
 
+  function emptyResultNotice(): string {
+    const reason = typeof contextUsed.no_data_reason === "string" ? contextUsed.no_data_reason : "";
+    if (reason !== "poi_category_insufficient") {
+      return "추천 카드가 없습니다. 요청 문장을 조금 더 구체적으로 입력해 주세요.";
+    }
+
+    const city = typeof contextUsed.no_data_city === "string" ? contextUsed.no_data_city : "해당 도시";
+    const categories = Array.isArray(contextUsed.no_data_categories)
+      ? contextUsed.no_data_categories
+          .map((value) => (typeof value === "string" ? value : ""))
+          .filter((value): value is string => value.length > 0)
+      : [];
+
+    const labels = categories.map((category) => {
+      switch (category.toLowerCase()) {
+        case "food":
+          return "맛집";
+        case "shopping":
+          return "쇼핑";
+        case "museum":
+          return "전시";
+        case "attraction":
+          return "관광";
+        default:
+          return category;
+      }
+    });
+
+    const categoryText = labels.length > 0 ? labels.join(", ") : "선택한";
+    return `${city} ${categoryText} 카테고리는 현재 데이터가 부족합니다. 다른 카테고리나 조건으로 다시 요청해 주세요.`;
+  }
+
   function toggleEvidence(cardKey: string) {
     setOpenEvidence((prev) => ({ ...prev, [cardKey]: !prev[cardKey] }));
   }
@@ -297,7 +329,7 @@ export function ChatPage() {
         </ul>
       )}
       {!loading && !error && messages.length > 0 && cards.length === 0 && (
-        <p className="notice warning">추천 카드가 없습니다. 요청 문장을 조금 더 구체적으로 입력해 주세요.</p>
+        <p className="notice warning">{emptyResultNotice()}</p>
       )}
 
       <ul className="product-grid">

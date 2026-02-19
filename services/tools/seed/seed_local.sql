@@ -37,7 +37,9 @@ INSERT INTO poi(
 VALUES
   (9001, 'City Museum', 'museum', 'Seoul', 37.5000000, 127.0400000, 'Seoul City Center', 'Curated museum spot in Seoul', 640, 4.7, 1),
   (9002, 'River Park', 'attraction', 'Seoul', 37.4985000, 127.0350000, 'Seoul City Center', 'Popular riverside attraction', 830, 4.6, 1),
-  (9003, 'Local Food Alley', 'food', 'Seoul', 37.5030000, 127.0415000, 'Seoul City Center', 'Best local food street', 910, 4.8, 1)
+  (9003, 'Local Food Alley', 'food', 'Seoul', 37.5030000, 127.0415000, 'Seoul City Center', 'Best local food street', 910, 4.8, 1),
+  (9011, 'Busan 서면 쇼핑몰', 'shopping', 'Busan', 35.1585000, 129.0597000, 'Busan, Seomyeon district', '부산 쇼핑몰과 편집숍이 모인 쇼핑 중심지', 910, 4.7, 1),
+  (9012, 'Busan 광복동 쇼핑거리', 'shopping', 'Busan', 35.0989000, 129.0305000, 'Busan, Gwangbok-dong', '부산 대표 쇼핑 거리와 라이프스타일 스토어', 880, 4.6, 1)
 ON DUPLICATE KEY UPDATE
   name = VALUES(name),
   category = VALUES(category),
