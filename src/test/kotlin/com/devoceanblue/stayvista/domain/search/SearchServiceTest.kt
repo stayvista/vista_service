@@ -46,9 +46,22 @@ class SearchServiceTest {
             )
             """.trimIndent(),
         )
+        jdbcTemplate.execute(
+            """
+            CREATE TABLE IF NOT EXISTS poi (
+              id BIGINT PRIMARY KEY,
+              name VARCHAR(255) NOT NULL,
+              category VARCHAR(50),
+              city VARCHAR(100),
+              lat DECIMAL(10,7) NOT NULL,
+              lng DECIMAL(10,7) NOT NULL
+            )
+            """.trimIndent(),
+        )
 
         jdbcTemplate.update("DELETE FROM room_type")
         jdbcTemplate.update("DELETE FROM property")
+        jdbcTemplate.update("DELETE FROM poi")
 
         jdbcTemplate.update(
             "INSERT INTO property(id, name, city, status, rating, thumbnail_url) VALUES (1001, 'Alpha Hotel', 'Seoul', 'ACTIVE', 4.8, 'https://img/alpha')",
@@ -67,12 +80,14 @@ class SearchServiceTest {
         jdbcTemplate.update("INSERT INTO room_type(id, property_id, status, base_price) VALUES (2002, 1002, 'ACTIVE', 90000)")
         jdbcTemplate.update("INSERT INTO room_type(id, property_id, status, base_price) VALUES (2003, 1003, 'ACTIVE', 150000)")
         jdbcTemplate.update("INSERT INTO room_type(id, property_id, status, base_price) VALUES (2004, 1001, 'INACTIVE', 50000)")
+        jdbcTemplate.update("INSERT INTO poi(id, name, category, city, lat, lng) VALUES (3001, 'Busan Harbor Point', 'poi', 'Busan', 35.1000, 129.0400)")
     }
 
     @AfterEach
     fun cleanup() {
         jdbcTemplate.update("DELETE FROM room_type")
         jdbcTemplate.update("DELETE FROM property")
+        jdbcTemplate.update("DELETE FROM poi")
     }
 
     @Test
@@ -122,5 +137,54 @@ class SearchServiceTest {
         val ids = result.items.map { it.property_id }
         assertFalse(ids.contains(1004L))
         assertEquals(listOf(1001L, 1003L, 1002L), ids)
+    }
+
+    @Test
+    fun `search should honor property place_id over city filter`() {
+        val result = searchService.search(
+            SearchRequest(
+                q = null,
+                city = "Seoul",
+                place_id = "property:1003",
+                check_in = null,
+                check_out = null,
+                adults = null,
+                children = null,
+                min_price = null,
+                max_price = null,
+                min_rating = null,
+                sort = null,
+                cursor = null,
+                limit = 20,
+            ),
+        )
+
+        assertEquals(1, result.items.size)
+        assertEquals(1003L, result.items.first().property_id)
+    }
+
+    @Test
+    fun `search should resolve poi place_id into city filter`() {
+        val result = searchService.search(
+            SearchRequest(
+                q = null,
+                city = null,
+                place_id = "poi:3001",
+                check_in = null,
+                check_out = null,
+                adults = null,
+                children = null,
+                min_price = null,
+                max_price = null,
+                min_rating = null,
+                sort = null,
+                cursor = null,
+                limit = 20,
+            ),
+        )
+
+        assertEquals(1, result.items.size)
+        assertEquals(1003L, result.items.first().property_id)
+        assertEquals("Busan", result.items.first().city)
     }
 }

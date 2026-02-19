@@ -1,6 +1,10 @@
 package com.devoceanblue.stayvista.domain.search
 
+import com.devoceanblue.stayvista.common.api.DomainException
+import com.devoceanblue.stayvista.common.api.ErrorCode
 import com.devoceanblue.stayvista.common.cache.SimpleTtlCache
+import com.devoceanblue.stayvista.domain.common.PlaceIdCodec
+import com.devoceanblue.stayvista.domain.common.PlaceType
 import io.micrometer.core.instrument.MeterRegistry
 import java.security.MessageDigest
 import org.springframework.beans.factory.annotation.Value
@@ -16,7 +20,8 @@ class SearchService(
     @Value("\${stayvista.search.use-opensearch:true}") private val useOpenSearch: Boolean,
 ) {
     fun search(request: SearchRequest): SearchData {
-        val cacheKey = "search:v1:${sha256(normalized(request))}"
+        val normalizedRequest = resolvePlaceFilter(request)
+        val cacheKey = "search:v1:${sha256(normalized(normalizedRequest))}"
         cache.get<SearchData>(cacheKey)?.let {
             meterRegistry.counter("search_requests_total", "cache", "hit").increment()
             return it
@@ -26,9 +31,9 @@ class SearchService(
 
         val data = if (useOpenSearch) {
             try {
-                val openSearchData = openSearchClient.search(request)
+                val openSearchData = openSearchClient.search(normalizedRequest)
                 if (openSearchData.items.isEmpty()) {
-                    val dbData = searchFromDb(request)
+                    val dbData = searchFromDb(normalizedRequest)
                     if (dbData.items.isNotEmpty()) {
                         meterRegistry.counter("search_opensearch_empty_fallback_total").increment()
                         dbData
@@ -40,10 +45,10 @@ class SearchService(
                 }
             } catch (_: Exception) {
                 meterRegistry.counter("search_opensearch_errors_total").increment()
-                searchFromDb(request)
+                searchFromDb(normalizedRequest)
             }
         } else {
-            searchFromDb(request)
+            searchFromDb(normalizedRequest)
         }
 
         cache.put(cacheKey, ttlMillis = 10_000, value = data)
@@ -56,7 +61,10 @@ class SearchService(
         val params = mutableListOf<Any?>()
         val where = mutableListOf("p.status='ACTIVE'")
 
-        if (!request.city.isNullOrBlank()) {
+        if (request.property_id != null) {
+            where += "p.id = ?"
+            params += request.property_id
+        } else if (!request.city.isNullOrBlank()) {
             where += "p.city = ?"
             params += request.city
         }
@@ -76,7 +84,7 @@ class SearchService(
             where += "COALESCE(p.rating, 0) >= ?"
             params += request.min_rating
         }
-        if (cursor != null) {
+        if (cursor != null && request.property_id == null) {
             where += "p.id > ?"
             params += cursor
         }
@@ -123,6 +131,8 @@ class SearchService(
         return listOf(
             "q=${request.q ?: ""}",
             "city=${request.city ?: ""}",
+            "place_id=${request.place_id ?: ""}",
+            "property_id=${request.property_id ?: ""}",
             "check_in=${request.check_in ?: ""}",
             "check_out=${request.check_out ?: ""}",
             "adults=${request.adults ?: ""}",
@@ -140,11 +150,59 @@ class SearchService(
         val hash = MessageDigest.getInstance("SHA-256").digest(value.toByteArray(Charsets.UTF_8))
         return hash.joinToString("") { "%02x".format(it) }
     }
+
+    private fun resolvePlaceFilter(request: SearchRequest): SearchRequest {
+        val placeId = PlaceIdCodec.parseOrNull(request.place_id) ?: return request
+        return when (placeId.type) {
+            PlaceType.CITY -> request.copy(
+                city = placeId.canonicalId,
+                property_id = null,
+            )
+
+            PlaceType.PROPERTY -> {
+                val propertyId = placeId.canonicalId.toLongOrNull()
+                    ?: throw DomainException(
+                        errorCode = ErrorCode.VALIDATION_ERROR,
+                        message = "property place_id must have numeric canonical_id",
+                        details = mapOf("place_id" to request.place_id),
+                    )
+                request.copy(
+                    city = null,
+                    property_id = propertyId,
+                )
+            }
+
+            PlaceType.POI -> request.copy(
+                city = resolvePoiCity(placeId.canonicalId) ?: request.city,
+                property_id = null,
+            )
+
+            PlaceType.STATION,
+            PlaceType.AIRPORT,
+            -> request
+        }
+    }
+
+    private fun resolvePoiCity(canonicalId: String): String? {
+        val poiId = canonicalId.toLongOrNull() ?: return null
+        return jdbcTemplate.query(
+            """
+            SELECT city
+            FROM poi
+            WHERE id = ?
+            LIMIT 1
+            """.trimIndent(),
+            { rs, _ -> rs.getString("city") },
+            poiId,
+        ).firstOrNull()
+            ?.takeIf { it.isNotBlank() }
+    }
 }
 
 data class SearchRequest(
     val q: String?,
     val city: String?,
+    val place_id: String? = null,
     val check_in: String?,
     val check_out: String?,
     val adults: Int?,
@@ -155,6 +213,7 @@ data class SearchRequest(
     val sort: String?,
     val cursor: String?,
     val limit: Int,
+    val property_id: Long? = null,
 )
 
 data class SearchItem(

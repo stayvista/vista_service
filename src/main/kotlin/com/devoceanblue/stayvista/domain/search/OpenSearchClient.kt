@@ -115,7 +115,9 @@ class OpenSearchClient(
         }
 
         val filters = mutableListOf<Map<String, Any>>()
-        if (!request.city.isNullOrBlank()) {
+        if (request.property_id != null) {
+            filters += mapOf("term" to mapOf("property_id" to request.property_id))
+        } else if (!request.city.isNullOrBlank()) {
             filters += mapOf("term" to mapOf("city" to request.city))
         }
         if (request.min_price != null || request.max_price != null) {

@@ -57,6 +57,24 @@ stayvista:
     opensearch-url: ${OPENSEARCH_URL:http://127.0.0.1:39200}
     index-name: properties_v1
     alias-name: properties
+  autocomplete:
+    cache-prefix: ${AC_CACHE_PREFIX:ac:stay:v1:}
+    query-cache-ttl-seconds: ${AC_QUERY_CACHE_TTL_SECONDS:60}
+    query-cache-jitter-seconds: ${AC_QUERY_CACHE_JITTER_SECONDS:20}
+    popular-cache-ttl-seconds: ${AC_POPULAR_CACHE_TTL_SECONDS:600}
+    recent-max-size: ${AC_RECENT_MAX_SIZE:20}
+    recent-ttl-seconds: ${AC_RECENT_TTL_SECONDS:2592000}
+    opensearch-url: ${AC_OPENSEARCH_URL:${OPENSEARCH_URL:http://127.0.0.1:39200}}
+    index-name: ${AC_INDEX_NAME:ac_candidates_stay_v1}
+    read-alias: ${AC_READ_ALIAS:ac_read}
+    write-alias: ${AC_WRITE_ALIAS:ac_write}
+    os-soft-timeout-ms: ${AC_OS_SOFT_TIMEOUT_MS:150}
+    aggregate:
+      enabled: ${AC_AGGREGATE_ENABLED:true}
+      lookback-hours: ${AC_AGGREGATE_LOOKBACK_HOURS:168}
+      scan-limit: ${AC_AGGREGATE_SCAN_LIMIT:20000}
+      fixed-delay-ms: ${AC_AGGREGATE_FIXED_DELAY_MS:600000}
+      initial-delay-ms: ${AC_AGGREGATE_INITIAL_DELAY_MS:45000}
   queue:
     enabled: false
     max-admitted-per-key: 100
@@ -65,6 +83,7 @@ stayvista:
   rate-limit:
     enabled: true
     search-per-minute: 60
+    autocomplete-per-minute: 120
     booking-hold-per-minute: 10
     booking-confirm-per-minute: 5
     package-hold-per-minute: 10

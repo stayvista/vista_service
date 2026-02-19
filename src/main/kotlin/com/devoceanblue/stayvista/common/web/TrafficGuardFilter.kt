@@ -26,6 +26,7 @@ class TrafficGuardFilter(
     private val meterRegistry: MeterRegistry,
     @Value("\${stayvista.rate-limit.enabled:true}") private val rateLimitEnabled: Boolean,
     @Value("\${stayvista.rate-limit.search-per-minute:60}") private val searchPerMinute: Int,
+    @Value("\${stayvista.rate-limit.autocomplete-per-minute:120}") private val autocompletePerMinute: Int,
     @Value("\${stayvista.rate-limit.booking-hold-per-minute:10}") private val bookingHoldPerMinute: Int,
     @Value("\${stayvista.rate-limit.booking-confirm-per-minute:5}") private val bookingConfirmPerMinute: Int,
     @Value("\${stayvista.rate-limit.package-hold-per-minute:10}") private val packageHoldPerMinute: Int,
@@ -143,6 +144,9 @@ class TrafficGuardFilter(
         if (method == "GET" && path.startsWith("/v1/search/")) {
             return RatePolicy("search", searchPerMinute)
         }
+        if (method == "GET" && path == "/v1/autocomplete") {
+            return RatePolicy("autocomplete", autocompletePerMinute)
+        }
         if (method == "POST" && path == "/v1/bookings/holds") {
             return RatePolicy("booking_hold", bookingHoldPerMinute)
         }
@@ -187,6 +191,12 @@ class TrafficGuardFilter(
         if (botRequest) {
             cost += 2
         }
+        if (policyName == "autocomplete") {
+            val q = request.getParameter("q")?.trim().orEmpty()
+            if (q.length <= 1) {
+                cost += 1
+            }
+        }
         if (policyName == "chat") {
             val contentLength = request.contentLengthLong
             if (contentLength > 2_048) {
@@ -197,7 +207,9 @@ class TrafficGuardFilter(
     }
 
     private fun isSensitivePath(path: String): Boolean {
-        return path.startsWith("/v1/chat/") || path.startsWith("/v1/search/")
+        return path.startsWith("/v1/chat/") ||
+            path.startsWith("/v1/search/") ||
+            path.startsWith("/v1/autocomplete")
     }
 
     private fun writeError(

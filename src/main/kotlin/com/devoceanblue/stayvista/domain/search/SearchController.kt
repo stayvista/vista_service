@@ -19,6 +19,7 @@ class SearchController(
     fun searchProperties(
         @RequestParam(required = false) q: String?,
         @RequestParam(required = false) city: String?,
+        @RequestParam(required = false) place_id: String?,
         @RequestParam(required = false) check_in: String?,
         @RequestParam(required = false) check_out: String?,
         @RequestParam(required = false) adults: Int?,
@@ -34,6 +35,7 @@ class SearchController(
             SearchRequest(
                 q = q,
                 city = city,
+                place_id = place_id,
                 check_in = check_in,
                 check_out = check_out,
                 adults = adults,

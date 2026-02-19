@@ -649,6 +649,95 @@ button:disabled {
   margin-bottom: 12px;
 }
 
+.search-toolbar {
+  align-items: flex-start;
+}
+
+.autocomplete-wrap {
+  position: relative;
+  flex: 1 1 320px;
+  min-width: 240px;
+}
+
+.autocomplete-wrap > input {
+  width: 100%;
+}
+
+.autocomplete-dropdown {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  right: 0;
+  z-index: 40;
+  max-height: 320px;
+  overflow-y: auto;
+  border: 1px solid #cfdcf1;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 14px 28px rgba(16, 45, 92, 0.14);
+  padding: 8px;
+}
+
+.autocomplete-section {
+  margin-bottom: 8px;
+}
+
+.autocomplete-section:last-child {
+  margin-bottom: 0;
+}
+
+.autocomplete-section-title {
+  margin: 0;
+  padding: 4px 8px;
+  color: #5a6a86;
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.autocomplete-section ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.autocomplete-row {
+  width: 100%;
+  text-align: left;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  color: #173255;
+  padding: 8px 10px;
+  display: grid;
+  gap: 2px;
+}
+
+.autocomplete-row:hover,
+.autocomplete-row.active {
+  background: #f1f6ff;
+  border-color: #d0ddf2;
+  box-shadow: none;
+  transform: none;
+}
+
+.autocomplete-row-main {
+  font-weight: 700;
+  font-size: 0.92rem;
+}
+
+.autocomplete-row-sub {
+  color: #61728e;
+  font-size: 0.8rem;
+}
+
+.autocomplete-status {
+  margin: 0;
+  padding: 10px;
+  color: #5e6f89;
+  font-size: 0.85rem;
+}
+
 .error {
   color: var(--danger);
   font-weight: 700;

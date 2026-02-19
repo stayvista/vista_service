@@ -5,6 +5,12 @@ import com.devoceanblue.stayvista.domain.poi.NearbyTokenBucketRateLimiter
 import com.devoceanblue.stayvista.domain.poi.PoiRateLimitDecision
 import com.devoceanblue.stayvista.domain.auth.RedisSessionService
 import com.devoceanblue.stayvista.domain.queue.QueueService
+import com.devoceanblue.stayvista.domain.autocomplete.AutocompleteData
+import com.devoceanblue.stayvista.domain.autocomplete.AutocompleteItem
+import com.devoceanblue.stayvista.domain.autocomplete.AutocompleteMeta
+import com.devoceanblue.stayvista.domain.autocomplete.AutocompleteQuery
+import com.devoceanblue.stayvista.domain.autocomplete.AutocompleteService
+import com.devoceanblue.stayvista.domain.common.PlaceType
 import com.devoceanblue.stayvista.domain.search.SearchData
 import com.devoceanblue.stayvista.domain.search.SearchItem
 import com.devoceanblue.stayvista.domain.search.SearchRequest
@@ -32,6 +38,7 @@ import org.springframework.test.web.servlet.result.MockMvcResultMatchers.status
         "stayvista.rate-limit.package-hold-per-minute=10",
         "stayvista.rate-limit.package-confirm-per-minute=5",
         "stayvista.rate-limit.search-per-minute=60",
+        "stayvista.rate-limit.autocomplete-per-minute=120",
     ],
 )
 @AutoConfigureMockMvc
@@ -53,6 +60,9 @@ class TrafficGuardFilterTest {
 
     @MockitoBean
     lateinit var searchService: SearchService
+
+    @MockitoBean
+    lateinit var autocompleteService: AutocompleteService
 
     private lateinit var userAuthorization: String
 
@@ -81,6 +91,18 @@ class TrafficGuardFilterTest {
             ),
         )
         given(redisRateLimiter.allow("search", "1001", 60)).willReturn(
+            RateLimitDecision(
+                allowed = true,
+                retryAfterSeconds = 1,
+            ),
+        )
+        given(redisRateLimiter.allow("autocomplete", "127.0.0.1", 120)).willReturn(
+            RateLimitDecision(
+                allowed = true,
+                retryAfterSeconds = 1,
+            ),
+        )
+        given(redisRateLimiter.allow("autocomplete", "bot:127.0.0.1", 8)).willReturn(
             RateLimitDecision(
                 allowed = true,
                 retryAfterSeconds = 1,
@@ -216,6 +238,71 @@ class TrafficGuardFilterTest {
             .andExpect(status().isTooManyRequests)
             .andExpect(header().string("Retry-After", "12"))
             .andExpect(jsonPath("$.error.code").value("RATE_LIMITED"))
+            .andExpect(jsonPath("$.request_id").isNotEmpty)
+    }
+
+    @Test
+    fun `autocomplete should return RATE_LIMITED when policy rejects request`() {
+        given(redisRateLimiter.allow("autocomplete", "127.0.0.1", 120)).willReturn(
+            RateLimitDecision(
+                allowed = false,
+                retryAfterSeconds = 6,
+            ),
+        )
+
+        mockMvc.perform(
+            get("/v1/autocomplete")
+                .param("q", "seoul")
+                .param("types", "city,property")
+                .param("size", "10"),
+        )
+            .andExpect(status().isTooManyRequests)
+            .andExpect(header().string("Retry-After", "6"))
+            .andExpect(jsonPath("$.error.code").value("RATE_LIMITED"))
+    }
+
+    @Test
+    fun `autocomplete should pass when rate limit allows`() {
+        given(
+            autocompleteService.autocomplete(
+                AutocompleteQuery(
+                    q = "seoul",
+                    types = linkedSetOf(PlaceType.CITY),
+                    size = 10,
+                    lang = "ko",
+                    principalKey = "ip:127.0.0.1",
+                ),
+            ),
+        ).willReturn(
+            AutocompleteData(
+                q = "seoul",
+                items = listOf(
+                    AutocompleteItem(
+                        type = "CITY",
+                        id = "city:Seoul",
+                        display = "Seoul",
+                        subtitle = "KR",
+                        source = "redis",
+                    ),
+                ),
+                meta = AutocompleteMeta(
+                    types = listOf("CITY"),
+                    size = 10,
+                    lang = "ko",
+                    took_ms = 5,
+                    cache_hit = true,
+                ),
+            ),
+        )
+
+        mockMvc.perform(
+            get("/v1/autocomplete")
+                .param("q", "seoul")
+                .param("types", "city")
+                .param("size", "10"),
+        )
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$.data.items[0].id").value("city:Seoul"))
             .andExpect(jsonPath("$.request_id").isNotEmpty)
     }
 

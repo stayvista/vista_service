@@ -46,6 +46,11 @@ k6 run services/loadtest/k6/chat_stream_slo.js \
 k6 run services/loadtest/k6/nearby.js \
   --summary-export /tmp/nearby_summary.json
 ```
+7. Autocomplete (empty focus + typing mixed)
+```bash
+k6 run services/loadtest/k6/autocomplete.js \
+  --summary-export /tmp/autocomplete_summary.json
+```
 
 ## Key metrics
 - `http_req_duration`, `http_req_failed`
@@ -57,6 +62,7 @@ k6 run services/loadtest/k6/nearby.js \
 - `chat_llm_off_p95`
 - `chat_stream_ttfb_ms`, `chat_stream_complete_ms`, `chat_stream_failed`
 - `nearby_req_duration_ms`, `nearby_429_rate`, `nearby_5xx_rate`, `nearby_error_rate`
+- `ac_req_duration_ms`, `ac_cache_hit_rate`, `ac_429_rate`, `ac_bad_payload_total`
 
 ## Example report export
 ```bash
