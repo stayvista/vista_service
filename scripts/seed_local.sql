@@ -1,7 +1,7 @@
 -- StayVista local seed dataset (B-0603)
 -- Target: fast demo/search/load-test bootstrap on local MySQL
 
-SET @property_count := 10000;
+SET @property_count := 20000;
 SET @room_per_property := 3;
 SET @hot_inventory_days := 365;
 SET SESSION cte_max_recursion_depth = 40000;
@@ -49,7 +49,7 @@ ON DUPLICATE KEY UPDATE
   status = VALUES(status),
   updated_at = NOW(3);
 
--- Properties (10,000 across KR/JP/CN/US/EU/SEA)
+-- Properties (20,000 across KR/JP/CN/US/EU/SEA/ME/OCEANIA)
 INSERT INTO property(
   id, partner_id, name, country, city, address1, lat, lng, status, rating, thumbnail_url
 )
@@ -117,7 +117,21 @@ name_parts AS (
       WHEN 22 THEN 'ID'
       WHEN 23 THEN 'VN'
       WHEN 24 THEN 'MY'
-      ELSE 'PH'
+      WHEN 25 THEN 'PH'
+      WHEN 26 THEN 'AE'
+      WHEN 27 THEN 'AE'
+      WHEN 28 THEN 'TR'
+      WHEN 29 THEN 'AT'
+      WHEN 30 THEN 'PT'
+      WHEN 31 THEN 'GR'
+      WHEN 32 THEN 'AU'
+      WHEN 33 THEN 'AU'
+      WHEN 34 THEN 'NZ'
+      WHEN 35 THEN 'CA'
+      WHEN 36 THEN 'CA'
+      WHEN 37 THEN 'US'
+      WHEN 38 THEN 'US'
+      ELSE 'US'
     END AS country_code,
     CASE city_seq.city_idx
       WHEN 0 THEN 'Seoul'
@@ -145,7 +159,21 @@ name_parts AS (
       WHEN 22 THEN 'Bali'
       WHEN 23 THEN 'Ho Chi Minh City'
       WHEN 24 THEN 'Kuala Lumpur'
-      ELSE 'Manila'
+      WHEN 25 THEN 'Manila'
+      WHEN 26 THEN 'Dubai'
+      WHEN 27 THEN 'Abu Dhabi'
+      WHEN 28 THEN 'Istanbul'
+      WHEN 29 THEN 'Vienna'
+      WHEN 30 THEN 'Lisbon'
+      WHEN 31 THEN 'Athens'
+      WHEN 32 THEN 'Sydney'
+      WHEN 33 THEN 'Melbourne'
+      WHEN 34 THEN 'Auckland'
+      WHEN 35 THEN 'Toronto'
+      WHEN 36 THEN 'Vancouver'
+      WHEN 37 THEN 'Chicago'
+      WHEN 38 THEN 'Seattle'
+      ELSE 'Las Vegas'
     END AS city_name,
     CASE city_seq.city_idx
       WHEN 0 THEN 37.5665
@@ -173,7 +201,21 @@ name_parts AS (
       WHEN 22 THEN -8.6500
       WHEN 23 THEN 10.8231
       WHEN 24 THEN 3.1390
-      ELSE 14.5995
+      WHEN 25 THEN 14.5995
+      WHEN 26 THEN 25.2048
+      WHEN 27 THEN 24.4539
+      WHEN 28 THEN 41.0082
+      WHEN 29 THEN 48.2082
+      WHEN 30 THEN 38.7223
+      WHEN 31 THEN 37.9838
+      WHEN 32 THEN -33.8688
+      WHEN 33 THEN -37.8136
+      WHEN 34 THEN -36.8509
+      WHEN 35 THEN 43.6532
+      WHEN 36 THEN 49.2827
+      WHEN 37 THEN 41.8781
+      WHEN 38 THEN 47.6062
+      ELSE 36.1699
     END AS base_lat,
     CASE city_seq.city_idx
       WHEN 0 THEN 126.9780
@@ -201,10 +243,24 @@ name_parts AS (
       WHEN 22 THEN 115.2167
       WHEN 23 THEN 106.6297
       WHEN 24 THEN 101.6869
-      ELSE 120.9842
+      WHEN 25 THEN 120.9842
+      WHEN 26 THEN 55.2708
+      WHEN 27 THEN 54.3773
+      WHEN 28 THEN 28.9784
+      WHEN 29 THEN 16.3738
+      WHEN 30 THEN -9.1393
+      WHEN 31 THEN 23.7275
+      WHEN 32 THEN 151.2093
+      WHEN 33 THEN 144.9631
+      WHEN 34 THEN 174.7645
+      WHEN 35 THEN -79.3832
+      WHEN 36 THEN -123.1207
+      WHEN 37 THEN -87.6298
+      WHEN 38 THEN -122.3321
+      ELSE -115.1398
     END AS base_lng
   FROM (
-    SELECT n, MOD(n - 1, 26) AS city_idx
+    SELECT n, MOD(n - 1, 40) AS city_idx
     FROM seq
   ) city_seq
 )
@@ -237,7 +293,7 @@ ON DUPLICATE KEY UPDATE
   thumbnail_url = VALUES(thumbnail_url),
   updated_at = NOW(3);
 
--- Room types (30,000)
+-- Room types (60,000)
 INSERT INTO room_type(
   id, property_id, name, capacity_adults, capacity_children, bed_type, view_type, refundable, status, base_price
 )

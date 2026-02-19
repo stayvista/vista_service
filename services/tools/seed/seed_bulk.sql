@@ -5,17 +5,17 @@ INSERT INTO partner_account(id, name, type, status)
 VALUES (1, 'Demo Hotel Partner', 'HOTEL', 'ACTIVE')
 ON DUPLICATE KEY UPDATE name=name;
 
--- 10,000 properties across KR/JP/CN/US/EU/SEA
+-- 20,000 properties across KR/JP/CN/US/EU/SEA/ME/OCEANIA
 WITH RECURSIVE seq AS (
   SELECT 1 AS n
   UNION ALL
-  SELECT n + 1 FROM seq WHERE n < 10000
+  SELECT n + 1 FROM seq WHERE n < 20000
 ),
 property_seed AS (
   SELECT
     seq.n AS n,
-    MOD(seq.n - 1, 26) AS city_idx,
-    CASE MOD(seq.n - 1, 26)
+    MOD(seq.n - 1, 40) AS city_idx,
+    CASE MOD(seq.n - 1, 40)
       WHEN 0 THEN 'KR'
       WHEN 1 THEN 'KR'
       WHEN 2 THEN 'KR'
@@ -41,9 +41,23 @@ property_seed AS (
       WHEN 22 THEN 'ID'
       WHEN 23 THEN 'VN'
       WHEN 24 THEN 'MY'
-      ELSE 'PH'
+      WHEN 25 THEN 'PH'
+      WHEN 26 THEN 'AE'
+      WHEN 27 THEN 'AE'
+      WHEN 28 THEN 'TR'
+      WHEN 29 THEN 'AT'
+      WHEN 30 THEN 'PT'
+      WHEN 31 THEN 'GR'
+      WHEN 32 THEN 'AU'
+      WHEN 33 THEN 'AU'
+      WHEN 34 THEN 'NZ'
+      WHEN 35 THEN 'CA'
+      WHEN 36 THEN 'CA'
+      WHEN 37 THEN 'US'
+      WHEN 38 THEN 'US'
+      ELSE 'US'
     END AS country_code,
-    CASE MOD(seq.n - 1, 26)
+    CASE MOD(seq.n - 1, 40)
       WHEN 0 THEN 'Seoul'
       WHEN 1 THEN 'Busan'
       WHEN 2 THEN 'Jeju'
@@ -69,9 +83,23 @@ property_seed AS (
       WHEN 22 THEN 'Bali'
       WHEN 23 THEN 'Ho Chi Minh City'
       WHEN 24 THEN 'Kuala Lumpur'
-      ELSE 'Manila'
+      WHEN 25 THEN 'Manila'
+      WHEN 26 THEN 'Dubai'
+      WHEN 27 THEN 'Abu Dhabi'
+      WHEN 28 THEN 'Istanbul'
+      WHEN 29 THEN 'Vienna'
+      WHEN 30 THEN 'Lisbon'
+      WHEN 31 THEN 'Athens'
+      WHEN 32 THEN 'Sydney'
+      WHEN 33 THEN 'Melbourne'
+      WHEN 34 THEN 'Auckland'
+      WHEN 35 THEN 'Toronto'
+      WHEN 36 THEN 'Vancouver'
+      WHEN 37 THEN 'Chicago'
+      WHEN 38 THEN 'Seattle'
+      ELSE 'Las Vegas'
     END AS city_name,
-    CASE MOD(seq.n - 1, 26)
+    CASE MOD(seq.n - 1, 40)
       WHEN 0 THEN 37.5665
       WHEN 1 THEN 35.1796
       WHEN 2 THEN 33.4996
@@ -97,9 +125,23 @@ property_seed AS (
       WHEN 22 THEN -8.6500
       WHEN 23 THEN 10.8231
       WHEN 24 THEN 3.1390
-      ELSE 14.5995
+      WHEN 25 THEN 14.5995
+      WHEN 26 THEN 25.2048
+      WHEN 27 THEN 24.4539
+      WHEN 28 THEN 41.0082
+      WHEN 29 THEN 48.2082
+      WHEN 30 THEN 38.7223
+      WHEN 31 THEN 37.9838
+      WHEN 32 THEN -33.8688
+      WHEN 33 THEN -37.8136
+      WHEN 34 THEN -36.8509
+      WHEN 35 THEN 43.6532
+      WHEN 36 THEN 49.2827
+      WHEN 37 THEN 41.8781
+      WHEN 38 THEN 47.6062
+      ELSE 36.1699
     END AS base_lat,
-    CASE MOD(seq.n - 1, 26)
+    CASE MOD(seq.n - 1, 40)
       WHEN 0 THEN 126.9780
       WHEN 1 THEN 129.0756
       WHEN 2 THEN 126.5312
@@ -125,7 +167,21 @@ property_seed AS (
       WHEN 22 THEN 115.2167
       WHEN 23 THEN 106.6297
       WHEN 24 THEN 101.6869
-      ELSE 120.9842
+      WHEN 25 THEN 120.9842
+      WHEN 26 THEN 55.2708
+      WHEN 27 THEN 54.3773
+      WHEN 28 THEN 28.9784
+      WHEN 29 THEN 16.3738
+      WHEN 30 THEN -9.1393
+      WHEN 31 THEN 23.7275
+      WHEN 32 THEN 151.2093
+      WHEN 33 THEN 144.9631
+      WHEN 34 THEN 174.7645
+      WHEN 35 THEN -79.3832
+      WHEN 36 THEN -123.1207
+      WHEN 37 THEN -87.6298
+      WHEN 38 THEN -122.3321
+      ELSE -115.1398
     END AS base_lng
   FROM seq
 )
@@ -148,7 +204,7 @@ WHERE NOT EXISTS (
   WHERE p.name = CONCAT('Demo Global Property ', LPAD(property_seed.n, 5, '0'), ' ', property_seed.city_name)
 );
 
--- 30,000 room types (3 per property)
+-- 60,000 room types (3 per property)
 INSERT INTO room_type(property_id, name, capacity_adults, capacity_children, status, base_price)
 SELECT
   p.id,
