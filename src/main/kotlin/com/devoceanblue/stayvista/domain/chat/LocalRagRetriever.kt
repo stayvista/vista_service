@@ -161,7 +161,7 @@ class LocalRagRetriever(
         )
 
         if (!city.isNullOrBlank()) {
-            sql.append(" AND (td.city = ? OR td.city IS NULL)")
+            sql.append(" AND td.city = ?")
             params += city
         }
 

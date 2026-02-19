@@ -1165,7 +1165,7 @@ class ChatService(
     private fun retrievalCacheKey(slots: ChatSlots, message: String): String {
         val normalized = message.lowercase().replace(Regex("\\s+"), " ").trim()
         val sourceTypePart = if (slots.sourceTypes.isEmpty()) "-" else slots.sourceTypes.sorted().joinToString(",")
-        return "retrieval_v3|${slots.city ?: "-"}|${slots.intent}|$sourceTypePart|$normalized"
+        return "retrieval_v4|${slots.city ?: "-"}|${slots.intent}|$sourceTypePart|$normalized"
     }
 
     private fun sha256(value: String): String {

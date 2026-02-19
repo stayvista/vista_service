@@ -317,18 +317,36 @@ class RagIndexBuilderService(
         val params = mutableListOf<Any>()
         val sql = StringBuilder(
             """
-            SELECT id, name, status, amount_total, currency, updated_at
-            FROM package_product
-            WHERE status = 'ACTIVE'
+            SELECT
+              pp.id,
+              pp.name,
+              pp.status,
+              pp.amount_total,
+              pp.currency,
+              pp.updated_at,
+              MAX(COALESCE(pr.city, prod.city)) AS component_city,
+              COUNT(DISTINCT COALESCE(pr.city, prod.city)) AS component_city_count
+            FROM package_product pp
+            LEFT JOIN package_product_component ppc ON ppc.package_id = pp.id
+            LEFT JOIN room_type rt ON rt.id = ppc.room_type_id
+            LEFT JOIN property pr ON pr.id = rt.property_id
+            LEFT JOIN ticket_event te ON te.id = ppc.ticket_event_id
+            LEFT JOIN product prod ON prod.id = te.product_id
+            WHERE pp.status = 'ACTIVE'
             """.trimIndent(),
         )
 
         if (updatedAfter != null) {
-            sql.append(" AND updated_at > ?")
+            sql.append(" AND pp.updated_at > ?")
             params += java.sql.Timestamp.valueOf(updatedAfter)
         }
 
-        sql.append(" ORDER BY updated_at DESC")
+        sql.append(
+            """
+             GROUP BY pp.id, pp.name, pp.status, pp.amount_total, pp.currency, pp.updated_at
+             ORDER BY pp.updated_at DESC
+            """.trimIndent(),
+        )
         if (limit != null) {
             sql.append(" LIMIT ?")
             params += limit
@@ -339,11 +357,18 @@ class RagIndexBuilderService(
             val amount = rs.getLong("amount_total")
             val currency = rs.getString("currency") ?: "KRW"
             val updatedAt = rs.getTimestamp("updated_at")?.toLocalDateTime()
+            val componentCity = rs.getString("component_city")
+            val componentCityCount = rs.getInt("component_city_count")
 
             val title = rs.getString("name")
+            val city = inferCityFromText(title)
+                ?: componentCity.takeIf { !it.isNullOrBlank() && componentCityCount == 1 }
             val body = buildString {
                 append("패키지 ")
                 append(title)
+                append('\n')
+                append("도시: ")
+                append(city ?: "Unknown")
                 append('\n')
                 append("금액: ")
                 append(amount)
@@ -357,12 +382,26 @@ class RagIndexBuilderService(
                 docId = "package:$packageId",
                 sourceType = "PACKAGE",
                 refId = packageId,
-                city = null,
+                city = city,
                 title = title,
                 body = body,
                 sourceUpdatedAt = updatedAt,
             )
         }, *params.toTypedArray())
+    }
+
+    private fun inferCityFromText(text: String?): String? {
+        val normalized = text?.lowercase()?.trim().orEmpty()
+        if (normalized.isBlank()) {
+            return null
+        }
+        return when {
+            normalized.contains("seoul") || normalized.contains("서울") -> "Seoul"
+            normalized.contains("busan") || normalized.contains("부산") -> "Busan"
+            normalized.contains("jeju") || normalized.contains("제주") -> "Jeju"
+            normalized.contains("incheon") || normalized.contains("인천") -> "Incheon"
+            else -> null
+        }
     }
 
     private fun loadPoiDocs(limit: Int?, createdAfter: LocalDateTime?): List<SourceDoc> {
