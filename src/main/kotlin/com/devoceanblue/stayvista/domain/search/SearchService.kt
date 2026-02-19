@@ -26,7 +26,18 @@ class SearchService(
 
         val data = if (useOpenSearch) {
             try {
-                openSearchClient.search(request)
+                val openSearchData = openSearchClient.search(request)
+                if (openSearchData.items.isEmpty()) {
+                    val dbData = searchFromDb(request)
+                    if (dbData.items.isNotEmpty()) {
+                        meterRegistry.counter("search_opensearch_empty_fallback_total").increment()
+                        dbData
+                    } else {
+                        openSearchData
+                    }
+                } else {
+                    openSearchData
+                }
             } catch (_: Exception) {
                 meterRegistry.counter("search_opensearch_errors_total").increment()
                 searchFromDb(request)

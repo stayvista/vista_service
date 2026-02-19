@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { apiGet } from "../api/client";
 
@@ -30,7 +30,7 @@ export function SearchPage() {
 
   const city = (params.get("city") ?? "").normalize("NFC");
   const [cityInput, setCityInput] = useState(city);
-  const [isCityComposing, setIsCityComposing] = useState(false);
+  const cityComposingRef = useRef(false);
 
   const requestQuery = useMemo(() => {
     const next = new URLSearchParams(params);
@@ -115,10 +115,10 @@ export function SearchPage() {
   }
 
   useEffect(() => {
-    if (!isCityComposing) {
+    if (!cityComposingRef.current) {
       setCityInput(city);
     }
-  }, [city, isCityComposing]);
+  }, [city]);
 
   function removeParam(name: string) {
     const next = new URLSearchParams(params);
@@ -174,18 +174,22 @@ export function SearchPage() {
         <input
           value={cityInput}
           placeholder="도시"
-          onCompositionStart={() => setIsCityComposing(true)}
+          onCompositionStart={() => {
+            cityComposingRef.current = true;
+          }}
           onCompositionEnd={(event) => {
             const nextValue = event.currentTarget.value.normalize("NFC");
-            setIsCityComposing(false);
+            cityComposingRef.current = false;
             setCityInput(nextValue);
-            upsertParam("city", nextValue);
+            if (nextValue !== city) {
+              upsertParam("city", nextValue);
+            }
           }}
           onChange={(event) => {
             const nextValue = event.target.value.normalize("NFC");
             setCityInput(nextValue);
             const composing = (event.nativeEvent as InputEvent).isComposing;
-            if (!isCityComposing && !composing) {
+            if (!cityComposingRef.current && !composing && nextValue !== city) {
               upsertParam("city", nextValue);
             }
           }}
