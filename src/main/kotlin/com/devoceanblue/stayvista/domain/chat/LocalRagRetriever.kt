@@ -296,16 +296,48 @@ class LocalRagRetriever(
         }
 
         val normalized = query.lowercase()
+        val ticketRequested = normalized.contains("티켓") ||
+            normalized.contains("체험") ||
+            normalized.contains("ticket") ||
+            normalized.contains("입장권")
+        val packageRequested = normalized.contains("패키지") || normalized.contains("package")
+        val propertyRequested = normalized.contains("숙소") ||
+            normalized.contains("hotel") ||
+            normalized.contains("property")
+        val poiRequested = normalized.contains("맛집") ||
+            normalized.contains("음식") ||
+            normalized.contains("식당") ||
+            normalized.contains("food") ||
+            normalized.contains("restaurant") ||
+            normalized.contains("쇼핑") ||
+            normalized.contains("shopping") ||
+            normalized.contains("팝업") ||
+            normalized.contains("전시") ||
+            normalized.contains("museum") ||
+            normalized.contains("주변") ||
+            normalized.contains("관광") ||
+            normalized.contains("명소") ||
+            normalized.contains("attraction") ||
+            normalized.contains("poi")
+
+        if (ticketRequested) {
+            return setOf("TICKET", "PACKAGE")
+        }
+        if (packageRequested) {
+            return setOf("PACKAGE")
+        }
+        if (propertyRequested) {
+            return setOf("PROPERTY", "PACKAGE")
+        }
+        if (poiRequested) {
+            return setOf("POI")
+        }
+
         return when {
-            slots.intent == "FOOD" -> setOf("POI")
-            slots.intent == "CULTURE" -> setOf("POI")
-            normalized.contains("패키지") || normalized.contains("package") -> setOf("PACKAGE")
-            normalized.contains("티켓") || normalized.contains("체험") || normalized.contains("ticket") -> setOf("TICKET", "PACKAGE")
-            normalized.contains("숙소") || normalized.contains("hotel") || normalized.contains("property") -> setOf("PROPERTY", "PACKAGE")
-            normalized.contains("맛집") || normalized.contains("음식") || normalized.contains("식당") || normalized.contains("food") || normalized.contains("restaurant") -> setOf("POI")
-            normalized.contains("쇼핑") || normalized.contains("shopping") || normalized.contains("팝업") -> setOf("POI")
-            normalized.contains("전시") || normalized.contains("museum") -> setOf("POI")
-            normalized.contains("주변") || normalized.contains("관광") || normalized.contains("poi") -> setOf("POI")
+            slots.intent == "FOOD" ||
+                slots.intent == "CULTURE" ||
+                slots.intent == "SHOPPING" ||
+                slots.intent == "ATTRACTION" -> setOf("POI")
             else -> emptySet()
         }
     }
@@ -324,8 +356,8 @@ class LocalRagRetriever(
                 normalized.contains("food") ||
                 normalized.contains("restaurant") -> setOf("food")
             slots.intent == "CULTURE" || normalized.contains("전시") || normalized.contains("museum") -> setOf("museum")
-            normalized.contains("쇼핑") || normalized.contains("shopping") || normalized.contains("팝업") -> setOf("shopping")
-            normalized.contains("관광") || normalized.contains("명소") || normalized.contains("attraction") -> setOf("attraction")
+            slots.intent == "SHOPPING" || normalized.contains("쇼핑") || normalized.contains("shopping") || normalized.contains("팝업") -> setOf("shopping")
+            slots.intent == "ATTRACTION" || normalized.contains("관광") || normalized.contains("명소") || normalized.contains("attraction") -> setOf("attraction")
             else -> emptySet()
         }
     }

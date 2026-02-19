@@ -27,6 +27,7 @@ class ChatRoutingPolicyTest {
                     title = "food spot",
                     snippet = "snippet",
                     sourceType = "POI",
+                    metadata = mapOf("city" to "Seoul"),
                 ),
                 score = 0.9,
             ),
@@ -35,6 +36,28 @@ class ChatRoutingPolicyTest {
         val decision = routingPolicy.decide(request.message, slots, hits)
         assertEquals(ChatRouteType.TEMPLATE, decision.type)
         assertEquals("rag_is_sufficient", decision.reason)
+    }
+
+    @Test
+    fun `decide asks clarification when only one non-poi source exists`() {
+        val request = ChatRecommendRequest(message = "서울 전시 티켓 추천해줘")
+        val slots = routingPolicy.extractSlots(request)
+        val hits = listOf(
+            RagHit(
+                document = RagDocument(
+                    docId = "package:1",
+                    title = "Busan package",
+                    snippet = "snippet",
+                    sourceType = "PACKAGE",
+                    metadata = mapOf("city" to "Busan"),
+                ),
+                score = 0.9,
+            ),
+        )
+
+        val decision = routingPolicy.decide(request.message, slots, hits)
+        assertEquals(ChatRouteType.ASK_CLARIFICATION, decision.type)
+        assertEquals("insufficient_sources", decision.reason)
     }
 
     @Test
@@ -170,5 +193,17 @@ class ChatRoutingPolicyTest {
     @Test
     fun `needsItinerary should detect itinerary intent from message`() {
         assertTrue(routingPolicy.needsItinerary("서울 2박3일 일정 동선 추천해줘"))
+    }
+
+    @Test
+    fun `extractSlots should classify shopping intent`() {
+        val slots = routingPolicy.extractSlots(ChatRecommendRequest(message = "서울 쇼핑 추천해줘"))
+        assertEquals("SHOPPING", slots.intent)
+    }
+
+    @Test
+    fun `extractSlots should classify attraction intent`() {
+        val slots = routingPolicy.extractSlots(ChatRecommendRequest(message = "서울 관광 명소 추천해줘"))
+        assertEquals("ATTRACTION", slots.intent)
     }
 }

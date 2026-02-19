@@ -60,15 +60,17 @@ class ChatRoutingPolicy {
             )
         }
 
-        if (ragHits.size < 2 && slots.intent == "GENERAL") {
-            return ChatRouteDecision(
-                type = ChatRouteType.ASK_CLARIFICATION,
-                reason = "insufficient_sources",
-                followups = listOf(
-                    "여행 도시를 조금 더 구체적으로 알려주실 수 있을까요?",
-                    "예산 또는 선호(전시/맛집/자연)를 함께 알려주시면 추천 정확도가 올라갑니다.",
-                ),
-            )
+        if (ragHits.size < 2) {
+            if (slots.intent == "GENERAL" || !canServeSingleHit(slots, ragHits.firstOrNull())) {
+                return ChatRouteDecision(
+                    type = ChatRouteType.ASK_CLARIFICATION,
+                    reason = "insufficient_sources",
+                    followups = listOf(
+                        "여행 도시를 조금 더 구체적으로 알려주실 수 있을까요?",
+                        "예산 또는 선호(전시/맛집/자연)를 함께 알려주시면 추천 정확도가 올라갑니다.",
+                    ),
+                )
+            }
         }
 
         val normalized = message.lowercase()
@@ -151,11 +153,28 @@ class ChatRoutingPolicy {
     private fun extractIntent(message: String): String {
         return when {
             message.contains("맛집") || message.contains("food") -> "FOOD"
+            message.contains("쇼핑") || message.contains("shopping") || message.contains("팝업") -> "SHOPPING"
             message.contains("전시") || message.contains("museum") -> "CULTURE"
+            message.contains("관광") || message.contains("명소") || message.contains("attraction") -> "ATTRACTION"
             message.contains("휴양") || message.contains("resort") -> "RELAX"
             message.contains("액티비티") || message.contains("activity") -> "ACTIVITY"
             else -> "GENERAL"
         }
+    }
+
+    private fun canServeSingleHit(slots: ChatSlots, hit: RagHit?): Boolean {
+        val candidate = hit ?: return false
+        val sourceType = candidate.document.sourceType.uppercase()
+        if (sourceType != "POI") {
+            return false
+        }
+
+        val requestedCity = slots.city ?: return true
+        val hitCity = candidate.document.metadata["city"]?.toString()?.trim()
+        if (hitCity.isNullOrBlank()) {
+            return true
+        }
+        return hitCity.equals(requestedCity, ignoreCase = true)
     }
 
     private fun Map<String, Any?>.asString(key: String): String? {
