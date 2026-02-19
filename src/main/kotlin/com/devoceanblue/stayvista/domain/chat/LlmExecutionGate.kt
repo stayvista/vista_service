@@ -12,7 +12,7 @@ import org.springframework.stereotype.Component
 class LlmExecutionGate(
     meterRegistry: MeterRegistry,
     @Value("\${stayvista.chat.llm.max-concurrency:8}") maxConcurrency: Int,
-    @Value("\${stayvista.chat.llm.max-queue-wait-ms:350}") private val maxQueueWaitMs: Long,
+    @Value("\${stayvista.chat.llm.max-queue-wait-ms:1200}") private val maxQueueWaitMs: Long,
 ) {
     private val semaphore = Semaphore(maxConcurrency.coerceAtLeast(1), true)
     private val inflight = AtomicInteger(0)

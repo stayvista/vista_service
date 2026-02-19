@@ -55,7 +55,7 @@ class ChatService(
                 return@runCatching buildBlockedResponse(safetyDecision.reason ?: "요청을 처리할 수 없습니다.")
             }
 
-            val slots = routingPolicy.extractSlots(request)
+            val slots = resolveSlots(request, memory)
             val retrievalKey = sha256(retrievalCacheKey(slots, message))
             val retrieval = chatCacheService.singleFlight("retrieval", retrievalKey) {
                 chatCacheService.getRetrievalCache(retrievalKey)
@@ -90,6 +90,7 @@ class ChatService(
                     meterRegistry.counter("llm_used_rate", "used", "false").increment()
                     enrichResult(
                         response = buildTemplateResponse(
+                            message = message,
                             slots = slots,
                             retrieval = retrieval,
                             followups = routeDecision.followups.ifEmpty { routingPolicy.defaultFollowups(slots) },
@@ -187,6 +188,7 @@ class ChatService(
                         meterRegistry.counter("llm_used_rate", "used", "false").increment()
                         return@runCatching enrichResult(
                             response = buildTemplateResponse(
+                                message = message,
                                 slots = slots,
                                 retrieval = retrieval,
                                 followups = routingPolicy.defaultFollowups(slots),
@@ -251,7 +253,7 @@ class ChatService(
             if (ex is StructuredRepairFailedException) {
                 meterRegistry.counter("fallback_due_to_parse_rate", "route", "sync").increment()
             }
-            val slots = routingPolicy.extractSlots(request)
+            val slots = resolveSlots(request, memory)
             val fallbackRetrieval = runCatching {
                 ragRetriever.searchItems(request.message, slots)
             }.getOrElse {
@@ -260,6 +262,7 @@ class ChatService(
             ragMs = fallbackRetrieval.retrievalMs
             enrichResult(
                 response = buildTemplateResponse(
+                    message = message,
                     slots = slots,
                     retrieval = fallbackRetrieval,
                     followups = routingPolicy.defaultFollowups(slots),
@@ -356,7 +359,7 @@ class ChatService(
                 return@runCatching buildBlockedResponse(safetyDecision.reason ?: "요청을 처리할 수 없습니다.")
             }
 
-            val slots = routingPolicy.extractSlots(request)
+            val slots = resolveSlots(request, memory)
             val retrievalKey = sha256(retrievalCacheKey(slots, message))
             val retrieval = chatCacheService.singleFlight("retrieval", retrievalKey) {
                 chatCacheService.getRetrievalCache(retrievalKey)
@@ -393,6 +396,7 @@ class ChatService(
                     emitMeta(mapOf("route" to route, "route_reason" to routeDecision.reason, "llm_used" to false))
                     enrichResult(
                         response = buildTemplateResponse(
+                            message = message,
                             slots = slots,
                             retrieval = retrieval,
                             followups = routeDecision.followups.ifEmpty { routingPolicy.defaultFollowups(slots) },
@@ -496,6 +500,7 @@ class ChatService(
                         meterRegistry.counter("llm_used_rate", "used", "false").increment()
                         return@runCatching enrichResult(
                             response = buildTemplateResponse(
+                                message = message,
                                 slots = slots,
                                 retrieval = retrieval,
                                 followups = routingPolicy.defaultFollowups(slots),
@@ -562,7 +567,7 @@ class ChatService(
             if (ex is StructuredRepairFailedException) {
                 meterRegistry.counter("fallback_due_to_parse_rate", "route", "stream").increment()
             }
-            val slots = routingPolicy.extractSlots(request)
+            val slots = resolveSlots(request, memory)
             val fallbackRetrieval = runCatching {
                 ragRetriever.searchItems(request.message, slots)
             }.getOrElse {
@@ -571,6 +576,7 @@ class ChatService(
             ragMs = fallbackRetrieval.retrievalMs
             enrichResult(
                 response = buildTemplateResponse(
+                    message = message,
                     slots = slots,
                     retrieval = fallbackRetrieval,
                     followups = routingPolicy.defaultFollowups(slots),
@@ -665,6 +671,40 @@ class ChatService(
             append('|')
             append(retrieval.hits.take(3).joinToString(";") { it.document.docId })
         }
+    }
+
+    private fun resolveSlots(request: ChatRecommendRequest, memory: ChatMemorySnapshot): ChatSlots {
+        val slots = routingPolicy.extractSlots(request)
+        if (slots.city != null) {
+            return slots
+        }
+        val inferredCity = inferCityFromMemory(memory.runningSummary) ?: return slots
+        return slots.copy(city = inferredCity)
+    }
+
+    private fun inferCityFromMemory(summary: String): String? {
+        if (summary.isBlank()) {
+            return null
+        }
+        val normalized = summary.lowercase()
+        val cityMentions = listOf(
+            "Seoul" to listOf("seoul", "서울"),
+            "Busan" to listOf("busan", "부산"),
+            "Jeju" to listOf("jeju", "제주"),
+            "Incheon" to listOf("incheon", "인천"),
+        )
+        var bestCity: String? = null
+        var bestIndex = -1
+        cityMentions.forEach { (city, keywords) ->
+            keywords.forEach { keyword ->
+                val index = normalized.lastIndexOf(keyword.lowercase())
+                if (index > bestIndex) {
+                    bestIndex = index
+                    bestCity = city
+                }
+            }
+        }
+        return bestCity
     }
 
     private fun enrichResult(
@@ -844,18 +884,21 @@ class ChatService(
     }
 
     private fun buildTemplateResponse(
+        message: String,
         slots: ChatSlots,
         retrieval: RagSearchResult,
         followups: List<String>,
         contextUsed: Map<String, Any?>,
     ): ChatRecommendData {
+        val singleRecommendationRequested = wantsSingleRecommendation(message)
+        val cardLimit = if (singleRecommendationRequested) 1 else 4
         val cards = retrieval.hits
-            .take(4)
+            .take(cardLimit)
             .map { hit -> toCardFromHit(hit) }
             .let { safetyPolicy.filterCardsWithSource(it) }
 
         val sources = retrieval.hits
-            .take(4)
+            .take(cardLimit)
             .map { hit -> hit.document.toSource() }
             .ifEmpty {
                 cards.flatMap { it.source }.take(2)
@@ -864,7 +907,7 @@ class ChatService(
         val answer = if (cards.isEmpty()) {
             "현재 조건으로는 신뢰 가능한 추천 근거가 부족합니다. 도시와 일정을 조금 더 구체적으로 입력해 주세요."
         } else {
-            "${slots.city ?: "요청하신 조건"} 기준으로 바로 예약 가능한 후보를 정리했어요. 카드에서 상세를 확인하고 바로 진행하실 수 있어요."
+            buildTemplateAnswer(slots, cards, singleRecommendationRequested)
         }
 
         return ChatRecommendData(
@@ -875,10 +918,76 @@ class ChatService(
             context_used = contextUsed + mapOf(
                 "sources" to sources.map { it.doc_id },
                 "rag_ms" to retrieval.retrievalMs,
+                "requested_card_limit" to cardLimit,
             ),
             llm_used = false,
             sources = sources,
         )
+    }
+
+    private fun buildTemplateAnswer(
+        slots: ChatSlots,
+        cards: List<ChatCard>,
+        singleRecommendationRequested: Boolean,
+    ): String {
+        val cityLabel = slots.city ?: "요청하신 조건"
+        val dayHint = slots.days?.let { "${it}일 일정 기준으로" } ?: "기준으로"
+        if (singleRecommendationRequested) {
+            val topCardTitle = cards.firstOrNull()?.title?.trim().orEmpty()
+            if (topCardTitle.isNotEmpty()) {
+                return "$cityLabel $dayHint 딱 한 곳만 고르면 ${topCardTitle}을(를) 추천해요. 카드에서 상세를 확인해 보세요."
+            }
+            return "$cityLabel $dayHint 단일 추천 후보를 정리했어요. 카드에서 상세를 확인해 보세요."
+        }
+
+        val highlights = cards
+            .take(2)
+            .map { it.title.trim() }
+            .filter { it.isNotBlank() }
+        val mix = cards
+            .groupingBy { it.type.uppercase() }
+            .eachCount()
+            .entries
+            .sortedByDescending { it.value }
+            .take(2)
+            .joinToString(", ") { (type, count) -> "${cardTypeLabel(type)} ${count}개" }
+
+        return buildString {
+            append(cityLabel)
+            append(" ")
+            append(dayHint)
+            append(" 추천 후보를 정리했어요.")
+            if (highlights.isNotEmpty()) {
+                append(" 우선 ")
+                append(highlights.joinToString(", "))
+                append("을(를) 확인해 보세요.")
+            }
+            if (mix.isNotBlank()) {
+                append(" 이번 결과는 ")
+                append(mix)
+                append("로 구성됐어요.")
+            }
+            append(" 카드에서 상세를 비교하고 바로 진행하실 수 있어요.")
+        }
+    }
+
+    private fun wantsSingleRecommendation(message: String): Boolean {
+        val normalized = message.lowercase()
+        return normalized.contains("1곳") ||
+            normalized.contains("한곳") ||
+            normalized.contains("한 곳") ||
+            normalized.contains("하나만") ||
+            normalized.contains("딱 한")
+    }
+
+    private fun cardTypeLabel(type: String): String {
+        return when (type.uppercase()) {
+            "PROPERTY" -> "숙소"
+            "TICKET" -> "티켓"
+            "PACKAGE" -> "패키지"
+            "POI" -> "주변 스팟"
+            else -> "추천"
+        }
     }
 
     private fun normalizeStructuredResult(

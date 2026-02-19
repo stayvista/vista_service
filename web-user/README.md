@@ -8,4 +8,4 @@ npm install
 npm run dev
 ```
 
-- 기본 포트: `5174`
+- 기본 포트: `5180`

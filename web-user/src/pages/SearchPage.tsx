@@ -28,6 +28,10 @@ export function SearchPage() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const city = (params.get("city") ?? "").normalize("NFC");
+  const [cityInput, setCityInput] = useState(city);
+  const [isCityComposing, setIsCityComposing] = useState(false);
+
   const requestQuery = useMemo(() => {
     const next = new URLSearchParams(params);
     next.delete("cursor");
@@ -85,7 +89,6 @@ export function SearchPage() {
   }
 
   const sort = params.get("sort") ?? "";
-  const city = params.get("city") ?? "";
   const minPrice = params.get("min_price") ?? "";
   const maxPrice = params.get("max_price") ?? "";
   const minRating = params.get("min_rating") ?? "";
@@ -110,6 +113,12 @@ export function SearchPage() {
     }
     setParams(next);
   }
+
+  useEffect(() => {
+    if (!isCityComposing) {
+      setCityInput(city);
+    }
+  }, [city, isCityComposing]);
 
   function removeParam(name: string) {
     const next = new URLSearchParams(params);
@@ -163,9 +172,28 @@ export function SearchPage() {
       </div>
       <div className="toolbar">
         <input
-          value={city}
+          value={cityInput}
           placeholder="도시"
-          onChange={(e) => upsertParam("city", e.target.value)}
+          onCompositionStart={() => setIsCityComposing(true)}
+          onCompositionEnd={(event) => {
+            const nextValue = event.currentTarget.value.normalize("NFC");
+            setIsCityComposing(false);
+            setCityInput(nextValue);
+            upsertParam("city", nextValue);
+          }}
+          onChange={(event) => {
+            const nextValue = event.target.value.normalize("NFC");
+            setCityInput(nextValue);
+            const composing = (event.nativeEvent as InputEvent).isComposing;
+            if (!isCityComposing && !composing) {
+              upsertParam("city", nextValue);
+            }
+          }}
+          onBlur={() => {
+            if (cityInput !== city) {
+              upsertParam("city", cityInput.normalize("NFC"));
+            }
+          }}
         />
         <input
           type="number"

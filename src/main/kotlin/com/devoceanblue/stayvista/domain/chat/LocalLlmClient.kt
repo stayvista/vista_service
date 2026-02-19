@@ -52,9 +52,9 @@ class LlmSoftTimeoutException(message: String) : RuntimeException(message)
 class LocalLlmClient(
     private val objectMapper: ObjectMapper,
     private val meterRegistry: MeterRegistry,
-    @Value("\${stayvista.chat.llm.base-url:http://127.0.0.1:11434}") private val baseUrl: String,
-    @Value("\${stayvista.chat.llm.soft-timeout-ms:2500}") private val softTimeoutMs: Long,
-    @Value("\${stayvista.chat.llm.hard-timeout-ms:6000}") private val hardTimeoutMs: Long,
+    @Value("\${stayvista.chat.llm.base-url:http://127.0.0.1:23434}") private val baseUrl: String,
+    @Value("\${stayvista.chat.llm.soft-timeout-ms:30000}") private val softTimeoutMs: Long,
+    @Value("\${stayvista.chat.llm.hard-timeout-ms:60000}") private val hardTimeoutMs: Long,
     @Value("\${stayvista.chat.llm.streaming-enabled:true}") private val streamingEnabled: Boolean,
 ) : LlmClient {
     private val httpClient: HttpClient = HttpClient.newBuilder()

@@ -1859,6 +1859,7 @@ button:disabled {
 
 .nearby-v2-layout {
   display: flex;
+  height: clamp(620px, calc(100vh - 240px), 900px);
   min-height: 660px;
   border: 1px solid #d6e2f4;
   border-radius: 16px;
@@ -1868,6 +1869,8 @@ button:disabled {
 
 .nearby-v2-list-panel {
   width: 420px;
+  height: 100%;
+  min-height: 0;
   min-width: 320px;
   max-width: 640px;
   border-right: 1px solid #dce6f5;
@@ -1887,8 +1890,10 @@ button:disabled {
 .nearby-list-pane {
   padding: 12px;
   min-height: 0;
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 10px;
+  overflow: hidden;
 }
 
 .nearby-list-detail-divider {
@@ -1981,6 +1986,8 @@ button:disabled {
   list-style: none;
   margin: 0;
   padding: 0;
+  flex: 1 1 auto;
+  min-height: 0;
   display: grid;
   gap: 8px;
   overflow: auto;
@@ -2111,6 +2118,8 @@ button:disabled {
 
 .nearby-v2-map-panel {
   position: relative;
+  height: 100%;
+  min-height: 0;
   flex: 1 1 auto;
   overflow: hidden;
   background: #f2f7ff;
@@ -2391,6 +2400,7 @@ button:disabled {
   }
 
   .nearby-v2-layout {
+    height: clamp(560px, calc(100vh - 220px), 820px);
     min-height: 580px;
   }
 

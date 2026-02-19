@@ -81,7 +81,6 @@ export function ChatPage() {
     try {
       const payload = {
         message: input,
-        context: { city: "Seoul", days: 4, budget_krw: 800000, companions: "COUPLE" },
       };
 
       let donePayload: ChatResponse | null = null;

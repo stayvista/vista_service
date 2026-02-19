@@ -789,14 +789,21 @@ export function NearbyPage() {
     if (!map || !mapReadyRef.current) {
       return;
     }
-    const currentCenter = map.getCenter();
+    const center = map.getCenter();
     const nextZoom = Math.max(4, Math.min(18, map.getZoom() + delta));
     map.easeTo({
-      center: [currentCenter.lng, currentCenter.lat],
+      center: [center.lng, center.lat],
       zoom: nextZoom,
       duration: 220,
       essential: true,
     });
+  }
+
+  function stopMapControlEvent(event: React.SyntheticEvent) {
+    event.preventDefault();
+    event.stopPropagation();
+    const nativeEvent = event.nativeEvent as Event & { stopImmediatePropagation?: () => void };
+    nativeEvent.stopImmediatePropagation?.();
   }
 
   function selectItem(id: number, focusMap: boolean) {
@@ -1163,13 +1170,47 @@ export function NearbyPage() {
         <section className="nearby-v2-map-panel" aria-label="주변 추천 지도">
           <div ref={mapContainerRef} className="nearby-map-canvas" />
 
-          <div className="nearby-zoom-controls" aria-label="지도 확대/축소">
-            <button type="button" onClick={() => zoomBy(1)} aria-label="지도 확대">+</button>
-            <button type="button" onClick={() => zoomBy(-1)} aria-label="지도 축소">-</button>
+          <div
+            className="nearby-zoom-controls"
+            aria-label="지도 확대/축소"
+            onMouseDown={stopMapControlEvent}
+            onClick={stopMapControlEvent}
+            onDoubleClick={stopMapControlEvent}
+            onPointerDown={stopMapControlEvent}
+          >
+            <button
+              type="button"
+              onClick={(event) => {
+                stopMapControlEvent(event);
+                zoomBy(1);
+              }}
+              aria-label="지도 확대"
+            >
+              +
+            </button>
+            <button
+              type="button"
+              onClick={(event) => {
+                stopMapControlEvent(event);
+                zoomBy(-1);
+              }}
+              aria-label="지도 축소"
+            >
+              -
+            </button>
           </div>
 
           {viewportDirty && (
-            <button type="button" className="nearby-search-area-btn" onClick={() => void runNearbySearch()}>
+            <button
+              type="button"
+              className="nearby-search-area-btn"
+              onMouseDown={stopMapControlEvent}
+              onPointerDown={stopMapControlEvent}
+              onClick={(event) => {
+                stopMapControlEvent(event);
+                void runNearbySearch();
+              }}
+            >
               이 영역에서 재검색
             </button>
           )}

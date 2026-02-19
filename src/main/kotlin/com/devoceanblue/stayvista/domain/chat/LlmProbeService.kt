@@ -14,7 +14,7 @@ import tools.jackson.databind.ObjectMapper
 class LlmProbeService(
     private val objectMapper: ObjectMapper,
     private val modelRegistry: LlmModelRegistry,
-    @Value("\${stayvista.chat.llm.base-url:http://127.0.0.1:11434}") private val baseUrl: String,
+    @Value("\${stayvista.chat.llm.base-url:http://127.0.0.1:23434}") private val baseUrl: String,
 ) {
     private val httpClient: HttpClient = HttpClient.newBuilder()
         .connectTimeout(Duration.ofMillis(800))

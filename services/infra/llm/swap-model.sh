@@ -4,9 +4,9 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/../../.." && pwd)"
 COMPOSE_FILE="$ROOT_DIR/compose.yaml"
 COMPOSE_PROJECT="${COMPOSE_PROJECT:-stayvista-infra}"
-CHAT_MODEL="${1:-llama3.1:8b-instruct}"
+CHAT_MODEL="${1:-llama3.1:8b}"
 EMBED_MODEL="${2:-bge-m3}"
-PREV_CHAT_MODEL="${OLLAMA_PREV_CHAT_MODEL:-llama3.1:8b-instruct}"
+PREV_CHAT_MODEL="${OLLAMA_PREV_CHAT_MODEL:-llama3.1:8b}"
 
 echo "[llm] pull chat model: $CHAT_MODEL"
 OLLAMA_CHAT_MODEL="$CHAT_MODEL" OLLAMA_EMBED_MODEL="$EMBED_MODEL" \

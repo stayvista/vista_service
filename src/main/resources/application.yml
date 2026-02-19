@@ -51,7 +51,7 @@ stayvista:
     hold-ttl-minutes: 10
   web:
     cors:
-      allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174}
+      allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174,http://localhost:5180,http://127.0.0.1:5180}
   search:
     use-opensearch: true
     opensearch-url: ${OPENSEARCH_URL:http://127.0.0.1:39200}
@@ -106,14 +106,14 @@ stayvista:
       model: ${CHAT_SHADOW_MODEL:}
     llm:
       enabled: ${CHAT_LLM_ENABLED:true}
-      base-url: ${LLM_BASE_URL:${CHAT_LLM_BASE_URL:http://127.0.0.1:21434}}
-      active-model: ${LLM_MODEL_CHAT:${CHAT_LLM_ACTIVE_MODEL:llama3.1:8b-instruct}}
+      base-url: ${LLM_BASE_URL:${CHAT_LLM_BASE_URL:http://127.0.0.1:23434}}
+      active-model: ${LLM_MODEL_CHAT:${CHAT_LLM_ACTIVE_MODEL:llama3.1:8b}}
       fallback-model: ${CHAT_LLM_FALLBACK_MODEL:}
-      soft-timeout-ms: ${LLM_TIMEOUT_SOFT_MS:${CHAT_LLM_SOFT_TIMEOUT_MS:2500}}
-      hard-timeout-ms: ${LLM_TIMEOUT_HARD_MS:${CHAT_LLM_HARD_TIMEOUT_MS:6000}}
+      soft-timeout-ms: ${LLM_TIMEOUT_SOFT_MS:${CHAT_LLM_SOFT_TIMEOUT_MS:30000}}
+      hard-timeout-ms: ${LLM_TIMEOUT_HARD_MS:${CHAT_LLM_HARD_TIMEOUT_MS:60000}}
       streaming-enabled: ${LLM_STREAMING_ENABLED:true}
       max-concurrency: ${CHAT_LLM_MAX_CONCURRENCY:8}
-      max-queue-wait-ms: ${CHAT_LLM_MAX_QUEUE_WAIT_MS:350}
+      max-queue-wait-ms: ${CHAT_LLM_MAX_QUEUE_WAIT_MS:1200}
       budget:
         enabled: ${CHAT_LLM_BUDGET_ENABLED:true}
         sample-window-size: ${CHAT_LLM_BUDGET_SAMPLE_WINDOW_SIZE:240}
@@ -126,7 +126,7 @@ stayvista:
         degrade-allow-percent: ${CHAT_LLM_BUDGET_DEGRADE_ALLOW_PERCENT:45}
         severe-allow-percent: ${CHAT_LLM_BUDGET_SEVERE_ALLOW_PERCENT:20}
     embed:
-      base-url: ${CHAT_EMBED_BASE_URL:http://127.0.0.1:21434}
+      base-url: ${CHAT_EMBED_BASE_URL:http://127.0.0.1:23434}
       active-model: ${CHAT_EMBED_ACTIVE_MODEL:bge-m3}
       timeout-ms: ${CHAT_EMBED_TIMEOUT_MS:4000}
     vector-cache-ttl-seconds: ${CHAT_VECTOR_CACHE_TTL_SECONDS:86400}

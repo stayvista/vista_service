@@ -19,7 +19,7 @@ class LocalEmbedClient(
     private val objectMapper: ObjectMapper,
     private val meterRegistry: MeterRegistry,
     private val modelRegistry: LlmModelRegistry,
-    @Value("\${stayvista.chat.embed.base-url:http://127.0.0.1:11434}") private val baseUrl: String,
+    @Value("\${stayvista.chat.embed.base-url:http://127.0.0.1:23434}") private val baseUrl: String,
     @Value("\${stayvista.chat.embed.timeout-ms:4000}") private val timeoutMs: Long,
 ) : EmbedClient {
     private val httpClient: HttpClient = HttpClient.newBuilder()

@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/../../.." && pwd)"
 COMPOSE_FILE="$ROOT_DIR/compose.yaml"
 COMPOSE_PROJECT="${COMPOSE_PROJECT:-stayvista-infra}"
-BASE_URL="${OLLAMA_BASE_URL:-http://127.0.0.1:21434}"
+BASE_URL="${OLLAMA_BASE_URL:-http://127.0.0.1:23434}"
 
 if docker ps -a --format '{{.Names}}' | grep -qx 'stayvista-llm'; then
   echo "[llm] removing legacy container: stayvista-llm"

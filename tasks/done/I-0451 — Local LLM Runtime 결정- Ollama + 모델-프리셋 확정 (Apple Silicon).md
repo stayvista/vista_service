@@ -22,7 +22,7 @@ M2 Max(Apple Silicon) 환경에서 안정적으로 동작하는 로컬 LLM 런�
   - 모델 교체/롤백 절차
 
 ## Implementation Notes
-- Ollama port: `11434`(기본) 또는 레포 표준 포트(예: `21434`)로 통일
+- Ollama port: `11434`(기본) 또는 레포 표준 포트(예: `23434`)로 통일
 - readiness는 "모델 pull + warmup 완료"를 반영하도록 구성
 
 ## Acceptance Criteria

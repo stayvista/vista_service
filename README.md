@@ -40,7 +40,7 @@
 
 ### 4) 웹 실행
 - web-admin: 5173
-- web-user: 5174
+- web-user: 5180
 
 ### 5) 로컬 Seed 데이터(B-0603)
 ```bash
