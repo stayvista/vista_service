@@ -49,7 +49,7 @@ ON DUPLICATE KEY UPDATE
   status = VALUES(status),
   updated_at = NOW(3);
 
--- Properties (10,000)
+-- Properties (10,000 across KR/JP/CN/US/EU/SEA)
 INSERT INTO property(
   id, partner_id, name, country, city, address1, lat, lng, status, rating, thumbnail_url
 )
@@ -60,9 +60,10 @@ WITH RECURSIVE seq(n) AS (
 ),
 name_parts AS (
   SELECT
-    n,
+    city_seq.n AS n,
+    city_seq.city_idx,
     ELT(
-      MOD(n * 17 + FLOOR(n / 3), 36) + 1,
+      MOD(city_seq.n * 17 + FLOOR(city_seq.n / 3), 36) + 1,
       'Asteria', 'Northpoint', 'Harborline', 'Evercrest', 'Golden Laurel', 'Bluewave',
       'Summit', 'Lumin', 'Oakridge', 'Mayfield', 'Solaria', 'Riverton',
       'Grand Meridian', 'Pinehill', 'Seabreeze', 'Arden', 'Bellmont', 'Serenity',
@@ -70,61 +71,156 @@ name_parts AS (
       'Morning Calm', 'Stonebridge', 'Lakeview', 'Marina Point', 'Cedar Grove', 'Silver Oak',
       'Westbridge', 'East Harbor', 'Maple Crest', 'The Horizon', 'Riverfront', 'Sunfield'
     ) AS brand_name,
-    CASE MOD(n, 4)
-      WHEN 0 THEN ELT(
-        MOD(n * 7 + FLOOR(n / 5), 10) + 1,
-        'Gangnam', 'Myeongdong', 'Jamsil', 'Yeouido', 'Hongdae',
-        'Insadong', 'Yongsan', 'Itaewon', 'Dongdaemun', 'Seongsu'
-      )
-      WHEN 1 THEN ELT(
-        MOD(n * 7 + FLOOR(n / 5), 10) + 1,
-        'Haeundae', 'Gwangalli', 'Seomyeon', 'Nampo', 'Centum',
-        'Songdo', 'Yeongdo', 'Dongnae', 'Dadaepo', 'Gwangan'
-      )
-      WHEN 2 THEN ELT(
-        MOD(n * 7 + FLOOR(n / 5), 10) + 1,
-        'Jungmun', 'Aewol', 'Hamdeok', 'Seongsan', 'Tapdong',
-        'Hallim', 'Seogwipo', 'Pyoseon', 'Woljeong', 'Gujwa'
-      )
-      ELSE ELT(
-        MOD(n * 7 + FLOOR(n / 5), 10) + 1,
-        'Songdo', 'Yeongjong', 'Bupyeong', 'Wolmido', 'Unseo',
-        'Cheongna', 'Juan', 'Dongam', 'Guwol', 'Downtown'
-      )
-    END AS district_name,
     ELT(
-      MOD(n * 11 + FLOOR(n / 7), 12) + 1,
+      MOD(city_seq.n * 7 + FLOOR(city_seq.n / 5), 18) + 1,
+      'Central', 'Riverside', 'Old Town', 'Harbor Front', 'Garden', 'Cultural',
+      'Financial', 'University', 'Design', 'Lakeview', 'Hilltop', 'Marina',
+      'Skyline', 'Market', 'Canal', 'Bayfront', 'Grand Park', 'Historic'
+    ) AS district_name,
+    ELT(
+      MOD(city_seq.n * 11 + FLOOR(city_seq.n / 7), 14) + 1,
       'Hotel', 'Resort', 'Suites', 'Grand Hotel', 'Boutique Hotel', 'City Hotel',
-      'Palace', 'Residence', 'Bay Hotel', 'Plaza Hotel', 'Garden Hotel', 'Sky Hotel'
+      'Palace', 'Residence', 'Bay Hotel', 'Plaza Hotel', 'Garden Hotel', 'Sky Hotel',
+      'Urban Lodge', 'Riverside Inn'
     ) AS property_type,
-    CASE MOD(n * 13 + FLOOR(n / 11), 6)
+    CASE MOD(city_seq.n * 13 + FLOOR(city_seq.n / 11), 6)
       WHEN 0 THEN ''
       WHEN 1 THEN ' Central'
       WHEN 2 THEN ' Premier'
       WHEN 3 THEN ' Signature'
       WHEN 4 THEN ' & Spa'
       ELSE ' Downtown'
-    END AS suffix_text
-  FROM seq
+    END AS suffix_text,
+    CASE city_seq.city_idx
+      WHEN 0 THEN 'KR'
+      WHEN 1 THEN 'KR'
+      WHEN 2 THEN 'KR'
+      WHEN 3 THEN 'JP'
+      WHEN 4 THEN 'JP'
+      WHEN 5 THEN 'JP'
+      WHEN 6 THEN 'CN'
+      WHEN 7 THEN 'CN'
+      WHEN 8 THEN 'CN'
+      WHEN 9 THEN 'US'
+      WHEN 10 THEN 'US'
+      WHEN 11 THEN 'US'
+      WHEN 12 THEN 'GB'
+      WHEN 13 THEN 'FR'
+      WHEN 14 THEN 'IT'
+      WHEN 15 THEN 'ES'
+      WHEN 16 THEN 'DE'
+      WHEN 17 THEN 'NL'
+      WHEN 18 THEN 'CZ'
+      WHEN 19 THEN 'CH'
+      WHEN 20 THEN 'TH'
+      WHEN 21 THEN 'SG'
+      WHEN 22 THEN 'ID'
+      WHEN 23 THEN 'VN'
+      WHEN 24 THEN 'MY'
+      ELSE 'PH'
+    END AS country_code,
+    CASE city_seq.city_idx
+      WHEN 0 THEN 'Seoul'
+      WHEN 1 THEN 'Busan'
+      WHEN 2 THEN 'Jeju'
+      WHEN 3 THEN 'Tokyo'
+      WHEN 4 THEN 'Osaka'
+      WHEN 5 THEN 'Kyoto'
+      WHEN 6 THEN 'Beijing'
+      WHEN 7 THEN 'Shanghai'
+      WHEN 8 THEN 'Shenzhen'
+      WHEN 9 THEN 'New York'
+      WHEN 10 THEN 'Los Angeles'
+      WHEN 11 THEN 'San Francisco'
+      WHEN 12 THEN 'London'
+      WHEN 13 THEN 'Paris'
+      WHEN 14 THEN 'Rome'
+      WHEN 15 THEN 'Barcelona'
+      WHEN 16 THEN 'Berlin'
+      WHEN 17 THEN 'Amsterdam'
+      WHEN 18 THEN 'Prague'
+      WHEN 19 THEN 'Zurich'
+      WHEN 20 THEN 'Bangkok'
+      WHEN 21 THEN 'Singapore'
+      WHEN 22 THEN 'Bali'
+      WHEN 23 THEN 'Ho Chi Minh City'
+      WHEN 24 THEN 'Kuala Lumpur'
+      ELSE 'Manila'
+    END AS city_name,
+    CASE city_seq.city_idx
+      WHEN 0 THEN 37.5665
+      WHEN 1 THEN 35.1796
+      WHEN 2 THEN 33.4996
+      WHEN 3 THEN 35.6762
+      WHEN 4 THEN 34.6937
+      WHEN 5 THEN 35.0116
+      WHEN 6 THEN 39.9042
+      WHEN 7 THEN 31.2304
+      WHEN 8 THEN 22.5431
+      WHEN 9 THEN 40.7128
+      WHEN 10 THEN 34.0522
+      WHEN 11 THEN 37.7749
+      WHEN 12 THEN 51.5074
+      WHEN 13 THEN 48.8566
+      WHEN 14 THEN 41.9028
+      WHEN 15 THEN 41.3874
+      WHEN 16 THEN 52.5200
+      WHEN 17 THEN 52.3676
+      WHEN 18 THEN 50.0755
+      WHEN 19 THEN 47.3769
+      WHEN 20 THEN 13.7563
+      WHEN 21 THEN 1.3521
+      WHEN 22 THEN -8.6500
+      WHEN 23 THEN 10.8231
+      WHEN 24 THEN 3.1390
+      ELSE 14.5995
+    END AS base_lat,
+    CASE city_seq.city_idx
+      WHEN 0 THEN 126.9780
+      WHEN 1 THEN 129.0756
+      WHEN 2 THEN 126.5312
+      WHEN 3 THEN 139.6503
+      WHEN 4 THEN 135.5023
+      WHEN 5 THEN 135.7681
+      WHEN 6 THEN 116.4074
+      WHEN 7 THEN 121.4737
+      WHEN 8 THEN 114.0579
+      WHEN 9 THEN -74.0060
+      WHEN 10 THEN -118.2437
+      WHEN 11 THEN -122.4194
+      WHEN 12 THEN -0.1278
+      WHEN 13 THEN 2.3522
+      WHEN 14 THEN 12.4964
+      WHEN 15 THEN 2.1686
+      WHEN 16 THEN 13.4050
+      WHEN 17 THEN 4.9041
+      WHEN 18 THEN 14.4378
+      WHEN 19 THEN 8.5417
+      WHEN 20 THEN 100.5018
+      WHEN 21 THEN 103.8198
+      WHEN 22 THEN 115.2167
+      WHEN 23 THEN 106.6297
+      WHEN 24 THEN 101.6869
+      ELSE 120.9842
+    END AS base_lng
+  FROM (
+    SELECT n, MOD(n - 1, 26) AS city_idx
+    FROM seq
+  ) city_seq
 )
 SELECT
   100000 + n,
   900001,
   CASE MOD(n, 3)
-    WHEN 0 THEN CONCAT(brand_name, ' ', district_name, ' ', property_type, suffix_text)
-    WHEN 1 THEN CONCAT(district_name, ' ', property_type, ' by ', brand_name, suffix_text)
-    ELSE CONCAT(brand_name, ' ', property_type, ' ', district_name, suffix_text)
+    WHEN 0 THEN CONCAT(brand_name, ' ', city_name, ' ', property_type, suffix_text)
+    WHEN 1 THEN CONCAT(city_name, ' ', property_type, ' by ', brand_name, suffix_text)
+    ELSE CONCAT(brand_name, ' ', district_name, ' ', city_name, ' ', property_type, suffix_text)
   END,
-  'KR',
-  CASE MOD(n, 4)
-    WHEN 0 THEN 'Seoul'
-    WHEN 1 THEN 'Busan'
-    WHEN 2 THEN 'Jeju'
-    ELSE 'Incheon'
-  END,
-  CONCAT('Demo-ro ', n),
-  ROUND(37.20 + (MOD(n, 300) / 1000), 7),
-  ROUND(126.80 + (MOD(n, 300) / 1000), 7),
+  country_code,
+  city_name,
+  CONCAT(district_name, ' ', city_name, ' District ', LPAD(MOD(n * 13, 240) + 1, 3, '0')),
+  ROUND(base_lat + ((MOD(n, 41) - 20) / 2500), 7),
+  ROUND(base_lng + ((MOD(n * 7, 41) - 20) / 2500), 7),
   'ACTIVE',
   ROUND(3.5 + (MOD(n, 15) / 10), 2),
   CONCAT('https://picsum.photos/seed/stayvista-property-', n, '/640/360')
@@ -277,8 +373,8 @@ VALUES
   (500001, 'ACCOMMODATION', 200001, NULL, 2, 1, NULL),
   (500001, 'TICKET', NULL, 400001, NULL, NULL, 1);
 
--- Nearby POI seed for geo/chat testing (4,000 rows)
-SET @poi_count := 4000;
+-- Nearby POI seed for geo/chat testing (12,000 rows, global)
+SET @poi_count := 12000;
 
 INSERT INTO poi(
   id, name, category, city, lat, lng, address, description,
@@ -288,111 +384,182 @@ WITH RECURSIVE poi_seq(n) AS (
   SELECT 1
   UNION ALL
   SELECT n + 1 FROM poi_seq WHERE n < @poi_count
+),
+poi_city AS (
+  SELECT
+    poi_seq.n AS n,
+    MOD(poi_seq.n - 1, 26) AS city_idx,
+    CASE MOD(poi_seq.n - 1, 26)
+      WHEN 0 THEN 'Seoul'
+      WHEN 1 THEN 'Busan'
+      WHEN 2 THEN 'Jeju'
+      WHEN 3 THEN 'Tokyo'
+      WHEN 4 THEN 'Osaka'
+      WHEN 5 THEN 'Kyoto'
+      WHEN 6 THEN 'Beijing'
+      WHEN 7 THEN 'Shanghai'
+      WHEN 8 THEN 'Shenzhen'
+      WHEN 9 THEN 'New York'
+      WHEN 10 THEN 'Los Angeles'
+      WHEN 11 THEN 'San Francisco'
+      WHEN 12 THEN 'London'
+      WHEN 13 THEN 'Paris'
+      WHEN 14 THEN 'Rome'
+      WHEN 15 THEN 'Barcelona'
+      WHEN 16 THEN 'Berlin'
+      WHEN 17 THEN 'Amsterdam'
+      WHEN 18 THEN 'Prague'
+      WHEN 19 THEN 'Zurich'
+      WHEN 20 THEN 'Bangkok'
+      WHEN 21 THEN 'Singapore'
+      WHEN 22 THEN 'Bali'
+      WHEN 23 THEN 'Ho Chi Minh City'
+      WHEN 24 THEN 'Kuala Lumpur'
+      ELSE 'Manila'
+    END AS city_name,
+    CASE MOD(poi_seq.n - 1, 26)
+      WHEN 0 THEN 'Korea'
+      WHEN 1 THEN 'Korea'
+      WHEN 2 THEN 'Korea'
+      WHEN 3 THEN 'Japan'
+      WHEN 4 THEN 'Japan'
+      WHEN 5 THEN 'Japan'
+      WHEN 6 THEN 'China'
+      WHEN 7 THEN 'China'
+      WHEN 8 THEN 'China'
+      WHEN 9 THEN 'United States'
+      WHEN 10 THEN 'United States'
+      WHEN 11 THEN 'United States'
+      WHEN 12 THEN 'United Kingdom'
+      WHEN 13 THEN 'France'
+      WHEN 14 THEN 'Italy'
+      WHEN 15 THEN 'Spain'
+      WHEN 16 THEN 'Germany'
+      WHEN 17 THEN 'Netherlands'
+      WHEN 18 THEN 'Czech Republic'
+      WHEN 19 THEN 'Switzerland'
+      WHEN 20 THEN 'Thailand'
+      WHEN 21 THEN 'Singapore'
+      WHEN 22 THEN 'Indonesia'
+      WHEN 23 THEN 'Vietnam'
+      WHEN 24 THEN 'Malaysia'
+      ELSE 'Philippines'
+    END AS country_name,
+    CASE MOD(poi_seq.n - 1, 26)
+      WHEN 0 THEN 37.5665
+      WHEN 1 THEN 35.1796
+      WHEN 2 THEN 33.4996
+      WHEN 3 THEN 35.6762
+      WHEN 4 THEN 34.6937
+      WHEN 5 THEN 35.0116
+      WHEN 6 THEN 39.9042
+      WHEN 7 THEN 31.2304
+      WHEN 8 THEN 22.5431
+      WHEN 9 THEN 40.7128
+      WHEN 10 THEN 34.0522
+      WHEN 11 THEN 37.7749
+      WHEN 12 THEN 51.5074
+      WHEN 13 THEN 48.8566
+      WHEN 14 THEN 41.9028
+      WHEN 15 THEN 41.3874
+      WHEN 16 THEN 52.5200
+      WHEN 17 THEN 52.3676
+      WHEN 18 THEN 50.0755
+      WHEN 19 THEN 47.3769
+      WHEN 20 THEN 13.7563
+      WHEN 21 THEN 1.3521
+      WHEN 22 THEN -8.6500
+      WHEN 23 THEN 10.8231
+      WHEN 24 THEN 3.1390
+      ELSE 14.5995
+    END AS base_lat,
+    CASE MOD(poi_seq.n - 1, 26)
+      WHEN 0 THEN 126.9780
+      WHEN 1 THEN 129.0756
+      WHEN 2 THEN 126.5312
+      WHEN 3 THEN 139.6503
+      WHEN 4 THEN 135.5023
+      WHEN 5 THEN 135.7681
+      WHEN 6 THEN 116.4074
+      WHEN 7 THEN 121.4737
+      WHEN 8 THEN 114.0579
+      WHEN 9 THEN -74.0060
+      WHEN 10 THEN -118.2437
+      WHEN 11 THEN -122.4194
+      WHEN 12 THEN -0.1278
+      WHEN 13 THEN 2.3522
+      WHEN 14 THEN 12.4964
+      WHEN 15 THEN 2.1686
+      WHEN 16 THEN 13.4050
+      WHEN 17 THEN 4.9041
+      WHEN 18 THEN 14.4378
+      WHEN 19 THEN 8.5417
+      WHEN 20 THEN 100.5018
+      WHEN 21 THEN 103.8198
+      WHEN 22 THEN 115.2167
+      WHEN 23 THEN 106.6297
+      WHEN 24 THEN 101.6869
+      ELSE 120.9842
+    END AS base_lng
+  FROM poi_seq
 )
 SELECT
   600000 + n,
-  CASE MOD(n, 4)
-    WHEN 0 THEN CONCAT(
-      ELT(
-        MOD(n * 7 + FLOOR(n / 3), 10) + 1,
-        'Namsan', 'Han River', 'Gyeongbokgung', 'Bukchon', 'Yeouido',
-        'Dongdaemun', 'Seongsu', 'Insadong', 'Hongdae', 'Cheonggyecheon'
-      ),
-      ' ',
-      ELT(
-        MOD(n * 9 + FLOOR(n / 5), 8) + 1,
-        'Sky Park', 'Heritage Walk', 'Riverfront Park', 'Cultural Square',
-        'Art Garden', 'Observation Deck', 'History Plaza', 'Scenic Trail'
-      )
-    )
-    WHEN 1 THEN CONCAT(
-      ELT(
-        MOD(n * 7 + FLOOR(n / 3), 10) + 1,
-        'Haeundae', 'Seomyeon', 'Gwangalli', 'Nampo', 'Centum',
-        'Songdo', 'Yeongdo', 'Dongnae', 'Gwangan', 'Jagalchi'
-      ),
-      ' ',
-      ELT(
-        MOD(n * 9 + FLOOR(n / 5), 8) + 1,
-        'Seafood Kitchen', 'Market Bistro', 'BBQ House', 'Noodle Bar',
-        'Street Diner', 'Grill', 'Food Alley', 'Harbor Table'
-      )
-    )
-    WHEN 2 THEN CONCAT(
-      ELT(
-        MOD(n * 7 + FLOOR(n / 3), 10) + 1,
-        'Jungmun', 'Aewol', 'Hamdeok', 'Seongsan', 'Tapdong',
-        'Hallim', 'Seogwipo', 'Pyoseon', 'Woljeong', 'Gujwa'
-      ),
-      ' ',
-      ELT(
-        MOD(n * 9 + FLOOR(n / 5), 8) + 1,
-        'Craft Market', 'Coastal Mall', 'Design Street', 'Local Bazaar',
-        'Duty Free Plaza', 'Lifestyle Center', 'Artisan Arcade', 'Shopping Walk'
-      )
-    )
-    ELSE CONCAT(
-      ELT(
-        MOD(n * 7 + FLOOR(n / 3), 10) + 1,
-        'Songdo', 'Yeongjong', 'Bupyeong', 'Wolmido', 'Unseo',
-        'Cheongna', 'Juan', 'Dongam', 'Guwol', 'Incheon Port'
-      ),
-      ' ',
-      ELT(
-        MOD(n * 9 + FLOOR(n / 5), 8) + 1,
-        'Maritime Museum', 'History Museum', 'Art Center', 'Heritage Hall',
-        'Culture Museum', 'Science Gallery', 'Archive Museum', 'Exhibition Hall'
-      )
-    )
-  END,
+  CONCAT(
+    city_name,
+    ' ',
+    ELT(
+      MOD(n * 5 + FLOOR(n / 7), 16) + 1,
+      'Skyline', 'Riverfront', 'Central', 'Heritage', 'Harbor', 'Old Quarter', 'Garden', 'Cultural',
+      'Market', 'Arts', 'Canal', 'Bay', 'Summit', 'Palace', 'Marina', 'Discovery'
+    ),
+    ' ',
+    CASE MOD(n, 4)
+      WHEN 0 THEN 'Attraction'
+      WHEN 1 THEN 'Food Spot'
+      WHEN 2 THEN 'Shopping Hub'
+      ELSE 'Museum'
+    END
+  ),
   CASE MOD(n, 4)
     WHEN 0 THEN 'attraction'
     WHEN 1 THEN 'food'
     WHEN 2 THEN 'shopping'
     ELSE 'museum'
   END,
-  CASE MOD(n, 4)
-    WHEN 0 THEN 'Seoul'
-    WHEN 1 THEN 'Busan'
-    WHEN 2 THEN 'Jeju'
-    ELSE 'Incheon'
-  END,
-  CASE MOD(n, 4)
-    WHEN 0 THEN ROUND(37.5010 + ((MOD(n, 33) - 16) / 2000), 7)
-    WHEN 1 THEN ROUND(35.1595 + ((MOD(n, 33) - 16) / 2000), 7)
-    WHEN 2 THEN ROUND(33.4996 + ((MOD(n, 33) - 16) / 2000), 7)
-    ELSE ROUND(37.4563 + ((MOD(n, 33) - 16) / 2000), 7)
-  END,
-  CASE MOD(n, 4)
-    WHEN 0 THEN ROUND(127.0396 + ((MOD(n * 7, 33) - 16) / 2000), 7)
-    WHEN 1 THEN ROUND(129.0756 + ((MOD(n * 7, 33) - 16) / 2000), 7)
-    WHEN 2 THEN ROUND(126.5312 + ((MOD(n * 7, 33) - 16) / 2000), 7)
-    ELSE ROUND(126.7052 + ((MOD(n * 7, 33) - 16) / 2000), 7)
-  END,
+  city_name,
+  ROUND(base_lat + ((MOD(n, 49) - 24) / 2000), 7),
+  ROUND(base_lng + ((MOD(n * 13, 49) - 24) / 2000), 7),
   CONCAT(
-    CASE MOD(n, 4)
-      WHEN 0 THEN 'Seoul'
-      WHEN 1 THEN 'Busan'
-      WHEN 2 THEN 'Jeju'
-      ELSE 'Incheon'
-    END,
-    ' City Center'
+    city_name,
+    ', ',
+    country_name,
+    ' ',
+    ELT(
+      MOD(n * 7 + FLOOR(n / 5), 10) + 1,
+      'Central', 'Old Town', 'Waterfront', 'Arts Quarter', 'Business District',
+      'Heritage Zone', 'Garden District', 'Market Street', 'Cultural Mile', 'Harbor Side'
+    ),
+    ' Area'
   ),
   CONCAT(
-    'Local editorial pick #',
+    'Editorial pick #',
     n,
-    '. Nearby best spots for ',
+    '. Popular ',
     CASE MOD(n, 4)
       WHEN 0 THEN 'attractions'
-      WHEN 1 THEN 'food'
-      WHEN 2 THEN 'shopping'
-      ELSE 'museum'
-    END
+      WHEN 1 THEN 'food spots'
+      WHEN 2 THEN 'shopping areas'
+      ELSE 'museums'
+    END,
+    ' in ',
+    city_name,
+    '.'
   ),
-  50 + MOD(n * 13, 950),
-  ROUND(3.2 + (MOD(n, 18) * 0.1), 2),
-  CASE WHEN MOD(n, 37) = 0 THEN 0 ELSE 1 END
-FROM poi_seq
+  80 + MOD(n * 19, 920),
+  ROUND(3.4 + (MOD(n, 16) * 0.1), 2),
+  CASE WHEN MOD(n, 43) = 0 THEN 0 ELSE 1 END
+FROM poi_city
 ON DUPLICATE KEY UPDATE
   name = VALUES(name),
   category = VALUES(category),

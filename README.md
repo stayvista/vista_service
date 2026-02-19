@@ -46,7 +46,7 @@
 ```bash
 ./scripts/seed_local.sh
 ```
-- 기본값: `property` 10,000 / `room_type` 30,000 / 핫키 `inventory_night` 365일(`total=1000`)
+- 기본값: `property` 10,000 / `room_type` 30,000 / `poi` 12,000(한국/일본/중국/미국/유럽/동남아) / 핫키 `inventory_night` 365일(`total=1000`)
 - 환경변수로 조정:
   - `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USERNAME`, `DB_PASSWORD`
   - `API_BASE` (기본 `http://localhost:18765`)
