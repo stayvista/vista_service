@@ -18,6 +18,7 @@ REINDEX_AFTER_SEED="${REINDEX_AFTER_SEED:-true}"
 
 run_seed_with_local_mysql() {
   mysql \
+    --default-character-set=utf8mb4 \
     --host="${DB_HOST}" \
     --port="${DB_PORT}" \
     --user="${DB_USERNAME}" \
@@ -36,6 +37,7 @@ run_seed_with_docker_mysql() {
   fi
   docker compose -p "${COMPOSE_PROJECT}" -f "${COMPOSE_FILE}" exec -T mysql \
     mysql \
+    --default-character-set=utf8mb4 \
     --host=127.0.0.1 \
     --port=3306 \
     --user="${DB_USERNAME}" \
