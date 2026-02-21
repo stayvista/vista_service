@@ -1,660 +1,791 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { apiGet, apiPost } from "../api/client";
+import { useLocale } from "../components/locale/LocaleContext";
+import { HeroSearchBox } from "../components/search/HeroSearchBox";
+import { getStaySearchInput, inferCityFromPlaceId, setStaySearchParams } from "../components/search/searchState";
+import { StaySearchInput } from "../components/search/searchTypes";
 
 type SearchItem = {
   property_id: number;
   name: string;
   city?: string;
-  price_min?: number;
-  rating?: number;
+  district?: string;
+  price_min: number;
+  currency?: string;
+  rating: number;
+  location_rating?: number;
+  star_rating?: number;
+  distance_m?: number;
   thumbnail_url?: string | null;
+};
+
+type SearchMeta = {
+  total: number;
+  took_ms: number;
+  page: number;
+  size: number;
+  currency: string;
+};
+
+type FacetCountItem = {
+  key: string;
+  label: string;
+  count: number;
+};
+
+type SearchFacetData = {
+  popular_filters: Array<{ key: string; value: string; label: string; count: number }>;
+  districts: Array<{ id: number; name: string; blurb?: string; count: number }>;
+  nearby_attractions: Array<{ poi_id: number; name: string; count: number }>;
+  brands: FacetCountItem[];
+  stars: FacetCountItem[];
+  property_types: FacetCountItem[];
+  payment_options: FacetCountItem[];
+  themes: FacetCountItem[];
+  amenities: FacetCountItem[];
+};
+
+type SearchResponse = {
+  items: SearchItem[];
+  facets?: SearchFacetData;
+  meta?: SearchMeta;
+  next_cursor?: string;
+};
+
+type SearchCopilotFilter = {
+  key: string;
+  value: string;
+  label: string;
+  reason?: string;
+};
+
+type SearchCopilotData = {
+  recommended_filters: SearchCopilotFilter[];
+  explanation: string;
+  llm_used: boolean;
+  degraded: boolean;
 };
 
 type ApiError = { code?: string; message?: string };
 
-type SearchPreset = {
-  id: string;
-  label: string;
-  minPrice?: string;
-  maxPrice?: string;
-  minRating?: string;
-  sort?: string;
-};
+const MULTI_VALUE_FILTERS = new Set([
+  "stars",
+  "amenities",
+  "property_type",
+  "districts",
+  "payment_options",
+  "themes",
+  "brands",
+]);
 
-type AutocompleteSuggestion = {
-  type: string;
-  id: string;
-  display: string;
-  subtitle?: string;
-  highlight?: string;
-  geo?: {
-    lat: number;
-    lng: number;
-  };
-  score: number;
-  source: string;
-  bucket?: string;
-};
-
-type AutocompleteData = {
-  q: string;
-  items: AutocompleteSuggestion[];
-  meta: {
-    types: string[];
-    size: number;
-    lang: string;
-    took_ms: number;
-    cache_hit: boolean;
-  };
-};
-
-type SectionedSuggestions = {
-  key: string;
-  title: string;
-  rows: Array<{
-    item: AutocompleteSuggestion;
-    index: number;
-  }>;
-};
-
-const AUTOCOMPLETE_TYPES = "city,property,poi,station,airport";
-const TYPE_LABELS: Record<string, string> = {
-  CITY: "도시",
-  PROPERTY: "숙소",
-  POI: "POI",
-  STATION: "역",
-  AIRPORT: "공항",
-};
-
-function ensureAnonId(): string {
-  if (typeof window === "undefined") {
-    return "anon-server";
-  }
-  const storageKey = "stayvista_anon_id";
-  const existing = window.localStorage.getItem(storageKey);
-  if (existing && existing.trim()) {
-    return existing;
-  }
-  const generated = `anon_${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`;
-  window.localStorage.setItem(storageKey, generated);
-  return generated;
-}
-
-function sessionId(): string {
-  return `s_${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`;
-}
+const CLEARABLE_FILTER_KEYS = [
+  "min_price",
+  "max_price",
+  "min_rating",
+  "min_guest_rating",
+  "min_location_rating",
+  "max_distance_m",
+  "stars",
+  "amenities",
+  "property_type",
+  "districts",
+  "payment_options",
+  "themes",
+  "brands",
+  "sort",
+  "page",
+  "size",
+];
 
 export function SearchPage() {
   const [params, setParams] = useSearchParams();
+  const { locale } = useLocale();
+
   const [items, setItems] = useState<SearchItem[]>([]);
-  const [nextCursor, setNextCursor] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [loadingMore, setLoadingMore] = useState(false);
+  const [meta, setMeta] = useState<SearchMeta | null>(null);
+  const [facets, setFacets] = useState<SearchFacetData | null>(null);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const city = (params.get("city") ?? "").normalize("NFC");
-  const placeId = params.get("place_id") ?? "";
-  const placeLabel = (params.get("place_label") ?? "").normalize("NFC");
-  const effectivePlaceLabel = placeLabel || city;
+  const [copilot, setCopilot] = useState<SearchCopilotData | null>(null);
+  const [copilotLoading, setCopilotLoading] = useState(false);
+  const [copilotError, setCopilotError] = useState<string | null>(null);
+  const [showCopilotReasons, setShowCopilotReasons] = useState(false);
 
-  const [cityInput, setCityInput] = useState(effectivePlaceLabel);
-  const cityComposingRef = useRef(false);
+  useEffect(() => {
+    const next = new URLSearchParams(params);
+    let changed = false;
 
-  const [suggestions, setSuggestions] = useState<AutocompleteSuggestion[]>([]);
-  const [suggestOpen, setSuggestOpen] = useState(false);
-  const [suggestLoading, setSuggestLoading] = useState(false);
-  const [suggestError, setSuggestError] = useState<string | null>(null);
-  const [activeSuggestIndex, setActiveSuggestIndex] = useState(-1);
+    if (!next.get("place_id") && !next.get("city")) {
+      next.set("place_id", "city:Seoul");
+      next.set("place_label", "서울");
+      next.set("city", "Seoul");
+      changed = true;
+    }
+    if (!next.get("check_in")) {
+      next.set("check_in", addDays(7));
+      changed = true;
+    }
+    if (!next.get("check_out")) {
+      next.set("check_out", addDays(9));
+      changed = true;
+    }
+    if (!next.get("rooms")) {
+      next.set("rooms", "1");
+      changed = true;
+    }
+    if (!next.get("adults")) {
+      next.set("adults", "2");
+      changed = true;
+    }
+    if (!next.get("children")) {
+      next.set("children", "0");
+      changed = true;
+    }
+    if (next.get("currency") !== locale.currency) {
+      next.set("currency", locale.currency);
+      changed = true;
+    }
+    if (!next.get("sort")) {
+      next.set("sort", "best_match");
+      changed = true;
+    }
+    if (!next.get("size")) {
+      next.set("size", "20");
+      changed = true;
+    }
+    if (!next.get("page")) {
+      next.set("page", "1");
+      changed = true;
+    }
 
-  const sessionIdRef = useRef(sessionId());
-  const anonIdRef = useRef(ensureAnonId());
-  const impressionKeyRef = useRef<string>("");
-  const autocompleteWrapRef = useRef<HTMLDivElement | null>(null);
+    if (changed) {
+      setParams(next, { replace: true });
+    }
+  }, [locale.currency, params, setParams]);
+
+  const stayInput = useMemo(() => getStaySearchInput(params, locale.currency), [locale.currency, params]);
 
   const requestQuery = useMemo(() => {
     const next = new URLSearchParams(params);
-    next.delete("cursor");
     next.delete("place_label");
-    if (next.get("place_id")) {
-      next.delete("city");
+    next.delete("cursor");
+
+    if (next.get("place_id") && !next.get("city")) {
+      const city = inferCityFromPlaceId(next.get("place_id"));
+      if (city) {
+        next.set("city", city);
+      }
     }
+
     return next;
   }, [params]);
 
   const requestQueryString = useMemo(() => requestQuery.toString(), [requestQuery]);
 
-  const loadFirstPage = useCallback(async () => {
+  const facetQueryString = useMemo(() => {
+    const query = new URLSearchParams();
+    const placeId = params.get("place_id");
+    const city = params.get("city");
+    if (placeId) {
+      query.set("place_id", placeId);
+    } else if (city) {
+      query.set("city", city);
+    }
+    return query.toString();
+  }, [params]);
+
+  useEffect(() => {
+    const controller = new AbortController();
     setLoading(true);
     setError(null);
-    try {
-      const response = await apiGet<{ items: SearchItem[]; next_cursor?: string }>(
-        `/v1/search/properties?${requestQueryString}`
-      );
-      setItems(response.data.items);
-      setNextCursor(response.data.next_cursor ?? null);
-    } catch (e) {
-      const err = e as ApiError;
-      if (err.code === "RATE_LIMITED") {
-        setError("요청이 많습니다. 잠시 후 다시 시도해 주세요.");
-      } else {
-        setError(`${err.code ?? "ERROR"}: ${err.message ?? "검색 실패"}`);
-      }
-    } finally {
-      setLoading(false);
-    }
-  }, [requestQueryString]);
 
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      void loadFirstPage();
-    }, 300);
-    return () => window.clearTimeout(timer);
-  }, [loadFirstPage]);
-
-  useEffect(() => {
-    if (!cityComposingRef.current) {
-      setCityInput(effectivePlaceLabel);
-    }
-  }, [effectivePlaceLabel]);
-
-  useEffect(() => {
-    function handleOutsideClick(event: MouseEvent) {
-      const target = event.target as Node | null;
-      if (!target) return;
-      if (autocompleteWrapRef.current?.contains(target)) {
-        return;
-      }
-      setSuggestOpen(false);
-      setActiveSuggestIndex(-1);
-    }
-
-    document.addEventListener("mousedown", handleOutsideClick);
-    return () => document.removeEventListener("mousedown", handleOutsideClick);
-  }, []);
-
-  const sendImpression = useCallback(
-    async (rows: AutocompleteSuggestion[], qValue: string) => {
-      if (!rows.length) return;
-      const key = `${qValue}:${rows.map((row) => row.id).join("|")}`;
-      if (impressionKeyRef.current === key) {
-        return;
-      }
-      impressionKeyRef.current = key;
-
-      try {
-        await apiPost(
-          "/v1/autocomplete/feedback/impression",
-          {
-            session_id: sessionIdRef.current,
-            anon_id: anonIdRef.current,
-            q: qValue,
-            lang: "ko",
-            types: AUTOCOMPLETE_TYPES.split(","),
-            size: rows.length,
-            items: rows.map((row, index) => ({
-              id: row.id,
-              type: row.type,
-              display: row.display,
-              subtitle: row.subtitle,
-              geo: row.geo,
-              position: index,
-              score: row.score,
-            })),
-          },
-          {
-            "X-Anon-Id": anonIdRef.current,
-          }
-        );
-      } catch {
-        // feedback failures should never block user search flow
-      }
-    },
-    []
-  );
-
-  const sendSelect = useCallback(
-    async (selected: AutocompleteSuggestion, rows: AutocompleteSuggestion[], position: number, qValue: string) => {
-      try {
-        await apiPost(
-          "/v1/autocomplete/feedback/select",
-          {
-            session_id: sessionIdRef.current,
-            anon_id: anonIdRef.current,
-            q: qValue,
-            lang: "ko",
-            types: AUTOCOMPLETE_TYPES.split(","),
-            size: rows.length,
-            selected: {
-              id: selected.id,
-              type: selected.type,
-              display: selected.display,
-              subtitle: selected.subtitle,
-              geo: selected.geo,
-              position,
-              score: selected.score,
-            },
-            items: rows.map((row, index) => ({
-              id: row.id,
-              type: row.type,
-              display: row.display,
-              subtitle: row.subtitle,
-              geo: row.geo,
-              position: index,
-              score: row.score,
-            })),
-          },
-          {
-            "X-Anon-Id": anonIdRef.current,
-          }
-        );
-      } catch {
-        // feedback failures should never block user search flow
-      }
-    },
-    []
-  );
-
-  useEffect(() => {
-    if (!suggestOpen || cityComposingRef.current) {
-      return;
-    }
-
-    const controller = new AbortController();
-    const timer = window.setTimeout(async () => {
-      setSuggestLoading(true);
-      setSuggestError(null);
-
-      const input = cityInput.normalize("NFC").trim();
-      const query = new URLSearchParams();
-      if (input) {
-        query.set("q", input);
-      }
-      query.set("types", AUTOCOMPLETE_TYPES);
-      query.set("size", "10");
-      query.set("lang", "ko");
-
-      try {
-        const response = await apiGet<AutocompleteData>(
-          `/v1/autocomplete?${query.toString()}`,
-          {
-            "X-Anon-Id": anonIdRef.current,
-          },
-          controller.signal
-        );
-        const nextRows = response.data.items;
-        setSuggestions(nextRows);
-        setActiveSuggestIndex(nextRows.length > 0 ? 0 : -1);
-        void sendImpression(nextRows, input);
-      } catch (e) {
+    Promise.all([
+      apiGet<SearchResponse>(`/v1/search/properties?${requestQueryString}`, {}, controller.signal),
+      apiGet<SearchFacetData>(`/v1/search/facets?${facetQueryString}`, {}, controller.signal),
+    ])
+      .then(([searchRes, facetRes]) => {
+        setItems(searchRes.data.items ?? []);
+        setMeta(searchRes.data.meta ?? null);
+        setFacets(searchRes.data.facets ?? facetRes.data);
+      })
+      .catch((e: unknown) => {
         if ((e as Error).name === "AbortError") {
           return;
         }
         const err = e as ApiError;
-        if (err.code === "RATE_LIMITED") {
-          setSuggestError("자동완성 요청이 많습니다. 잠시 후 다시 시도해 주세요.");
-        } else {
-          setSuggestError("자동완성 결과를 불러오지 못했습니다.");
-        }
-        setSuggestions([]);
-      } finally {
-        setSuggestLoading(false);
-      }
-    }, 180);
+        setItems([]);
+        setMeta(null);
+        setFacets(null);
+        setError(`${err.code ?? "ERROR"}: ${err.message ?? "검색 실패"}`);
+      })
+      .finally(() => {
+        setLoading(false);
+      });
 
-    return () => {
-      controller.abort();
-      window.clearTimeout(timer);
-    };
-  }, [cityInput, sendImpression, suggestOpen]);
+    return () => controller.abort();
+  }, [facetQueryString, requestQueryString]);
 
-  const sectionedSuggestions = useMemo<SectionedSuggestions[]>(() => {
-    if (!suggestions.length) {
-      return [];
+  useEffect(() => {
+    if (!facets) {
+      setCopilot(null);
+      return;
     }
 
-    const input = cityInput.trim();
-    const rowsWithIndex = suggestions.map((item, index) => ({ item, index }));
+    const timer = window.setTimeout(() => {
+      setCopilotLoading(true);
+      setCopilotError(null);
 
-    if (!input) {
-      const recentRows = rowsWithIndex.filter(({ item }) => item.bucket === "recent");
-      const popularRows = rowsWithIndex.filter(({ item }) => item.bucket !== "recent");
-      const sections: SectionedSuggestions[] = [];
-      if (recentRows.length) {
-        sections.push({ key: "recent", title: "최근 선택", rows: recentRows });
-      }
-      if (popularRows.length) {
-        sections.push({ key: "popular", title: "인기 추천", rows: popularRows });
-      }
-      return sections;
-    }
-
-    const grouped = new Map<string, SectionedSuggestions>();
-    rowsWithIndex.forEach((row) => {
-      const key = row.item.type;
-      const current = grouped.get(key) ?? {
-        key,
-        title: TYPE_LABELS[key] ?? key,
-        rows: [],
+      const body = {
+        place_id: params.get("place_id") ?? null,
+        check_in: params.get("check_in") ?? null,
+        check_out: params.get("check_out") ?? null,
+        guests: {
+          rooms: Number(params.get("rooms") ?? "1"),
+          adults: Number(params.get("adults") ?? "2"),
+          children: Number(params.get("children") ?? "0"),
+          children_ages: parseCsvValues(params.get("children_ages")),
+        },
+        current_filters: collectCurrentFilters(params),
+        facets_summary: facets,
+        top_results_summary: items.slice(0, 6).map((item) => ({
+          property_id: item.property_id,
+          city: item.city,
+          district: item.district,
+          rating: item.rating,
+          star_rating: item.star_rating,
+          price_min: item.price_min,
+        })),
       };
-      current.rows.push(row);
-      grouped.set(key, current);
+
+      apiPost<SearchCopilotData>("/v1/ai/search/copilot", body)
+        .then((res) => {
+          setCopilot(res.data);
+        })
+        .catch((e: unknown) => {
+          const err = e as ApiError;
+          setCopilot(null);
+          setCopilotError(err.message ?? "AI 추천을 불러오지 못했습니다.");
+        })
+        .finally(() => {
+          setCopilotLoading(false);
+        });
+    }, 260);
+
+    return () => window.clearTimeout(timer);
+  }, [facets, items, params]);
+
+  const activeFilterChips = useMemo(() => {
+    const chips: Array<{ key: string; value?: string; label: string }> = [];
+
+    if (params.get("place_label")) {
+      chips.push({ key: "place_id", label: `위치: ${params.get("place_label")}` });
+    }
+
+    const pairs: Array<[string, string]> = [
+      ["min_price", "최소 가격"],
+      ["max_price", "최대 가격"],
+      ["min_rating", "최소 평점"],
+      ["min_guest_rating", "게스트 평점"],
+      ["min_location_rating", "위치 평점"],
+      ["max_distance_m", "중심지 거리"],
+      ["sort", "정렬"],
+    ];
+
+    pairs.forEach(([key, label]) => {
+      const value = params.get(key);
+      if (!value) {
+        return;
+      }
+      chips.push({ key, label: `${label}: ${value}` });
     });
 
-    return ["CITY", "PROPERTY", "POI", "STATION", "AIRPORT"]
-      .map((key) => grouped.get(key))
-      .filter((section): section is SectionedSuggestions => Boolean(section));
-  }, [cityInput, suggestions]);
+    ["stars", "property_type", "districts", "amenities", "brands", "payment_options", "themes"].forEach((key) => {
+      const values = parseCsvValues(params.get(key));
+      values.forEach((value) => {
+        chips.push({ key, value, label: `${key}: ${value}` });
+      });
+    });
 
-  async function loadMore() {
-    if (!nextCursor) return;
-    setLoadingMore(true);
-    setError(null);
-    try {
-      const query = new URLSearchParams(requestQuery);
-      query.set("cursor", nextCursor);
-      const response = await apiGet<{ items: SearchItem[]; next_cursor?: string }>(
-        `/v1/search/properties?${query.toString()}`
-      );
-      setItems((prev) => [...prev, ...response.data.items]);
-      setNextCursor(response.data.next_cursor ?? null);
-    } catch (e) {
-      const err = e as ApiError;
-      setError(`${err.code ?? "ERROR"}: ${err.message ?? "더보기 실패"}`);
-    } finally {
-      setLoadingMore(false);
-    }
-  }
-
-  const sort = params.get("sort") ?? "";
-  const minPrice = params.get("min_price") ?? "";
-  const maxPrice = params.get("max_price") ?? "";
-  const minRating = params.get("min_rating") ?? "";
-
-  const presets: SearchPreset[] = [
-    { id: "value", label: "가성비", maxPrice: "120000", minRating: "4.0", sort: "price_asc" },
-    { id: "top-rated", label: "고평점", minRating: "4.5", sort: "rating_desc" },
-    { id: "luxury", label: "럭셔리", minPrice: "220000", minRating: "4.2", sort: "rating_desc" },
-  ];
-
-  const sortLabel = useMemo(() => {
-    if (sort === "price_asc") return "가격 낮은 순";
-    if (sort === "price_desc") return "가격 높은 순";
-    if (sort === "rating_desc") return "평점 높은 순";
-    return "";
-  }, [sort]);
-
-  function upsertParam(name: string, value: string) {
-    const next = new URLSearchParams(params);
-    if (value) {
-      next.set(name, value);
-    } else {
-      next.delete(name);
-    }
-    setParams(next);
-  }
-
-  function applyPlaceSelection(selected: AutocompleteSuggestion, position: number) {
-    const next = new URLSearchParams(params);
-    next.delete("city");
-    next.delete("cursor");
-    next.set("place_id", selected.id);
-    next.set("place_label", selected.display);
-    setParams(next);
-
-    setCityInput(selected.display);
-    setSuggestOpen(false);
-    setActiveSuggestIndex(-1);
-    void sendSelect(selected, suggestions, position, cityInput.trim());
-  }
-
-  function applyFreeTextCity(value: string) {
-    const normalized = value.normalize("NFC").trim();
-    const next = new URLSearchParams(params);
-    next.delete("place_id");
-    next.delete("place_label");
-    next.delete("cursor");
-    if (normalized) {
-      next.set("city", normalized);
-    } else {
-      next.delete("city");
-    }
-    setParams(next);
-  }
-
-  function removeParam(name: string) {
-    const next = new URLSearchParams(params);
-    if (name === "place_id") {
-      next.delete("place_id");
-      next.delete("place_label");
-    } else {
-      next.delete(name);
-    }
-    setParams(next);
-  }
-
-  function clearSearchFilters() {
-    const next = new URLSearchParams(params);
-    ["city", "place_id", "place_label", "min_price", "max_price", "min_rating", "sort"].forEach((key) =>
-      next.delete(key)
-    );
-    setParams(next);
-    setCityInput("");
-  }
-
-  function applyPreset(preset: SearchPreset) {
-    const next = new URLSearchParams(params);
-    if (preset.minPrice) next.set("min_price", preset.minPrice);
-    else next.delete("min_price");
-    if (preset.maxPrice) next.set("max_price", preset.maxPrice);
-    else next.delete("max_price");
-    if (preset.minRating) next.set("min_rating", preset.minRating);
-    else next.delete("min_rating");
-    if (preset.sort) next.set("sort", preset.sort);
-    else next.delete("sort");
-    setParams(next);
-  }
-
-  const activeFilters = useMemo(() => {
-    const chips: Array<{ key: string; label: string }> = [];
-    if (placeId) {
-      chips.push({ key: "place_id", label: `위치: ${placeLabel || placeId}` });
-    } else if (city) {
-      chips.push({ key: "city", label: `도시: ${city}` });
-    }
-    if (minPrice) chips.push({ key: "min_price", label: `최소가: ${Number(minPrice).toLocaleString()} KRW` });
-    if (maxPrice) chips.push({ key: "max_price", label: `최대가: ${Number(maxPrice).toLocaleString()} KRW` });
-    if (minRating) chips.push({ key: "min_rating", label: `최소 평점: ${minRating}` });
-    if (sortLabel) chips.push({ key: "sort", label: `정렬: ${sortLabel}` });
     return chips;
-  }, [placeId, placeLabel, city, minPrice, maxPrice, minRating, sortLabel]);
+  }, [params]);
 
-  function thumbnailOf(item: SearchItem): string {
-    return item.thumbnail_url || `https://picsum.photos/seed/search-${item.property_id}/420/260`;
+  const page = Number(params.get("page") ?? "1") || 1;
+  const size = Number(params.get("size") ?? "20") || 20;
+  const total = meta?.total ?? items.length;
+  const hasMore = page * size < total;
+
+  function updateParams(
+    mutate: (next: URLSearchParams) => void,
+    options: { resetPage?: boolean; replace?: boolean } = { resetPage: true },
+  ) {
+    const next = new URLSearchParams(params);
+    mutate(next);
+    if (options.resetPage !== false) {
+      next.set("page", "1");
+    }
+    setParams(next, { replace: options.replace });
+  }
+
+  function upsertSingle(name: string, value: string) {
+    updateParams((next) => {
+      const trimmed = value.trim();
+      if (trimmed) {
+        next.set(name, trimmed);
+      } else {
+        next.delete(name);
+      }
+    });
+  }
+
+  function toggleMulti(name: string, value: string, checked: boolean) {
+    updateParams((next) => {
+      const current = parseCsvValues(next.get(name));
+      const set = new Set(current);
+      if (checked) {
+        set.add(value);
+      } else {
+        set.delete(value);
+      }
+      const merged = Array.from(set);
+      if (merged.length > 0) {
+        next.set(name, merged.join(","));
+      } else {
+        next.delete(name);
+      }
+    });
+  }
+
+  function removeFilterChip(key: string, value?: string) {
+    updateParams((next) => {
+      if (!value || !MULTI_VALUE_FILTERS.has(key)) {
+        next.delete(key);
+        if (key === "place_id") {
+          next.delete("place_id");
+          next.delete("place_label");
+        }
+        return;
+      }
+      const current = parseCsvValues(next.get(key));
+      const remain = current.filter((item) => item !== value);
+      if (remain.length > 0) {
+        next.set(key, remain.join(","));
+      } else {
+        next.delete(key);
+      }
+    });
+  }
+
+  function applyCopilotFilter(filter: SearchCopilotFilter) {
+    updateParams((next) => {
+      if (MULTI_VALUE_FILTERS.has(filter.key)) {
+        const values = parseCsvValues(next.get(filter.key));
+        const merged = Array.from(new Set([...values, filter.value]));
+        next.set(filter.key, merged.join(","));
+      } else {
+        next.set(filter.key, filter.value);
+      }
+    });
+  }
+
+  function clearFilters() {
+    updateParams((next) => {
+      CLEARABLE_FILTER_KEYS.forEach((key) => next.delete(key));
+      next.set("sort", "best_match");
+      next.set("size", "20");
+    });
+  }
+
+  function applySearch(nextSearch: StaySearchInput) {
+    const base = new URLSearchParams(params);
+    CLEARABLE_FILTER_KEYS.forEach((key) => base.delete(key));
+    const next = setStaySearchParams(base, nextSearch);
+    next.set("sort", "best_match");
+    next.set("size", "20");
+    next.set("page", "1");
+    setParams(next);
+  }
+
+  function goNextPage() {
+    updateParams(
+      (next) => {
+        next.set("page", String(page + 1));
+      },
+      { resetPage: false },
+    );
+  }
+
+  function goPrevPage() {
+    updateParams(
+      (next) => {
+        next.set("page", String(Math.max(1, page - 1)));
+      },
+      { resetPage: false },
+    );
   }
 
   return (
-    <section className="page">
-      <h2>검색 결과</h2>
-      <div className="toolbar">
-        {presets.map((preset) => (
-          <button key={preset.id} type="button" className="chip-btn" onClick={() => applyPreset(preset)}>
-            {preset.label}
-          </button>
-        ))}
-      </div>
-      <div className="toolbar search-toolbar">
-        <div className="autocomplete-wrap" ref={autocompleteWrapRef}>
-          <input
-            value={cityInput}
-            placeholder="도시/숙소/POI 검색"
-            onFocus={() => {
-              setSuggestOpen(true);
-            }}
-            onCompositionStart={() => {
-              cityComposingRef.current = true;
-            }}
-            onCompositionEnd={(event) => {
-              cityComposingRef.current = false;
-              setCityInput(event.currentTarget.value.normalize("NFC"));
-              setSuggestOpen(true);
-            }}
-            onChange={(event) => {
-              const nextValue = event.target.value.normalize("NFC");
-              setCityInput(nextValue);
-              setSuggestOpen(true);
-            }}
-            onBlur={() => {
-              if (!placeId || cityInput.trim() !== (placeLabel || "").trim()) {
-                applyFreeTextCity(cityInput);
-              }
-              window.setTimeout(() => {
-                setSuggestOpen(false);
-                setActiveSuggestIndex(-1);
-              }, 120);
-            }}
-            onKeyDown={(event) => {
-              if (!suggestOpen && event.key === "ArrowDown") {
-                setSuggestOpen(true);
-                event.preventDefault();
-                return;
-              }
+    <section className="page search-v3-page">
+      <header className="search-v3-header">
+        <h2>검색 결과</h2>
+        <p className="search-v3-subtitle">URL 공유만으로 동일 필터/결과를 재현할 수 있습니다.</p>
+        <HeroSearchBox initial={stayInput} onSearch={applySearch} mode="compact" />
+      </header>
 
-              if (!suggestOpen) {
-                if (event.key === "Enter") {
-                  event.preventDefault();
-                  applyFreeTextCity(cityInput);
-                }
-                return;
-              }
-
-              if (event.key === "ArrowDown") {
-                event.preventDefault();
-                if (!suggestions.length) return;
-                setActiveSuggestIndex((prev) => (prev + 1) % suggestions.length);
-                return;
-              }
-
-              if (event.key === "ArrowUp") {
-                event.preventDefault();
-                if (!suggestions.length) return;
-                setActiveSuggestIndex((prev) => (prev <= 0 ? suggestions.length - 1 : prev - 1));
-                return;
-              }
-
-              if (event.key === "Enter") {
-                event.preventDefault();
-                if (activeSuggestIndex >= 0 && activeSuggestIndex < suggestions.length) {
-                  applyPlaceSelection(suggestions[activeSuggestIndex], activeSuggestIndex);
-                } else {
-                  applyFreeTextCity(cityInput);
-                  setSuggestOpen(false);
-                }
-                return;
-              }
-
-              if (event.key === "Escape") {
-                event.preventDefault();
-                setSuggestOpen(false);
-                setActiveSuggestIndex(-1);
-              }
-            }}
-          />
-          {suggestOpen && (
-            <div className="autocomplete-dropdown" role="listbox" aria-label="통합 자동완성 목록">
-              {suggestLoading && <p className="autocomplete-status">추천어를 불러오는 중...</p>}
-              {!suggestLoading && suggestError && <p className="autocomplete-status error">{suggestError}</p>}
-              {!suggestLoading && !suggestError && !suggestions.length && (
-                <p className="autocomplete-status">추천어가 없습니다.</p>
-              )}
-              {!suggestLoading && !suggestError && sectionedSuggestions.map((section) => (
-                <div className="autocomplete-section" key={section.key}>
-                  <p className="autocomplete-section-title">{section.title}</p>
-                  <ul>
-                    {section.rows.map(({ item, index }) => (
-                      <li key={`${item.id}:${index}`}>
-                        <button
-                          type="button"
-                          className={index === activeSuggestIndex ? "autocomplete-row active" : "autocomplete-row"}
-                          onMouseEnter={() => setActiveSuggestIndex(index)}
-                          onMouseDown={(event) => event.preventDefault()}
-                          onClick={() => applyPlaceSelection(item, index)}
-                        >
-                          <span className="autocomplete-row-main">{item.display}</span>
-                          {item.subtitle && <span className="autocomplete-row-sub">{item.subtitle}</span>}
-                        </button>
+      <div className="search-v3-layout">
+        <aside className="search-filters-panel">
+          <section className="filter-section ai-copilot-section">
+            <div className="section-headline">
+              <h3>AI 추천</h3>
+              <button type="button" className="chip-btn" onClick={() => setShowCopilotReasons((prev) => !prev)}>
+                {showCopilotReasons ? "근거 닫기" : "근거 보기"}
+              </button>
+            </div>
+            {copilotLoading && <p className="text-muted">추천 생성 중...</p>}
+            {copilotError && <p className="error">{copilotError}</p>}
+            {copilot && (
+              <>
+                <p className="copilot-explanation">{copilot.explanation}</p>
+                <div className="filter-chip-wrap">
+                  {copilot.recommended_filters.map((filter) => (
+                    <button
+                      key={`${filter.key}:${filter.value}`}
+                      type="button"
+                      className="chip-btn"
+                      onClick={() => applyCopilotFilter(filter)}
+                    >
+                      {filter.label}
+                    </button>
+                  ))}
+                </div>
+                {showCopilotReasons && (
+                  <ul className="copilot-reason-list">
+                    {copilot.recommended_filters.map((filter) => (
+                      <li key={`${filter.key}:${filter.value}:reason`}>
+                        <strong>{filter.label}</strong>
+                        <span>{filter.reason ?? "도시/결과 분포 기반 추천"}</span>
                       </li>
                     ))}
                   </ul>
-                </div>
+                )}
+              </>
+            )}
+          </section>
+
+          <section className="filter-section">
+            <h3>빠른 필터</h3>
+            <div className="filter-chip-wrap">
+              {facets?.popular_filters?.map((preset) => (
+                <button
+                  key={`${preset.key}:${preset.value}`}
+                  type="button"
+                  className="chip-btn"
+                  onClick={() => applyCopilotFilter({
+                    key: preset.key,
+                    value: preset.value,
+                    label: preset.label,
+                  })}
+                >
+                  {preset.label} ({preset.count})
+                </button>
               ))}
             </div>
-          )}
-        </div>
-        <input type="number" value={minPrice} placeholder="최소 가격" onChange={(e) => upsertParam("min_price", e.target.value)} />
-        <input type="number" value={maxPrice} placeholder="최대 가격" onChange={(e) => upsertParam("max_price", e.target.value)} />
-        <input
-          type="number"
-          step="0.1"
-          min="0"
-          max="5"
-          value={minRating}
-          placeholder="최소 평점"
-          onChange={(e) => upsertParam("min_rating", e.target.value)}
-        />
-        <select
-          value={sort}
-          onChange={(e) => {
-            upsertParam("sort", e.target.value);
-          }}
-        >
-          <option value="">기본 정렬</option>
-          <option value="price_asc">가격 낮은 순</option>
-          <option value="price_desc">가격 높은 순</option>
-          <option value="rating_desc">평점 높은 순</option>
-        </select>
-      </div>
-      <div className="chips search-chips">
-        {activeFilters.map((chip) => (
-          <button key={chip.key} type="button" className="chip-btn" onClick={() => removeParam(chip.key)}>
-            {chip.label} ×
-          </button>
-        ))}
-        {activeFilters.length > 0 && (
-          <button type="button" className="chip-btn danger" onClick={clearSearchFilters}>
-            필터 전체 초기화
-          </button>
-        )}
-      </div>
-      {error && <p className="error">{error}</p>}
-      {loading && <p>검색 중...</p>}
-      {!loading && !error && <p>현재 {items.length}개 결과 표시 중</p>}
-      <ul className="card-list">
-        {items.map((item) => (
-          <li key={item.property_id} className="card search-card">
-            <img className="search-thumb" src={thumbnailOf(item)} alt={`${item.name} 썸네일`} loading="lazy" />
-            <div className="search-body">
-              <h3>{item.name}</h3>
-              <p>{item.city ?? "도시 정보 없음"}</p>
-              <div className="badge-row">
-                <span className="price-badge">최저가 {(item.price_min ?? 0).toLocaleString()} KRW</span>
-                <span className="rating-badge">★ {item.rating?.toFixed(1) ?? "N/A"}</span>
-              </div>
-              <Link to={`/properties/${item.property_id}`}>상세 보기</Link>
+          </section>
+
+          <section className="filter-section">
+            <h3>가격/정렬</h3>
+            <label>
+              최소 가격
+              <input
+                type="number"
+                value={params.get("min_price") ?? ""}
+                onChange={(event) => upsertSingle("min_price", event.target.value)}
+              />
+            </label>
+            <label>
+              최대 가격
+              <input
+                type="number"
+                value={params.get("max_price") ?? ""}
+                onChange={(event) => upsertSingle("max_price", event.target.value)}
+              />
+            </label>
+            <label>
+              최소 평점
+              <input
+                type="number"
+                step="0.1"
+                min="0"
+                max="5"
+                value={params.get("min_rating") ?? ""}
+                onChange={(event) => upsertSingle("min_rating", event.target.value)}
+              />
+            </label>
+            <label>
+              게스트 평점
+              <input
+                type="number"
+                step="0.1"
+                min="0"
+                max="10"
+                value={params.get("min_guest_rating") ?? ""}
+                onChange={(event) => upsertSingle("min_guest_rating", event.target.value)}
+              />
+            </label>
+            <label>
+              위치 평점
+              <input
+                type="number"
+                step="0.1"
+                min="0"
+                max="10"
+                value={params.get("min_location_rating") ?? ""}
+                onChange={(event) => upsertSingle("min_location_rating", event.target.value)}
+              />
+            </label>
+            <label>
+              중심지 거리(m)
+              <input
+                type="number"
+                min="100"
+                max="50000"
+                value={params.get("max_distance_m") ?? ""}
+                onChange={(event) => upsertSingle("max_distance_m", event.target.value)}
+              />
+            </label>
+            <label>
+              정렬
+              <select
+                value={params.get("sort") ?? "best_match"}
+                onChange={(event) => upsertSingle("sort", event.target.value)}
+              >
+                <option value="best_match">Best match</option>
+                <option value="price_asc">Price (Low to High)</option>
+                <option value="price_desc">Price (High to Low)</option>
+                <option value="rating_desc">Rating</option>
+                <option value="distance">Distance</option>
+              </select>
+            </label>
+          </section>
+
+          <FacetCheckGroup
+            title="성급"
+            paramName="stars"
+            items={facets?.stars ?? []}
+            selected={parseCsvValues(params.get("stars"))}
+            onToggle={toggleMulti}
+          />
+          <FacetCheckGroup
+            title="숙소 유형"
+            paramName="property_type"
+            items={facets?.property_types ?? []}
+            selected={parseCsvValues(params.get("property_type"))}
+            onToggle={toggleMulti}
+          />
+          <FacetCheckGroup
+            title="지역"
+            paramName="districts"
+            items={(facets?.districts ?? []).map((district) => ({
+              key: district.name,
+              label: district.name,
+              count: district.count,
+            }))}
+            selected={parseCsvValues(params.get("districts"))}
+            onToggle={toggleMulti}
+          />
+          <FacetCheckGroup
+            title="편의시설"
+            paramName="amenities"
+            items={facets?.amenities ?? []}
+            selected={parseCsvValues(params.get("amenities"))}
+            onToggle={toggleMulti}
+          />
+          <FacetCheckGroup
+            title="브랜드"
+            paramName="brands"
+            items={facets?.brands ?? []}
+            selected={parseCsvValues(params.get("brands"))}
+            onToggle={toggleMulti}
+          />
+          <FacetCheckGroup
+            title="결제옵션"
+            paramName="payment_options"
+            items={facets?.payment_options ?? []}
+            selected={parseCsvValues(params.get("payment_options"))}
+            onToggle={toggleMulti}
+          />
+          <FacetCheckGroup
+            title="테마"
+            paramName="themes"
+            items={facets?.themes ?? []}
+            selected={parseCsvValues(params.get("themes"))}
+            onToggle={toggleMulti}
+          />
+        </aside>
+
+        <section className="search-results-panel">
+          <div className="search-result-topbar">
+            <div className="chips search-chips">
+              {activeFilterChips.map((chip) => (
+                <button
+                  key={`${chip.key}:${chip.value ?? ""}`}
+                  type="button"
+                  className="chip-btn"
+                  onClick={() => removeFilterChip(chip.key, chip.value)}
+                >
+                  {chip.label} ×
+                </button>
+              ))}
+              {activeFilterChips.length > 0 && (
+                <button type="button" className="chip-btn danger" onClick={clearFilters}>
+                  필터 전체 초기화
+                </button>
+              )}
             </div>
-          </li>
-        ))}
-      </ul>
-      <div className="actions">
-        <button
-          disabled={!nextCursor || loading || loadingMore}
-          onClick={() => {
-            void loadMore();
-          }}
-        >
-          {loadingMore ? "로딩 중..." : "더보기"}
-        </button>
+            <div className="result-meta">
+              {meta ? (
+                <p>
+                  총 {meta.total.toLocaleString()}개 · {meta.took_ms}ms · 페이지 {meta.page}
+                </p>
+              ) : (
+                <p>결과 정보를 불러오는 중입니다.</p>
+              )}
+            </div>
+          </div>
+
+          {error && <p className="error">{error}</p>}
+
+          {loading ? (
+            <ul className="search-skeleton-grid">
+              {Array.from({ length: 8 }, (_, index) => (
+                <li key={`skeleton-${index}`} className="search-skeleton-card" />
+              ))}
+            </ul>
+          ) : (
+            <ul className="card-list search-results-grid">
+              {items.map((item) => (
+                <li key={item.property_id} className="card search-result-card">
+                  <img
+                    className="search-thumb"
+                    src={item.thumbnail_url || `https://picsum.photos/seed/search-${item.property_id}/420/260`}
+                    alt={`${item.name} 썸네일`}
+                    loading="lazy"
+                  />
+                  <div className="search-body">
+                    <p className="search-card-subtitle">
+                      {item.city ?? "도시 미지정"}
+                      {item.district ? ` · ${item.district}` : ""}
+                    </p>
+                    <h3>{item.name}</h3>
+                    <div className="badge-row">
+                      <span className="price-badge">최저가 {item.price_min.toLocaleString()} {item.currency ?? locale.currency}</span>
+                      <span className="rating-badge">★ {item.rating.toFixed(1)}</span>
+                      {typeof item.location_rating === "number" && item.location_rating > 0 && (
+                        <span className="rating-badge">위치 {item.location_rating.toFixed(1)}</span>
+                      )}
+                      {typeof item.star_rating === "number" && item.star_rating > 0 && (
+                        <span className="rating-badge">{item.star_rating}성</span>
+                      )}
+                      {typeof item.distance_m === "number" && item.distance_m > 0 && (
+                        <span className="rating-badge">{item.distance_m.toLocaleString()}m</span>
+                      )}
+                    </div>
+                    <div className="search-card-actions">
+                      <Link to={`/properties/${item.property_id}`} className="outline-btn">상세 보기</Link>
+                    </div>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          {!loading && !error && items.length === 0 && (
+            <p className="notice warning">조건에 맞는 숙소가 없습니다. 필터를 완화해 주세요.</p>
+          )}
+
+          <div className="search-pagination">
+            <button type="button" className="chip-btn" disabled={page <= 1} onClick={goPrevPage}>이전</button>
+            <span>페이지 {page}</span>
+            <button type="button" className="chip-btn" disabled={!hasMore} onClick={goNextPage}>다음</button>
+          </div>
+        </section>
       </div>
     </section>
   );
+}
+
+type FacetCheckGroupProps = {
+  title: string;
+  paramName: string;
+  items: FacetCountItem[];
+  selected: string[];
+  onToggle: (name: string, value: string, checked: boolean) => void;
+};
+
+function FacetCheckGroup({ title, paramName, items, selected, onToggle }: FacetCheckGroupProps) {
+  if (!items.length) {
+    return null;
+  }
+
+  return (
+    <section className="filter-section">
+      <h3>{title}</h3>
+      <ul className="facet-check-list">
+        {items.slice(0, 12).map((item) => {
+          const checked = selected.includes(item.key);
+          return (
+            <li key={`${paramName}:${item.key}`}>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  onChange={(event) => onToggle(paramName, item.key, event.target.checked)}
+                />
+                <span>{item.label}</span>
+                <em>{item.count}</em>
+              </label>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
+}
+
+function parseCsvValues(raw: string | null): string[] {
+  if (!raw) {
+    return [];
+  }
+  return raw
+    .split(",")
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0);
+}
+
+function collectCurrentFilters(params: URLSearchParams): Record<string, string | string[]> {
+  const out: Record<string, string | string[]> = {};
+
+  params.forEach((value, key) => {
+    if (!value) {
+      return;
+    }
+
+    if (MULTI_VALUE_FILTERS.has(key)) {
+      out[key] = parseCsvValues(value);
+    } else if (CLEARABLE_FILTER_KEYS.includes(key)) {
+      out[key] = value;
+    }
+  });
+
+  return out;
+}
+
+function addDays(days: number): string {
+  const date = new Date();
+  date.setDate(date.getDate() + days);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }

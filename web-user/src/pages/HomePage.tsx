@@ -1,13 +1,10 @@
-import { FormEvent, useEffect, useState } from "react";
-import { Link } from "react-router-dom";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useMemo, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import { apiGet } from "../api/client";
-
-type CityOption = {
-  value: string;
-  label: string;
-  blurb: string;
-};
+import { useLocale } from "../components/locale/LocaleContext";
+import { HeroSearchBox } from "../components/search/HeroSearchBox";
+import { getStaySearchInput, setStaySearchParams } from "../components/search/searchState";
+import { StaySearchInput } from "../components/search/searchTypes";
 
 type FeaturedHotel = {
   property_id: number;
@@ -15,26 +12,13 @@ type FeaturedHotel = {
   city?: string;
   price_min?: number;
   rating?: number;
+  currency?: string;
   thumbnail_url?: string | null;
 };
 
-const cityOptions: CityOption[] = [
-  { value: "Seoul", label: "서울", blurb: "도심 럭셔리, 미식, 컨시어지 서비스" },
-  { value: "Busan", label: "부산", blurb: "오션뷰 호텔, 해변 액티비티, 야경" },
-  { value: "Jeju", label: "제주", blurb: "리조트, 프라이빗 풀빌라, 자연 체험" },
-  { value: "Daegu", label: "대구", blurb: "로컬 감성 스테이, 전통 문화, 휴식" },
-];
+type ApiError = { code?: string; message?: string };
 
 const quickFilters = ["오션뷰", "프라이빗 풀", "조식 포함", "무료 취소", "24시간 체크인"];
-
-function dateOffset(days: number): string {
-  const date = new Date();
-  date.setDate(date.getDate() + days);
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
 
 function pickFeaturedHotels(items: FeaturedHotel[]): FeaturedHotel[] {
   const selected: FeaturedHotel[] = [];
@@ -51,7 +35,7 @@ function pickFeaturedHotels(items: FeaturedHotel[]): FeaturedHotel[] {
 
   for (const item of items) {
     if (selected.length >= 4) break;
-    if (!selected.some((selectedItem) => selectedItem.property_id === item.property_id)) {
+    if (!selected.some((current) => current.property_id === item.property_id)) {
       selected.push(item);
     }
   }
@@ -61,44 +45,52 @@ function pickFeaturedHotels(items: FeaturedHotel[]): FeaturedHotel[] {
 
 export function HomePage() {
   const navigate = useNavigate();
-  const [city, setCity] = useState("Seoul");
-  const [checkIn, setCheckIn] = useState(dateOffset(7));
-  const [checkOut, setCheckOut] = useState(dateOffset(9));
-  const [adults, setAdults] = useState(2);
-  const [children, setChildren] = useState(0);
+  const { locale } = useLocale();
   const [featuredHotels, setFeaturedHotels] = useState<FeaturedHotel[]>([]);
   const [featuredLoading, setFeaturedLoading] = useState(false);
   const [featuredError, setFeaturedError] = useState<string | null>(null);
-  const selectedCity = cityOptions.find((option) => option.value === city);
+
+  const initialSearch = useMemo<StaySearchInput>(() => {
+    const seed = new URLSearchParams({ currency: locale.currency });
+    const base = getStaySearchInput(seed, locale.currency);
+    return {
+      ...base,
+      placeId: "city:Seoul",
+      placeLabel: "서울",
+      city: "Seoul",
+      currency: locale.currency,
+    };
+  }, [locale.currency]);
 
   useEffect(() => {
     setFeaturedLoading(true);
     setFeaturedError(null);
-    apiGet<{ items: FeaturedHotel[] }>("/v1/search/properties?sort=rating_desc&limit=20")
+
+    const query = new URLSearchParams({
+      sort: "rating_desc",
+      size: "20",
+      currency: locale.currency,
+      city: "Seoul",
+    });
+
+    apiGet<{ items: FeaturedHotel[] }>(`/v1/search/properties?${query.toString()}`)
       .then((response) => {
         setFeaturedHotels(pickFeaturedHotels(response.data.items ?? []));
       })
       .catch((e: unknown) => {
-        const err = e as { code?: string; message?: string };
+        const err = e as ApiError;
         setFeaturedHotels([]);
         setFeaturedError(`${err.code ?? "ERROR"}: ${err.message ?? "추천 호텔 조회 실패"}`);
       })
       .finally(() => {
         setFeaturedLoading(false);
       });
-  }, []);
+  }, [locale.currency]);
 
-  const onSubmit = (e: FormEvent) => {
-    e.preventDefault();
-    const query = new URLSearchParams({
-      city,
-      check_in: checkIn,
-      check_out: checkOut,
-      adults: String(adults),
-      children: String(children),
-    });
-    navigate(`/search?${query.toString()}`);
-  };
+  function onSearch(next: StaySearchInput) {
+    const params = setStaySearchParams(new URLSearchParams(), next);
+    navigate(`/search?${params.toString()}`);
+  }
 
   return (
     <>
@@ -110,42 +102,9 @@ export function HomePage() {
             숙소, 티켓, 패키지 재고를 하나의 화면에서 실시간으로 확인하고
             예약 하실수 있습니다.
           </p>
-          <div className="service-tabs" role="tablist" aria-label="서비스 선택">
-            <button type="button" className="service-tab active" aria-selected="true">숙소</button>
-            <button type="button" className="service-tab" aria-selected="false">항공 + 숙소</button>
-            <button type="button" className="service-tab" aria-selected="false">패키지</button>
-            <button type="button" className="service-tab" aria-selected="false">티켓</button>
-          </div>
-          <form className="search-form premium-search" onSubmit={onSubmit}>
-            <label className="field-group field-wide">
-              목적지
-              <select value={city} onChange={(e) => setCity(e.target.value)} aria-label="도시 선택">
-                {cityOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-              <span className="field-hint">{selectedCity?.blurb}</span>
-            </label>
-            <label className="field-group">
-              체크인
-              <input type="date" value={checkIn} onChange={(e) => setCheckIn(e.target.value)} />
-            </label>
-            <label className="field-group">
-              체크아웃
-              <input type="date" value={checkOut} onChange={(e) => setCheckOut(e.target.value)} />
-            </label>
-            <label className="field-group">
-              성인
-              <input type="number" min={1} value={adults} onChange={(e) => setAdults(Number(e.target.value))} />
-            </label>
-            <label className="field-group">
-              어린이
-              <input type="number" min={0} value={children} onChange={(e) => setChildren(Number(e.target.value))} />
-            </label>
-            <button type="submit" className="search-cta">검색하기</button>
-          </form>
+
+          <HeroSearchBox initial={initialSearch} onSearch={onSearch} mode="hero" />
+
           <div className="quick-filters">
             {quickFilters.map((filter) => (
               <button key={filter} type="button" className="quick-chip">{filter}</button>
@@ -189,7 +148,7 @@ export function HomePage() {
                 />
                 <div className="destination-meta">
                   <p className="destination-subtitle">
-                    {hotel.city ?? "도시 미지정"} · 평점 {(hotel.rating ?? 0).toFixed(1)} · 최저가 {(hotel.price_min ?? 0).toLocaleString()} KRW
+                    {hotel.city ?? "도시 미지정"} · 평점 {(hotel.rating ?? 0).toFixed(1)} · 최저가 {(hotel.price_min ?? 0).toLocaleString()} {hotel.currency ?? locale.currency}
                   </p>
                   <h3>{hotel.name}</h3>
                 </div>

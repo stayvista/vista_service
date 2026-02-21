@@ -15,23 +15,28 @@ AUTH_TOKEN="$(curl -sS -X POST http://localhost:18765/v1/auth/login \
 ```
 
 ## Scenarios
-1. Search steady
+1. Search with filters (100 rps)
 ```bash
 k6 run services/loadtest/k6/search.js
 ```
-2. Booking hold spike
+2. Price calendar steady (50 rps)
+```bash
+k6 run services/loadtest/k6/price_calendar.js \
+  --summary-export /tmp/price_calendar_summary.json
+```
+3. Booking hold spike
 ```bash
 ROOM_TYPE_ID=1 CHECK_IN=2026-02-10 CHECK_OUT=2026-02-12 k6 run services/loadtest/k6/booking_hold.js
 ```
-3. Full funnel
+4. Full funnel
 ```bash
 AUTH_TOKEN="$AUTH_TOKEN" ROOM_TYPE_ID=1 k6 run services/loadtest/k6/full_funnel.js
 ```
-4. Chat (LLM 포함)
+5. Chat (LLM 포함)
 ```bash
 k6 run services/loadtest/k6/chat_recommend.js
 ```
-5. Chat stream SLO (steady + spike + cache-hit)
+6. Chat stream SLO (steady + spike + cache-hit)
 ```bash
 # LLM off 구간 검증 시
 CHAT_LLM_ENABLED=false k6 run services/loadtest/k6/chat_stream_slo.js \
@@ -41,12 +46,12 @@ CHAT_LLM_ENABLED=false k6 run services/loadtest/k6/chat_stream_slo.js \
 k6 run services/loadtest/k6/chat_stream_slo.js \
   --summary-export /tmp/chat_stream_slo_summary.json
 ```
-6. Nearby map (steady + drag + spike)
+7. Nearby map (steady + drag + spike)
 ```bash
 k6 run services/loadtest/k6/nearby.js \
   --summary-export /tmp/nearby_summary.json
 ```
-7. Autocomplete (empty focus + typing mixed)
+8. Autocomplete (empty focus + typing mixed, typing 200 rps)
 ```bash
 k6 run services/loadtest/k6/autocomplete.js \
   --summary-export /tmp/autocomplete_summary.json
@@ -63,6 +68,9 @@ k6 run services/loadtest/k6/autocomplete.js \
 - `chat_stream_ttfb_ms`, `chat_stream_complete_ms`, `chat_stream_failed`
 - `nearby_req_duration_ms`, `nearby_429_rate`, `nearby_5xx_rate`, `nearby_error_rate`
 - `ac_req_duration_ms`, `ac_cache_hit_rate`, `ac_429_rate`, `ac_bad_payload_total`
+- `search_req_duration_ms`, `search_5xx_rate`, `search_filter_usage_total`
+- `price_calendar_req_duration_ms`, `price_calendar_429_rate`, `price_calendar_latency_ms`
+- `booking_funnel_stage_total`
 
 ## Example report export
 ```bash
@@ -89,3 +97,4 @@ k6 run services/loadtest/k6/booking_hold.js \
 ## Dashboard
 - Grafana import JSON: `services/loadtest/grafana/chat_slo_dashboard.json`
 - Grafana import JSON: `services/loadtest/grafana/nearby_dashboard.json`
+- Grafana import JSON: `services/loadtest/grafana/search_parity_dashboard.json`

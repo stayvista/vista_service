@@ -24,15 +24,26 @@ class SearchServiceTest {
 
     @BeforeEach
     fun setupSchemaAndData() {
+        jdbcTemplate.execute("DROP TABLE IF EXISTS room_type")
+        jdbcTemplate.execute("DROP TABLE IF EXISTS property")
+        jdbcTemplate.execute("DROP TABLE IF EXISTS poi")
+
         jdbcTemplate.execute(
             """
             CREATE TABLE IF NOT EXISTS property (
               id BIGINT PRIMARY KEY,
               name VARCHAR(255) NOT NULL,
               city VARCHAR(100),
+              district_name VARCHAR(120),
+              star_rating INT DEFAULT 4,
+              location_rating DECIMAL(3,2) DEFAULT 0,
+              popularity_score INT DEFAULT 0,
+              property_type_code VARCHAR(40),
               status VARCHAR(20) NOT NULL,
               rating DECIMAL(3,2),
-              thumbnail_url VARCHAR(255)
+              thumbnail_url VARCHAR(255),
+              lat DECIMAL(10,7),
+              lng DECIMAL(10,7)
             )
             """.trimIndent(),
         )
@@ -64,16 +75,28 @@ class SearchServiceTest {
         jdbcTemplate.update("DELETE FROM poi")
 
         jdbcTemplate.update(
-            "INSERT INTO property(id, name, city, status, rating, thumbnail_url) VALUES (1001, 'Alpha Hotel', 'Seoul', 'ACTIVE', 4.8, 'https://img/alpha')",
+            """
+            INSERT INTO property(id, name, city, district_name, star_rating, location_rating, popularity_score, property_type_code, status, rating, thumbnail_url, lat, lng)
+            VALUES (1001, 'Alpha Hotel', 'Seoul', 'Gangnam', 5, 4.4, 880, 'hotel', 'ACTIVE', 4.8, 'https://img/alpha', 37.5000, 127.0300)
+            """.trimIndent(),
         )
         jdbcTemplate.update(
-            "INSERT INTO property(id, name, city, status, rating, thumbnail_url) VALUES (1002, 'Bravo Stay', 'Seoul', 'ACTIVE', 3.9, 'https://img/bravo')",
+            """
+            INSERT INTO property(id, name, city, district_name, star_rating, location_rating, popularity_score, property_type_code, status, rating, thumbnail_url, lat, lng)
+            VALUES (1002, 'Bravo Stay', 'Seoul', 'Myeongdong', 4, 3.9, 620, 'boutique', 'ACTIVE', 3.9, 'https://img/bravo', 37.5600, 126.9900)
+            """.trimIndent(),
         )
         jdbcTemplate.update(
-            "INSERT INTO property(id, name, city, status, rating, thumbnail_url) VALUES (1003, 'Charlie House', 'Busan', 'ACTIVE', 4.5, 'https://img/charlie')",
+            """
+            INSERT INTO property(id, name, city, district_name, star_rating, location_rating, popularity_score, property_type_code, status, rating, thumbnail_url, lat, lng)
+            VALUES (1003, 'Charlie House', 'Busan', 'Haeundae', 5, 4.2, 700, 'resort', 'ACTIVE', 4.5, 'https://img/charlie', 35.1700, 129.1300)
+            """.trimIndent(),
         )
         jdbcTemplate.update(
-            "INSERT INTO property(id, name, city, status, rating, thumbnail_url) VALUES (1004, 'Dormant Inn', 'Seoul', 'INACTIVE', 4.9, 'https://img/inactive')",
+            """
+            INSERT INTO property(id, name, city, district_name, star_rating, location_rating, popularity_score, property_type_code, status, rating, thumbnail_url, lat, lng)
+            VALUES (1004, 'Dormant Inn', 'Seoul', 'Yeouido', 5, 4.6, 400, 'hotel', 'INACTIVE', 4.9, 'https://img/inactive', 37.5200, 126.9300)
+            """.trimIndent(),
         )
 
         jdbcTemplate.update("INSERT INTO room_type(id, property_id, status, base_price) VALUES (2001, 1001, 'ACTIVE', 180000)")

@@ -21,7 +21,7 @@ spring:
       ddl-auto: validate
   flyway:
     enabled: true
-    locations: classpath:db/migration,filesystem:db/migration
+    locations: filesystem:db/migration
   jackson:
     default-property-inclusion: non_null
 

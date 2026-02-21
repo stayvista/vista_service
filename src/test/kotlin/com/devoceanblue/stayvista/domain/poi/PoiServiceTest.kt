@@ -23,6 +23,11 @@ class PoiServiceTest {
 
     @BeforeEach
     fun setupSchemaAndData() {
+        jdbcTemplate.execute("DROP TABLE IF EXISTS outbox_event")
+        jdbcTemplate.execute("DROP TABLE IF EXISTS product")
+        jdbcTemplate.execute("DROP TABLE IF EXISTS property")
+        jdbcTemplate.execute("DROP TABLE IF EXISTS poi")
+
         jdbcTemplate.execute(
             """
             CREATE TABLE IF NOT EXISTS poi (

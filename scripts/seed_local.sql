@@ -51,7 +51,8 @@ ON DUPLICATE KEY UPDATE
 
 -- Properties (20,000 across KR/JP/CN/US/EU/SEA/ME/OCEANIA)
 INSERT INTO property(
-  id, partner_id, name, country, city, address1, lat, lng, status, rating, thumbnail_url
+  id, partner_id, name, country, city, district_name, address1, lat, lng, status,
+  rating, star_rating, location_rating, popularity_score, property_type_code, thumbnail_url
 )
 WITH RECURSIVE seq(n) AS (
   SELECT 1
@@ -274,22 +275,38 @@ SELECT
   END,
   country_code,
   city_name,
+  district_name,
   CONCAT(district_name, ' ', city_name, ' District ', LPAD(MOD(n * 13, 240) + 1, 3, '0')),
   ROUND(base_lat + ((MOD(n, 41) - 20) / 2500), 7),
   ROUND(base_lng + ((MOD(n * 7, 41) - 20) / 2500), 7),
   'ACTIVE',
   ROUND(3.5 + (MOD(n, 15) / 10), 2),
+  LEAST(5, GREATEST(2, FLOOR(3 + MOD(n, 3) + (MOD(n, 5) / 4)))),
+  ROUND(3.2 + (MOD(n * 7, 15) / 10), 2),
+  100 + MOD(n * 17, 900),
+  CASE MOD(n, 5)
+    WHEN 0 THEN 'hotel'
+    WHEN 1 THEN 'resort'
+    WHEN 2 THEN 'boutique'
+    WHEN 3 THEN 'villa'
+    ELSE 'guesthouse'
+  END,
   CONCAT('https://picsum.photos/seed/stayvista-property-', n, '/640/360')
 FROM name_parts
 ON DUPLICATE KEY UPDATE
   name = VALUES(name),
   country = VALUES(country),
   city = VALUES(city),
+  district_name = VALUES(district_name),
   address1 = VALUES(address1),
   lat = VALUES(lat),
   lng = VALUES(lng),
   status = VALUES(status),
   rating = VALUES(rating),
+  star_rating = VALUES(star_rating),
+  location_rating = VALUES(location_rating),
+  popularity_score = VALUES(popularity_score),
+  property_type_code = VALUES(property_type_code),
   thumbnail_url = VALUES(thumbnail_url),
   updated_at = NOW(3);
 
@@ -342,6 +359,143 @@ ON DUPLICATE KEY UPDATE
   status = VALUES(status),
   base_price = VALUES(base_price),
   updated_at = NOW(3);
+
+-- Taxonomy + relations for search facets
+INSERT INTO brand(name)
+VALUES
+  ('Asteria'),
+  ('Northpoint'),
+  ('Harborline'),
+  ('Evercrest'),
+  ('Golden Laurel'),
+  ('Bluewave'),
+  ('Summit'),
+  ('Lumin'),
+  ('Oakridge'),
+  ('Mayfield'),
+  ('Solaria'),
+  ('Riverton')
+ON DUPLICATE KEY UPDATE
+  name = VALUES(name);
+
+DELETE FROM property_brand WHERE property_id BETWEEN 100001 AND 100000 + @property_count;
+INSERT INTO property_brand(property_id, brand_id)
+SELECT
+  p.id,
+  b.id
+FROM property p
+JOIN brand b
+  ON b.name = CASE MOD(p.id, 12)
+    WHEN 0 THEN 'Asteria'
+    WHEN 1 THEN 'Northpoint'
+    WHEN 2 THEN 'Harborline'
+    WHEN 3 THEN 'Evercrest'
+    WHEN 4 THEN 'Golden Laurel'
+    WHEN 5 THEN 'Bluewave'
+    WHEN 6 THEN 'Summit'
+    WHEN 7 THEN 'Lumin'
+    WHEN 8 THEN 'Oakridge'
+    WHEN 9 THEN 'Mayfield'
+    WHEN 10 THEN 'Solaria'
+    ELSE 'Riverton'
+  END
+WHERE p.id BETWEEN 100001 AND 100000 + @property_count;
+
+DELETE FROM property_theme WHERE property_id BETWEEN 100001 AND 100000 + @property_count;
+INSERT INTO property_theme(property_id, theme_code)
+SELECT
+  p.id,
+  CASE MOD(p.id, 5)
+    WHEN 0 THEN 'family'
+    WHEN 1 THEN 'business'
+    WHEN 2 THEN 'romance'
+    WHEN 3 THEN 'nature'
+    ELSE 'shopping'
+  END
+FROM property p
+WHERE p.id BETWEEN 100001 AND 100000 + @property_count;
+
+DELETE FROM property_payment_option WHERE property_id BETWEEN 100001 AND 100000 + @property_count;
+INSERT INTO property_payment_option(property_id, payment_option_code)
+SELECT p.id, 'pay_now'
+FROM property p
+WHERE p.id BETWEEN 100001 AND 100000 + @property_count;
+
+INSERT INTO property_payment_option(property_id, payment_option_code)
+SELECT p.id, 'free_cancel'
+FROM property p
+WHERE p.id BETWEEN 100001 AND 100000 + @property_count
+  AND MOD(p.id, 3) IN (0, 2)
+ON DUPLICATE KEY UPDATE payment_option_code = VALUES(payment_option_code);
+
+INSERT INTO property_payment_option(property_id, payment_option_code)
+SELECT p.id, 'pay_later'
+FROM property p
+WHERE p.id BETWEEN 100001 AND 100000 + @property_count
+  AND MOD(p.id, 4) IN (0, 1)
+ON DUPLICATE KEY UPDATE payment_option_code = VALUES(payment_option_code);
+
+INSERT INTO property_payment_option(property_id, payment_option_code)
+SELECT p.id, 'no_prepay'
+FROM property p
+WHERE p.id BETWEEN 100001 AND 100000 + @property_count
+  AND MOD(p.id, 5) IN (0, 2)
+ON DUPLICATE KEY UPDATE payment_option_code = VALUES(payment_option_code);
+
+DELETE FROM property_amenity WHERE property_id BETWEEN 100001 AND 100000 + @property_count;
+INSERT INTO property_amenity(property_id, amenity_code)
+SELECT p.id, 'wifi'
+FROM property p
+WHERE p.id BETWEEN 100001 AND 100000 + @property_count;
+
+INSERT INTO property_amenity(property_id, amenity_code)
+SELECT p.id, 'breakfast'
+FROM property p
+WHERE p.id BETWEEN 100001 AND 100000 + @property_count
+  AND MOD(p.id, 2) = 0
+ON DUPLICATE KEY UPDATE amenity_code = VALUES(amenity_code);
+
+INSERT INTO property_amenity(property_id, amenity_code)
+SELECT p.id, 'pool'
+FROM property p
+WHERE p.id BETWEEN 100001 AND 100000 + @property_count
+  AND MOD(p.id, 3) = 0
+ON DUPLICATE KEY UPDATE amenity_code = VALUES(amenity_code);
+
+INSERT INTO property_amenity(property_id, amenity_code)
+SELECT p.id, 'gym'
+FROM property p
+WHERE p.id BETWEEN 100001 AND 100000 + @property_count
+  AND MOD(p.id, 4) = 0
+ON DUPLICATE KEY UPDATE amenity_code = VALUES(amenity_code);
+
+INSERT INTO property_amenity(property_id, amenity_code)
+SELECT p.id, 'parking'
+FROM property p
+WHERE p.id BETWEEN 100001 AND 100000 + @property_count
+  AND MOD(p.id, 3) <> 1
+ON DUPLICATE KEY UPDATE amenity_code = VALUES(amenity_code);
+
+INSERT INTO property_amenity(property_id, amenity_code)
+SELECT p.id, 'spa'
+FROM property p
+WHERE p.id BETWEEN 100001 AND 100000 + @property_count
+  AND MOD(p.id, 5) = 0
+ON DUPLICATE KEY UPDATE amenity_code = VALUES(amenity_code);
+
+INSERT INTO property_amenity(property_id, amenity_code)
+SELECT p.id, 'ocean_view'
+FROM property p
+WHERE p.id BETWEEN 100001 AND 100000 + @property_count
+  AND p.city IN ('Busan', 'Jeju', 'Sydney', 'Melbourne', 'Bali')
+ON DUPLICATE KEY UPDATE amenity_code = VALUES(amenity_code);
+
+INSERT INTO property_amenity(property_id, amenity_code)
+SELECT p.id, 'kitchen'
+FROM property p
+WHERE p.id BETWEEN 100001 AND 100000 + @property_count
+  AND MOD(p.id, 4) = 1
+ON DUPLICATE KEY UPDATE amenity_code = VALUES(amenity_code);
 
 -- Hot-key inventory scenario: one room_type has 365-day inventory total=1000
 INSERT INTO inventory_night(room_type_id, stay_date, total, hold, sold)
@@ -627,6 +781,118 @@ ON DUPLICATE KEY UPDATE
   popularity_score = VALUES(popularity_score),
   rating_score = VALUES(rating_score),
   active = VALUES(active);
+
+-- Curated district naming for KR cities (for server-driven facets/recommendations)
+UPDATE property
+SET district_name = ELT(MOD(id, 6) + 1, '강남', '명동', '홍대', '이태원', '잠실', '여의도')
+WHERE city = 'Seoul';
+
+UPDATE property
+SET district_name = ELT(MOD(id, 6) + 1, '해운대', '광안리', '서면', '남포동', '송정', '센텀')
+WHERE city = 'Busan';
+
+UPDATE property
+SET district_name = ELT(MOD(id, 6) + 1, '제주시', '애월', '서귀포', '중문', '성산', '함덕')
+WHERE city = 'Jeju';
+
+DELETE FROM district WHERE city IN ('Seoul', 'Busan', 'Jeju');
+INSERT INTO district(city, name, blurb, rank_score)
+VALUES
+  ('Seoul', '강남', '트렌디한 쇼핑과 미식, 비즈니스 중심지', 98),
+  ('Seoul', '명동', '도심 쇼핑과 접근성이 좋은 관광 중심지', 96),
+  ('Seoul', '홍대', '젊은 감성의 문화/공연/카페 밀집 지역', 94),
+  ('Seoul', '이태원', '다국적 레스토랑과 나이트 라이프', 92),
+  ('Seoul', '잠실', '가족 여행과 대형 복합시설 접근 우수', 90),
+  ('Seoul', '여의도', '한강 전망과 금융권 비즈니스 거점', 88),
+  ('Busan', '해운대', '오션뷰 숙소와 해변 액티비티 중심', 99),
+  ('Busan', '광안리', '야경과 해변 산책이 매력적인 해안 지역', 96),
+  ('Busan', '서면', '교통이 편리한 쇼핑/맛집 중심지', 94),
+  ('Busan', '남포동', '로컬 시장과 먹거리가 풍부한 구도심', 92),
+  ('Busan', '송정', '서핑과 여유로운 해변 휴양 지역', 89),
+  ('Busan', '센텀', '대형 몰/전시 접근성이 좋은 도심권', 88),
+  ('Jeju', '제주시', '공항 접근이 좋은 도심 숙소 밀집권', 97),
+  ('Jeju', '애월', '감성 카페와 해안 드라이브 코스', 94),
+  ('Jeju', '서귀포', '자연 경관과 관광 명소 접근 우수', 93),
+  ('Jeju', '중문', '리조트와 휴양형 숙소가 많은 지역', 92),
+  ('Jeju', '성산', '일출 명소와 액티비티 접근이 좋은 동부권', 89),
+  ('Jeju', '함덕', '에메랄드 바다와 가족 여행 친화 지역', 87);
+
+DELETE FROM city_featured_property WHERE city IN ('Seoul', 'Busan', 'Jeju');
+INSERT INTO city_featured_property(city, property_id, rank_score)
+SELECT city, id, rank_score
+FROM (
+  SELECT
+    p.city,
+    p.id,
+    (1000 - (ROW_NUMBER() OVER (
+      PARTITION BY p.city
+      ORDER BY p.rating DESC, p.popularity_score DESC, p.id ASC
+    ) * 10)) AS rank_score,
+    ROW_NUMBER() OVER (
+      PARTITION BY p.city
+      ORDER BY p.rating DESC, p.popularity_score DESC, p.id ASC
+    ) AS rn
+  FROM property p
+  WHERE p.status = 'ACTIVE'
+    AND p.city IN ('Seoul', 'Busan', 'Jeju')
+) ranked
+WHERE rn <= 16;
+
+DELETE FROM city_poi_popular WHERE city IN ('Seoul', 'Busan', 'Jeju');
+INSERT INTO city_poi_popular(city, poi_id, rank_score)
+SELECT city, id, popularity_score
+FROM (
+  SELECT
+    poi.city,
+    poi.id,
+    poi.popularity_score,
+    ROW_NUMBER() OVER (
+      PARTITION BY poi.city
+      ORDER BY poi.popularity_score DESC, poi.rating_score DESC, poi.id ASC
+    ) AS rn
+  FROM poi
+  WHERE active = 1
+    AND poi.city IN ('Seoul', 'Busan', 'Jeju')
+) ranked
+WHERE rn <= 24;
+
+DELETE FROM city_day_min_price
+WHERE stay_date >= CURDATE()
+  AND stay_date < DATE_ADD(CURDATE(), INTERVAL 120 DAY);
+
+INSERT INTO city_day_min_price(city, stay_date, min_price_krw)
+WITH RECURSIVE day_seq(day_offset) AS (
+  SELECT 0
+  UNION ALL
+  SELECT day_offset + 1 FROM day_seq WHERE day_offset < 119
+),
+city_min_price AS (
+  SELECT p.city, MIN(rt.base_price) AS min_price
+  FROM property p
+  JOIN room_type rt
+    ON rt.property_id = p.id
+   AND rt.status = 'ACTIVE'
+  WHERE p.status = 'ACTIVE'
+    AND p.city IS NOT NULL
+  GROUP BY p.city
+)
+SELECT
+  cmp.city,
+  DATE_ADD(CURDATE(), INTERVAL day_seq.day_offset DAY),
+  ROUND(
+    cmp.min_price * (
+      1 + CASE
+        WHEN DAYOFWEEK(DATE_ADD(CURDATE(), INTERVAL day_seq.day_offset DAY)) IN (1, 7) THEN 0.10
+        WHEN DAYOFWEEK(DATE_ADD(CURDATE(), INTERVAL day_seq.day_offset DAY)) = 6 THEN 0.07
+        ELSE 0
+      END
+    )
+  )
+FROM city_min_price cmp
+CROSS JOIN day_seq
+ON DUPLICATE KEY UPDATE
+  min_price_krw = VALUES(min_price_krw),
+  updated_at = NOW(3);
 
 -- Busan shopping POI boost for Korean shopping intent queries
 INSERT INTO poi(

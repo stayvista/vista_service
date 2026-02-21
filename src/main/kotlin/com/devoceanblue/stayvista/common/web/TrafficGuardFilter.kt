@@ -144,6 +144,9 @@ class TrafficGuardFilter(
         if (method == "GET" && path.startsWith("/v1/search/")) {
             return RatePolicy("search", searchPerMinute)
         }
+        if (method == "GET" && path == "/v1/prices/calendar") {
+            return RatePolicy("search", searchPerMinute)
+        }
         if (method == "GET" && path == "/v1/autocomplete") {
             return RatePolicy("autocomplete", autocompletePerMinute)
         }
@@ -160,6 +163,9 @@ class TrafficGuardFilter(
             return RatePolicy("package_confirm", packageConfirmPerMinute)
         }
         if (method == "POST" && (path == "/v1/chat/recommend" || path == "/v1/chat/recommend:stream")) {
+            return RatePolicy("chat", chatPerMinute)
+        }
+        if (method == "POST" && path == "/v1/ai/search/copilot") {
             return RatePolicy("chat", chatPerMinute)
         }
         return null
@@ -209,6 +215,7 @@ class TrafficGuardFilter(
     private fun isSensitivePath(path: String): Boolean {
         return path.startsWith("/v1/chat/") ||
             path.startsWith("/v1/search/") ||
+            path.startsWith("/v1/prices/") ||
             path.startsWith("/v1/autocomplete")
     }
 

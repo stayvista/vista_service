@@ -52,6 +52,7 @@ class BookingService(
             }
         }.also {
             meterRegistry.counter("booking_hold_requests_total", "result", "SUCCESS").increment()
+            meterRegistry.counter("booking_funnel_stage_total", "stage", "hold", "result", "SUCCESS").increment()
         }
     }
 
@@ -69,6 +70,7 @@ class BookingService(
             }
         }.also {
             meterRegistry.counter("booking_confirm_requests_total", "result", "SUCCESS").increment()
+            meterRegistry.counter("booking_funnel_stage_total", "stage", "confirm", "result", "SUCCESS").increment()
         }
     }
 

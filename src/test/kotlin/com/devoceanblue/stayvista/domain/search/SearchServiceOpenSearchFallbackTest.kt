@@ -27,15 +27,25 @@ class SearchServiceOpenSearchFallbackTest {
 
     @BeforeEach
     fun setupSchemaAndData() {
+        jdbcTemplate.execute("DROP TABLE IF EXISTS room_type")
+        jdbcTemplate.execute("DROP TABLE IF EXISTS property")
+
         jdbcTemplate.execute(
             """
             CREATE TABLE IF NOT EXISTS property (
               id BIGINT PRIMARY KEY,
               name VARCHAR(255) NOT NULL,
               city VARCHAR(100),
+              district_name VARCHAR(120),
+              star_rating INT DEFAULT 4,
+              location_rating DECIMAL(3,2) DEFAULT 0,
+              popularity_score INT DEFAULT 0,
+              property_type_code VARCHAR(40),
               status VARCHAR(20) NOT NULL,
               rating DECIMAL(3,2),
-              thumbnail_url VARCHAR(255)
+              thumbnail_url VARCHAR(255),
+              lat DECIMAL(10,7),
+              lng DECIMAL(10,7)
             )
             """.trimIndent(),
         )
@@ -55,8 +65,8 @@ class SearchServiceOpenSearchFallbackTest {
 
         jdbcTemplate.update(
             """
-            INSERT INTO property(id, name, city, status, rating, thumbnail_url)
-            VALUES (1101, 'Global Skyline Dubai Hotel', 'Dubai', 'ACTIVE', 4.6, 'https://img/dubai')
+            INSERT INTO property(id, name, city, district_name, star_rating, location_rating, popularity_score, property_type_code, status, rating, thumbnail_url, lat, lng)
+            VALUES (1101, 'Global Skyline Dubai Hotel', 'Dubai', 'Marina', 5, 4.4, 780, 'hotel', 'ACTIVE', 4.6, 'https://img/dubai', 25.2048, 55.2708)
             """.trimIndent(),
         )
         jdbcTemplate.update(

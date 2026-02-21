@@ -15,6 +15,9 @@ class PaymentGateway(
             request.paymentToken.startsWith("error", ignoreCase = true)
         ) {
             meterRegistry.counter("payment_authorize_total", "result", "FAILED").increment()
+            if (request.referenceType.equals("BOOKING", ignoreCase = true)) {
+                meterRegistry.counter("booking_funnel_stage_total", "stage", "payment_authorized", "result", "FAILED").increment()
+            }
             throw DomainException(
                 ErrorCode.PAYMENT_AUTH_FAILED,
                 "Payment authorization failed",
@@ -25,6 +28,9 @@ class PaymentGateway(
             )
         }
         meterRegistry.counter("payment_authorize_total", "result", "SUCCESS").increment()
+        if (request.referenceType.equals("BOOKING", ignoreCase = true)) {
+            meterRegistry.counter("booking_funnel_stage_total", "stage", "payment_authorized", "result", "SUCCESS").increment()
+        }
     }
 }
 

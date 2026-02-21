@@ -81,6 +81,12 @@ class AuthGuardFilter(
     private fun isPublicEndpoint(method: String, path: String): Boolean {
         if (method == "POST" && (path == "/v1/auth/login" || path == "/v1/auth/register" || path == "/v1/auth/logout")) return true
         if (method == "GET" && path.startsWith("/v1/search/")) return true
+        if (method == "GET" && path == "/v1/destinations/recommendations") return true
+        if (method == "GET" && path == "/v1/prices/calendar") return true
+        if (method == "GET" && path == "/v1/fx") return true
+        if (method == "GET" && path == "/v1/locale") return true
+        if (method == "POST" && path == "/v1/locale") return true
+        if (method == "POST" && path == "/v1/ai/search/copilot") return true
         if (method == "GET" && path == "/v1/autocomplete") return true
         if (method == "POST" && (path == "/v1/autocomplete/feedback/impression" || path == "/v1/autocomplete/feedback/select")) return true
         if (method == "GET" && (path == "/v1/properties" || path.startsWith("/v1/properties/"))) return true

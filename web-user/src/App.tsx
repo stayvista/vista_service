@@ -18,6 +18,7 @@ import { MyReservationsPage } from "./pages/MyReservationsPage";
 import { RequireAuth } from "./components/RequireAuth";
 import { clearAuthSession, getAuthUser, subscribeAuthChange } from "./auth/session";
 import { apiPost } from "./api/client";
+import { useLocale } from "./components/locale/LocaleContext";
 
 const navItems = [
   { to: "/search", label: "숙소" },
@@ -29,6 +30,7 @@ const navItems = [
 
 export function App() {
   const [authUser, setAuthUser] = useState(() => getAuthUser());
+  const { locale, loading: localeLoading, updateLocale } = useLocale();
 
   useEffect(() => {
     return subscribeAuthChange(() => {
@@ -52,8 +54,37 @@ export function App() {
         <div className="utility-bar">
           <p>국내외 프리미엄 숙소 얼리버드 최대 18% 단독 혜택</p>
           <div className="utility-links">
-            <button type="button">KRW</button>
-            <button type="button">한국어</button>
+            <label className="utility-select-wrap">
+              <span className="sr-only">통화 선택</span>
+              <select
+                className="utility-select"
+                value={locale.currency}
+                disabled={localeLoading}
+                onChange={(event) => {
+                  void updateLocale({ currency: event.target.value });
+                }}
+              >
+                <option value="KRW">KRW</option>
+                <option value="USD">USD</option>
+                <option value="JPY">JPY</option>
+                <option value="EUR">EUR</option>
+              </select>
+            </label>
+            <label className="utility-select-wrap">
+              <span className="sr-only">언어 선택</span>
+              <select
+                className="utility-select"
+                value={locale.language}
+                disabled={localeLoading}
+                onChange={(event) => {
+                  void updateLocale({ language: event.target.value });
+                }}
+              >
+                <option value="ko">한국어</option>
+                <option value="en">English</option>
+                <option value="ja">日本語</option>
+              </select>
+            </label>
             <button type="button">고객센터</button>
           </div>
         </div>
