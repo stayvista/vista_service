@@ -55,6 +55,28 @@ export function App() {
           <p>국내외 프리미엄 숙소 얼리버드 최대 18% 단독 혜택</p>
           <div className="utility-links">
             <label className="utility-select-wrap">
+              <span className="sr-only">국가 선택</span>
+              <select
+                className="utility-select"
+                value={locale.country}
+                disabled={localeLoading}
+                onChange={(event) => {
+                  const country = event.target.value;
+                  void updateLocale({
+                    country,
+                    currency: defaultCurrencyForCountry(country),
+                  });
+                }}
+              >
+                <option value="KR">대한민국</option>
+                <option value="JP">일본</option>
+                <option value="US">United States</option>
+                <option value="GB">United Kingdom</option>
+                <option value="FR">France</option>
+                <option value="DE">Germany</option>
+              </select>
+            </label>
+            <label className="utility-select-wrap">
               <span className="sr-only">통화 선택</span>
               <select
                 className="utility-select"
@@ -143,4 +165,21 @@ export function App() {
       </main>
     </div>
   );
+}
+
+function defaultCurrencyForCountry(country: string): string {
+  switch (country.toUpperCase()) {
+    case "KR":
+      return "KRW";
+    case "JP":
+      return "JPY";
+    case "US":
+      return "USD";
+    case "GB":
+    case "FR":
+    case "DE":
+      return "EUR";
+    default:
+      return "USD";
+  }
 }

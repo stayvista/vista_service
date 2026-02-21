@@ -81,6 +81,12 @@ class SearchService(
             request.min_guest_rating == null &&
             request.min_location_rating == null &&
             request.max_distance_m == null &&
+            request.nearby_attractions.isEmpty() &&
+            request.guest_rating_bands.isEmpty() &&
+            request.location_rating_bands.isEmpty() &&
+            request.distance_bands.isEmpty() &&
+            request.family_options.isEmpty() &&
+            request.beach_options.isEmpty() &&
             request.stars.isEmpty() &&
             request.amenities.isEmpty() &&
             request.property_type.isEmpty() &&
@@ -126,6 +132,20 @@ class SearchService(
         if (request.min_location_rating != null) {
             where += "COALESCE(p.location_rating, 0) >= ?"
             params += request.min_location_rating
+        }
+        if (request.guest_rating_bands.isNotEmpty()) {
+            val threshold = minThreshold(request.guest_rating_bands)
+            if (threshold != null) {
+                where += "COALESCE(p.rating, 0) >= ?"
+                params += threshold
+            }
+        }
+        if (request.location_rating_bands.isNotEmpty()) {
+            val threshold = minThreshold(request.location_rating_bands)
+            if (threshold != null) {
+                where += "COALESCE(p.location_rating, 0) >= ?"
+                params += threshold
+            }
         }
         if (request.stars.isNotEmpty()) {
             where += "COALESCE(p.star_rating, 0) IN (${request.stars.joinToString(",") { "?" }})"
@@ -178,7 +198,7 @@ class SearchService(
                 FROM room_type rt4
                 WHERE rt4.property_id = p.id
                   AND rt4.status = 'ACTIVE'
-                  AND rt4.capacity_adults >= ?
+                  AND COALESCE(rt4.bedrooms, 1) >= ?
               )
             """.trimIndent()
             params += request.bedrooms
@@ -241,8 +261,72 @@ class SearchService(
             }
         }
 
+        if (request.family_options.any { it == "kid_free_stay" || it == "child_free_stay" }) {
+            where += "COALESCE(p.kid_free_stay, 0) = 1"
+        }
+        if (request.beach_options.any { it == "beach_nearby" || it == "beachfront" }) {
+            where += "(COALESCE(p.is_beachfront, 0) = 1 OR COALESCE(p.beach_distance_m, 999999) <= 1000)"
+        }
+        if (request.nearby_attractions.isNotEmpty()) {
+            where += """
+              EXISTS (
+                SELECT 1
+                FROM poi pfx
+                WHERE pfx.id IN (${request.nearby_attractions.joinToString(",") { "?" }})
+                  AND pfx.active = 1
+                  AND pfx.city = p.city
+                  AND (
+                    6371000 * ACOS(
+                      COS(RADIANS(COALESCE(p.lat, pfx.lat))) * COS(RADIANS(pfx.lat)) *
+                      COS(RADIANS(COALESCE(p.lng, pfx.lng)) - RADIANS(pfx.lng)) +
+                      SIN(RADIANS(COALESCE(p.lat, pfx.lat))) * SIN(RADIANS(pfx.lat))
+                    )
+                  ) <= 5000
+              )
+            """.trimIndent()
+            params.addAll(request.nearby_attractions.map { it as Any? })
+        }
+
         val distanceExpr = buildDistanceExpr(center)
+        if (distanceExpr != null && request.distance_bands.isNotEmpty()) {
+            where += "p.lat IS NOT NULL AND p.lng IS NOT NULL"
+            val bandPredicates = mutableListOf<String>()
+            request.distance_bands.forEach { band ->
+                when (band) {
+                    "center" -> {
+                        bandPredicates += "$distanceExpr <= ?"
+                        params += 1000
+                    }
+
+                    "under_2km" -> {
+                        bandPredicates += "$distanceExpr <= ?"
+                        params += 2000
+                    }
+
+                    "2_5km" -> {
+                        bandPredicates += "($distanceExpr > ? AND $distanceExpr <= ?)"
+                        params += 2000
+                        params += 5000
+                    }
+
+                    "5_10km" -> {
+                        bandPredicates += "($distanceExpr > ? AND $distanceExpr <= ?)"
+                        params += 5000
+                        params += 10000
+                    }
+
+                    "under_10km" -> {
+                        bandPredicates += "$distanceExpr <= ?"
+                        params += 10000
+                    }
+                }
+            }
+            if (bandPredicates.isNotEmpty()) {
+                where += "(${bandPredicates.joinToString(" OR ")})"
+            }
+        }
         if (request.max_distance_m != null && distanceExpr != null) {
+            where += "p.lat IS NOT NULL AND p.lng IS NOT NULL"
             where += "$distanceExpr <= ?"
             params += request.max_distance_m
         }
@@ -256,7 +340,7 @@ class SearchService(
             "price_asc" -> "price_min ASC, p.id ASC"
             "price_desc" -> "price_min DESC, p.id DESC"
             "rating_desc" -> "rating DESC, p.id ASC"
-            "distance", "distance_asc" -> if (distanceExpr != null) "distance_m ASC, p.id ASC" else "p.id ASC"
+            "distance", "distance_asc" -> if (distanceExpr != null) "$distanceExpr ASC, p.id ASC" else "p.id ASC"
             "best_match" -> "COALESCE(p.popularity_score, 0) DESC, rating DESC, p.id ASC"
             else -> "p.id ASC"
         }
@@ -272,12 +356,13 @@ class SearchService(
               COALESCE(MIN(rt.base_price), 0) AS price_min,
               COALESCE(p.rating, 0) AS rating,
               COALESCE(p.location_rating, 0) AS location_rating,
+              COALESCE(p.review_count, 0) AS review_count,
               p.thumbnail_url,
               $selectDistance
             FROM property p
             LEFT JOIN room_type rt ON rt.property_id = p.id AND rt.status = 'ACTIVE'
             WHERE $whereClause
-            GROUP BY p.id, p.name, p.city, p.district_name, p.star_rating, p.rating, p.location_rating, p.thumbnail_url, p.lat, p.lng
+            GROUP BY p.id, p.name, p.city, p.district_name, p.star_rating, p.rating, p.location_rating, p.review_count, p.thumbnail_url, p.lat, p.lng
             ORDER BY $order
             LIMIT ?
         """.trimIndent()
@@ -303,6 +388,7 @@ class SearchService(
                     rating = rs.getBigDecimal("rating")?.toDouble() ?: 0.0,
                     location_rating = rs.getBigDecimal("location_rating")?.toDouble() ?: 0.0,
                     star_rating = rs.getInt("star_rating"),
+                    review_count = rs.getInt("review_count"),
                     thumbnail_url = rs.getString("thumbnail_url"),
                     distance_m = rs.getDouble("distance_m").takeIf { !rs.wasNull() }?.toInt(),
                     currency = request.currency,
@@ -349,9 +435,9 @@ class SearchService(
         return """
           (
             6371000 * ACOS(
-              COS(RADIANS($lat)) * COS(RADIANS(COALESCE(p.lat, $lat))) *
-              COS(RADIANS(COALESCE(p.lng, $lng)) - RADIANS($lng)) +
-              SIN(RADIANS($lat)) * SIN(RADIANS(COALESCE(p.lat, $lat)))
+              COS(RADIANS($lat)) * COS(RADIANS(p.lat)) *
+              COS(RADIANS(p.lng) - RADIANS($lng)) +
+              SIN(RADIANS($lat)) * SIN(RADIANS(p.lat))
             )
           )
         """.trimIndent()
@@ -460,6 +546,12 @@ class SearchService(
             "brands=${request.brands.joinToString(",")}",
             "bed_types=${request.bed_types.joinToString(",")}",
             "bedrooms=${request.bedrooms ?: ""}",
+            "nearby_attractions=${request.nearby_attractions.joinToString(",")}",
+            "guest_rating_bands=${request.guest_rating_bands.joinToString(",")}",
+            "location_rating_bands=${request.location_rating_bands.joinToString(",")}",
+            "distance_bands=${request.distance_bands.joinToString(",")}",
+            "family_options=${request.family_options.joinToString(",")}",
+            "beach_options=${request.beach_options.joinToString(",")}",
             "sort=${request.sort ?: ""}",
             "page=${request.page ?: ""}",
             "size=${request.size ?: ""}",
@@ -492,8 +584,27 @@ class SearchService(
         if (request.brands.isNotEmpty()) keys += "brands"
         if (request.bed_types.isNotEmpty()) keys += "bed_types"
         if (request.bedrooms != null) keys += "bedrooms"
+        if (request.nearby_attractions.isNotEmpty()) keys += "nearby_attractions"
+        if (request.guest_rating_bands.isNotEmpty()) keys += "guest_rating_bands"
+        if (request.location_rating_bands.isNotEmpty()) keys += "location_rating_bands"
+        if (request.distance_bands.isNotEmpty()) keys += "distance_bands"
+        if (request.family_options.isNotEmpty()) keys += "family_options"
+        if (request.beach_options.isNotEmpty()) keys += "beach_options"
         if (!request.sort.isNullOrBlank()) keys += "sort"
         return keys
+    }
+
+    private fun minThreshold(bands: List<String>): Double? {
+        val values = bands.mapNotNull { band ->
+            when (band.trim().lowercase(Locale.ROOT)) {
+                "9_plus", "9plus", "9+" -> 4.5
+                "8_plus", "8plus", "8+" -> 4.0
+                "7_plus", "7plus", "7+" -> 3.5
+                "6_plus", "6plus", "6+" -> 3.0
+                else -> band.toDoubleOrNull()
+            }
+        }
+        return values.minOrNull()
     }
 
     private fun sha256(value: String): String {
@@ -579,6 +690,12 @@ data class SearchRequest(
     val brands: List<String> = emptyList(),
     val bed_types: List<String> = emptyList(),
     val bedrooms: Int? = null,
+    val nearby_attractions: List<Long> = emptyList(),
+    val guest_rating_bands: List<String> = emptyList(),
+    val location_rating_bands: List<String> = emptyList(),
+    val distance_bands: List<String> = emptyList(),
+    val family_options: List<String> = emptyList(),
+    val beach_options: List<String> = emptyList(),
     val page: Int? = null,
     val size: Int? = null,
 ) {
@@ -601,6 +718,12 @@ data class SearchRequest(
             brands = brands.map { it.trim() }.filter { it.isNotBlank() }.distinct(),
             bed_types = bed_types.map { it.trim().uppercase(Locale.ROOT) }.filter { it.isNotBlank() }.distinct(),
             bedrooms = bedrooms?.coerceIn(1, 8),
+            nearby_attractions = nearby_attractions.distinct().sorted(),
+            guest_rating_bands = guest_rating_bands.map { it.trim().lowercase(Locale.ROOT) }.filter { it.isNotBlank() }.distinct().sorted(),
+            location_rating_bands = location_rating_bands.map { it.trim().lowercase(Locale.ROOT) }.filter { it.isNotBlank() }.distinct().sorted(),
+            distance_bands = distance_bands.map { it.trim().lowercase(Locale.ROOT) }.filter { it.isNotBlank() }.distinct().sorted(),
+            family_options = family_options.map { it.trim().lowercase(Locale.ROOT) }.filter { it.isNotBlank() }.distinct().sorted(),
+            beach_options = beach_options.map { it.trim().lowercase(Locale.ROOT) }.filter { it.isNotBlank() }.distinct().sorted(),
             page = page?.coerceAtLeast(1),
             size = size?.coerceIn(1, 50),
             limit = limit.coerceIn(1, 50),
@@ -617,6 +740,7 @@ data class SearchItem(
     val rating: Double,
     val location_rating: Double = 0.0,
     val star_rating: Int = 0,
+    val review_count: Int = 0,
     val thumbnail_url: String?,
     val distance_m: Int? = null,
     val currency: String = "KRW",

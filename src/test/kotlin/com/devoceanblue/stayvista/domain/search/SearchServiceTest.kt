@@ -39,6 +39,10 @@ class SearchServiceTest {
               location_rating DECIMAL(3,2) DEFAULT 0,
               popularity_score INT DEFAULT 0,
               property_type_code VARCHAR(40),
+              review_count INT DEFAULT 0,
+              beach_distance_m INT NULL,
+              is_beachfront TINYINT(1) DEFAULT 0,
+              kid_free_stay TINYINT(1) DEFAULT 0,
               status VARCHAR(20) NOT NULL,
               rating DECIMAL(3,2),
               thumbnail_url VARCHAR(255),
@@ -64,6 +68,7 @@ class SearchServiceTest {
               name VARCHAR(255) NOT NULL,
               category VARCHAR(50),
               city VARCHAR(100),
+              active TINYINT(1) NOT NULL DEFAULT 1,
               lat DECIMAL(10,7) NOT NULL,
               lng DECIMAL(10,7) NOT NULL
             )
@@ -76,26 +81,26 @@ class SearchServiceTest {
 
         jdbcTemplate.update(
             """
-            INSERT INTO property(id, name, city, district_name, star_rating, location_rating, popularity_score, property_type_code, status, rating, thumbnail_url, lat, lng)
-            VALUES (1001, 'Alpha Hotel', 'Seoul', 'Gangnam', 5, 4.4, 880, 'hotel', 'ACTIVE', 4.8, 'https://img/alpha', 37.5000, 127.0300)
+            INSERT INTO property(id, name, city, district_name, star_rating, location_rating, popularity_score, property_type_code, review_count, beach_distance_m, is_beachfront, kid_free_stay, status, rating, thumbnail_url, lat, lng)
+            VALUES (1001, 'Alpha Hotel', 'Seoul', 'Gangnam', 5, 4.4, 880, 'hotel', 1200, 18000, 0, 1, 'ACTIVE', 4.8, 'https://img/alpha', 37.5000, 127.0300)
             """.trimIndent(),
         )
         jdbcTemplate.update(
             """
-            INSERT INTO property(id, name, city, district_name, star_rating, location_rating, popularity_score, property_type_code, status, rating, thumbnail_url, lat, lng)
-            VALUES (1002, 'Bravo Stay', 'Seoul', 'Myeongdong', 4, 3.9, 620, 'boutique', 'ACTIVE', 3.9, 'https://img/bravo', 37.5600, 126.9900)
+            INSERT INTO property(id, name, city, district_name, star_rating, location_rating, popularity_score, property_type_code, review_count, beach_distance_m, is_beachfront, kid_free_stay, status, rating, thumbnail_url, lat, lng)
+            VALUES (1002, 'Bravo Stay', 'Seoul', 'Myeongdong', 4, 3.9, 620, 'boutique', 420, 21000, 0, 0, 'ACTIVE', 3.9, 'https://img/bravo', 37.5600, 126.9900)
             """.trimIndent(),
         )
         jdbcTemplate.update(
             """
-            INSERT INTO property(id, name, city, district_name, star_rating, location_rating, popularity_score, property_type_code, status, rating, thumbnail_url, lat, lng)
-            VALUES (1003, 'Charlie House', 'Busan', 'Haeundae', 5, 4.2, 700, 'resort', 'ACTIVE', 4.5, 'https://img/charlie', 35.1700, 129.1300)
+            INSERT INTO property(id, name, city, district_name, star_rating, location_rating, popularity_score, property_type_code, review_count, beach_distance_m, is_beachfront, kid_free_stay, status, rating, thumbnail_url, lat, lng)
+            VALUES (1003, 'Charlie House', 'Busan', 'Haeundae', 5, 4.2, 700, 'resort', 980, 350, 1, 1, 'ACTIVE', 4.5, 'https://img/charlie', 35.1700, 129.1300)
             """.trimIndent(),
         )
         jdbcTemplate.update(
             """
-            INSERT INTO property(id, name, city, district_name, star_rating, location_rating, popularity_score, property_type_code, status, rating, thumbnail_url, lat, lng)
-            VALUES (1004, 'Dormant Inn', 'Seoul', 'Yeouido', 5, 4.6, 400, 'hotel', 'INACTIVE', 4.9, 'https://img/inactive', 37.5200, 126.9300)
+            INSERT INTO property(id, name, city, district_name, star_rating, location_rating, popularity_score, property_type_code, review_count, beach_distance_m, is_beachfront, kid_free_stay, status, rating, thumbnail_url, lat, lng)
+            VALUES (1004, 'Dormant Inn', 'Seoul', 'Yeouido', 5, 4.6, 400, 'hotel', 850, 17000, 0, 0, 'INACTIVE', 4.9, 'https://img/inactive', 37.5200, 126.9300)
             """.trimIndent(),
         )
 
@@ -103,7 +108,7 @@ class SearchServiceTest {
         jdbcTemplate.update("INSERT INTO room_type(id, property_id, status, base_price) VALUES (2002, 1002, 'ACTIVE', 90000)")
         jdbcTemplate.update("INSERT INTO room_type(id, property_id, status, base_price) VALUES (2003, 1003, 'ACTIVE', 150000)")
         jdbcTemplate.update("INSERT INTO room_type(id, property_id, status, base_price) VALUES (2004, 1001, 'INACTIVE', 50000)")
-        jdbcTemplate.update("INSERT INTO poi(id, name, category, city, lat, lng) VALUES (3001, 'Busan Harbor Point', 'poi', 'Busan', 35.1000, 129.0400)")
+        jdbcTemplate.update("INSERT INTO poi(id, name, category, city, active, lat, lng) VALUES (3001, 'Busan Harbor Point', 'poi', 'Busan', 1, 35.1689, 129.1287)")
     }
 
     @AfterEach
@@ -209,5 +214,54 @@ class SearchServiceTest {
         assertEquals(1, result.items.size)
         assertEquals(1003L, result.items.first().property_id)
         assertEquals("Busan", result.items.first().city)
+    }
+
+    @Test
+    fun `search should apply family and beach filters together`() {
+        val result = searchService.search(
+            SearchRequest(
+                q = null,
+                city = "Busan",
+                check_in = null,
+                check_out = null,
+                adults = null,
+                children = null,
+                min_price = null,
+                max_price = null,
+                min_rating = null,
+                family_options = listOf("kid_free_stay"),
+                beach_options = listOf("beach_nearby"),
+                sort = null,
+                cursor = null,
+                limit = 20,
+            ),
+        )
+
+        assertEquals(1, result.items.size)
+        assertEquals(1003L, result.items.first().property_id)
+    }
+
+    @Test
+    fun `search should filter by nearby attractions`() {
+        val result = searchService.search(
+            SearchRequest(
+                q = null,
+                city = "Busan",
+                check_in = null,
+                check_out = null,
+                adults = null,
+                children = null,
+                min_price = null,
+                max_price = null,
+                min_rating = null,
+                nearby_attractions = listOf(3001L),
+                sort = "distance",
+                cursor = null,
+                limit = 20,
+            ),
+        )
+
+        assertEquals(1, result.items.size)
+        assertEquals(1003L, result.items.first().property_id)
     }
 }

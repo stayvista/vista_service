@@ -52,7 +52,8 @@ ON DUPLICATE KEY UPDATE
 -- Properties (20,000 across KR/JP/CN/US/EU/SEA/ME/OCEANIA)
 INSERT INTO property(
   id, partner_id, name, country, city, district_name, address1, lat, lng, status,
-  rating, star_rating, location_rating, popularity_score, property_type_code, thumbnail_url
+  rating, star_rating, location_rating, popularity_score, property_type_code, thumbnail_url,
+  review_count, beach_distance_m, is_beachfront, kid_free_stay
 )
 WITH RECURSIVE seq(n) AS (
   SELECT 1
@@ -284,14 +285,39 @@ SELECT
   LEAST(5, GREATEST(2, FLOOR(3 + MOD(n, 3) + (MOD(n, 5) / 4)))),
   ROUND(3.2 + (MOD(n * 7, 15) / 10), 2),
   100 + MOD(n * 17, 900),
-  CASE MOD(n, 5)
+  CASE MOD(n, 18)
     WHEN 0 THEN 'hotel'
     WHEN 1 THEN 'resort'
-    WHEN 2 THEN 'boutique'
-    WHEN 3 THEN 'villa'
-    ELSE 'guesthouse'
+    WHEN 2 THEN 'guesthouse'
+    WHEN 3 THEN 'motel'
+    WHEN 4 THEN 'hostel'
+    WHEN 5 THEN 'apartment'
+    WHEN 6 THEN 'serviced_apartment'
+    WHEN 7 THEN 'homestay'
+    WHEN 8 THEN 'inn'
+    WHEN 9 THEN 'resort_villa'
+    WHEN 10 THEN 'pension'
+    WHEN 11 THEN 'private_house'
+    WHEN 12 THEN 'capsule_hotel'
+    WHEN 13 THEN 'holiday_park'
+    WHEN 14 THEN 'villa'
+    WHEN 15 THEN 'lodge'
+    WHEN 16 THEN 'bungalow'
+    ELSE 'boutique'
   END,
-  CONCAT('https://picsum.photos/seed/stayvista-property-', n, '/640/360')
+  CONCAT('https://picsum.photos/seed/stayvista-property-', n, '/640/360'),
+  500 + MOD(n * 37, 25000),
+  CASE
+    WHEN city_name IN ('Busan', 'Jeju', 'Bali', 'Sydney', 'Melbourne', 'Barcelona', 'Athens', 'Manila', 'Auckland')
+      THEN 80 + MOD(n * 19, 4800)
+    ELSE 12000 + MOD(n * 11, 60000)
+  END,
+  CASE
+    WHEN city_name IN ('Busan', 'Jeju', 'Bali', 'Sydney', 'Melbourne', 'Barcelona', 'Athens', 'Manila', 'Auckland')
+      AND MOD(n, 7) = 0 THEN 1
+    ELSE 0
+  END,
+  CASE WHEN MOD(n, 6) = 0 THEN 1 ELSE 0 END
 FROM name_parts
 ON DUPLICATE KEY UPDATE
   name = VALUES(name),
@@ -308,11 +334,15 @@ ON DUPLICATE KEY UPDATE
   popularity_score = VALUES(popularity_score),
   property_type_code = VALUES(property_type_code),
   thumbnail_url = VALUES(thumbnail_url),
+  review_count = VALUES(review_count),
+  beach_distance_m = VALUES(beach_distance_m),
+  is_beachfront = VALUES(is_beachfront),
+  kid_free_stay = VALUES(kid_free_stay),
   updated_at = NOW(3);
 
 -- Room types (60,000)
 INSERT INTO room_type(
-  id, property_id, name, capacity_adults, capacity_children, bed_type, view_type, refundable, status, base_price
+  id, property_id, name, capacity_adults, capacity_children, bed_type, view_type, refundable, status, base_price, bedrooms
 )
 WITH RECURSIVE property_seq(n) AS (
   SELECT 1
@@ -346,7 +376,12 @@ SELECT
   END,
   1,
   'ACTIVE',
-  90000 + (MOD(n * room_no, 8) * 15000)
+  90000 + (MOD(n * room_no, 8) * 15000),
+  CASE
+    WHEN room_no = 3 THEN 2
+    WHEN MOD(n, 9) = 0 THEN 3
+    ELSE 1
+  END
 FROM property_seq
 , room_seq
 ON DUPLICATE KEY UPDATE
@@ -358,6 +393,7 @@ ON DUPLICATE KEY UPDATE
   refundable = VALUES(refundable),
   status = VALUES(status),
   base_price = VALUES(base_price),
+  bedrooms = VALUES(bedrooms),
   updated_at = NOW(3);
 
 -- Taxonomy + relations for search facets
@@ -415,6 +451,27 @@ SELECT
 FROM property p
 WHERE p.id BETWEEN 100001 AND 100000 + @property_count;
 
+INSERT INTO property_theme(property_id, theme_code)
+SELECT p.id, 'group'
+FROM property p
+WHERE p.id BETWEEN 100001 AND 100000 + @property_count
+  AND MOD(p.id, 4) = 0
+ON DUPLICATE KEY UPDATE theme_code = VALUES(theme_code);
+
+INSERT INTO property_theme(property_id, theme_code)
+SELECT p.id, 'workation'
+FROM property p
+WHERE p.id BETWEEN 100001 AND 100000 + @property_count
+  AND MOD(p.id, 5) = 0
+ON DUPLICATE KEY UPDATE theme_code = VALUES(theme_code);
+
+INSERT INTO property_theme(property_id, theme_code)
+SELECT p.id, 'pet'
+FROM property p
+WHERE p.id BETWEEN 100001 AND 100000 + @property_count
+  AND MOD(p.id, 9) = 0
+ON DUPLICATE KEY UPDATE theme_code = VALUES(theme_code);
+
 DELETE FROM property_payment_option WHERE property_id BETWEEN 100001 AND 100000 + @property_count;
 INSERT INTO property_payment_option(property_id, payment_option_code)
 SELECT p.id, 'pay_now'
@@ -429,24 +486,37 @@ WHERE p.id BETWEEN 100001 AND 100000 + @property_count
 ON DUPLICATE KEY UPDATE payment_option_code = VALUES(payment_option_code);
 
 INSERT INTO property_payment_option(property_id, payment_option_code)
-SELECT p.id, 'pay_later'
+SELECT p.id, 'pay_at_property'
 FROM property p
 WHERE p.id BETWEEN 100001 AND 100000 + @property_count
   AND MOD(p.id, 4) IN (0, 1)
 ON DUPLICATE KEY UPDATE payment_option_code = VALUES(payment_option_code);
 
 INSERT INTO property_payment_option(property_id, payment_option_code)
-SELECT p.id, 'no_prepay'
+SELECT p.id, 'reserve_now_pay_later'
 FROM property p
 WHERE p.id BETWEEN 100001 AND 100000 + @property_count
   AND MOD(p.id, 5) IN (0, 2)
 ON DUPLICATE KEY UPDATE payment_option_code = VALUES(payment_option_code);
 
+INSERT INTO property_payment_option(property_id, payment_option_code)
+SELECT p.id, 'no_credit_card'
+FROM property p
+WHERE p.id BETWEEN 100001 AND 100000 + @property_count
+  AND MOD(p.id, 11) = 0
+ON DUPLICATE KEY UPDATE payment_option_code = VALUES(payment_option_code);
+
 DELETE FROM property_amenity WHERE property_id BETWEEN 100001 AND 100000 + @property_count;
+INSERT INTO property_amenity(property_id, amenity_code)
+SELECT p.id, 'internet'
+FROM property p
+WHERE p.id BETWEEN 100001 AND 100000 + @property_count;
+
 INSERT INTO property_amenity(property_id, amenity_code)
 SELECT p.id, 'wifi'
 FROM property p
-WHERE p.id BETWEEN 100001 AND 100000 + @property_count;
+WHERE p.id BETWEEN 100001 AND 100000 + @property_count
+ON DUPLICATE KEY UPDATE amenity_code = VALUES(amenity_code);
 
 INSERT INTO property_amenity(property_id, amenity_code)
 SELECT p.id, 'breakfast'
@@ -467,6 +537,71 @@ SELECT p.id, 'gym'
 FROM property p
 WHERE p.id BETWEEN 100001 AND 100000 + @property_count
   AND MOD(p.id, 4) = 0
+ON DUPLICATE KEY UPDATE amenity_code = VALUES(amenity_code);
+
+INSERT INTO property_amenity(property_id, amenity_code)
+SELECT p.id, 'frontdesk_24h'
+FROM property p
+WHERE p.id BETWEEN 100001 AND 100000 + @property_count
+  AND MOD(p.id, 3) <> 2
+ON DUPLICATE KEY UPDATE amenity_code = VALUES(amenity_code);
+
+INSERT INTO property_amenity(property_id, amenity_code)
+SELECT p.id, 'family_friendly'
+FROM property p
+WHERE p.id BETWEEN 100001 AND 100000 + @property_count
+  AND MOD(p.id, 4) IN (0, 1)
+ON DUPLICATE KEY UPDATE amenity_code = VALUES(amenity_code);
+
+INSERT INTO property_amenity(property_id, amenity_code)
+SELECT p.id, 'non_smoking'
+FROM property p
+WHERE p.id BETWEEN 100001 AND 100000 + @property_count
+  AND MOD(p.id, 5) <> 0
+ON DUPLICATE KEY UPDATE amenity_code = VALUES(amenity_code);
+
+INSERT INTO property_amenity(property_id, amenity_code)
+SELECT p.id, 'restaurant'
+FROM property p
+WHERE p.id BETWEEN 100001 AND 100000 + @property_count
+  AND MOD(p.id, 2) = 0
+ON DUPLICATE KEY UPDATE amenity_code = VALUES(amenity_code);
+
+INSERT INTO property_amenity(property_id, amenity_code)
+SELECT p.id, 'smoking_area'
+FROM property p
+WHERE p.id BETWEEN 100001 AND 100000 + @property_count
+  AND MOD(p.id, 6) IN (0, 1)
+ON DUPLICATE KEY UPDATE amenity_code = VALUES(amenity_code);
+
+INSERT INTO property_amenity(property_id, amenity_code)
+SELECT p.id, 'pet_friendly'
+FROM property p
+WHERE p.id BETWEEN 100001 AND 100000 + @property_count
+  AND MOD(p.id, 9) = 0
+ON DUPLICATE KEY UPDATE amenity_code = VALUES(amenity_code);
+
+INSERT INTO property_amenity(property_id, amenity_code)
+SELECT p.id, 'accessible'
+FROM property p
+WHERE p.id BETWEEN 100001 AND 100000 + @property_count
+  AND MOD(p.id, 8) IN (0, 1)
+ON DUPLICATE KEY UPDATE amenity_code = VALUES(amenity_code);
+
+INSERT INTO property_amenity(property_id, amenity_code)
+SELECT p.id, 'nightclub'
+FROM property p
+WHERE p.id BETWEEN 100001 AND 100000 + @property_count
+  AND p.city IN ('Seoul', 'Busan', 'Tokyo', 'Bangkok')
+  AND MOD(p.id, 11) < 2
+ON DUPLICATE KEY UPDATE amenity_code = VALUES(amenity_code);
+
+INSERT INTO property_amenity(property_id, amenity_code)
+SELECT p.id, 'golf_course'
+FROM property p
+WHERE p.id BETWEEN 100001 AND 100000 + @property_count
+  AND p.city IN ('Jeju', 'Seoul', 'Sydney', 'Melbourne')
+  AND MOD(p.id, 13) IN (0, 1)
 ON DUPLICATE KEY UPDATE amenity_code = VALUES(amenity_code);
 
 INSERT INTO property_amenity(property_id, amenity_code)
@@ -495,6 +630,154 @@ SELECT p.id, 'kitchen'
 FROM property p
 WHERE p.id BETWEEN 100001 AND 100000 + @property_count
   AND MOD(p.id, 4) = 1
+ON DUPLICATE KEY UPDATE amenity_code = VALUES(amenity_code);
+
+INSERT INTO property_amenity(property_id, amenity_code)
+SELECT p.id, 'fridge'
+FROM property p
+WHERE p.id BETWEEN 100001 AND 100000 + @property_count
+  AND MOD(p.id, 3) <> 0
+ON DUPLICATE KEY UPDATE amenity_code = VALUES(amenity_code);
+
+INSERT INTO property_amenity(property_id, amenity_code)
+SELECT p.id, 'air_conditioning'
+FROM property p
+WHERE p.id BETWEEN 100001 AND 100000 + @property_count
+  AND MOD(p.id, 4) <> 0
+ON DUPLICATE KEY UPDATE amenity_code = VALUES(amenity_code);
+
+INSERT INTO property_amenity(property_id, amenity_code)
+SELECT p.id, 'tv'
+FROM property p
+WHERE p.id BETWEEN 100001 AND 100000 + @property_count
+  AND MOD(p.id, 5) <> 1
+ON DUPLICATE KEY UPDATE amenity_code = VALUES(amenity_code);
+
+INSERT INTO property_amenity(property_id, amenity_code)
+SELECT p.id, 'heating'
+FROM property p
+WHERE p.id BETWEEN 100001 AND 100000 + @property_count
+ON DUPLICATE KEY UPDATE amenity_code = VALUES(amenity_code);
+
+INSERT INTO property_amenity(property_id, amenity_code)
+SELECT p.id, 'washer'
+FROM property p
+WHERE p.id BETWEEN 100001 AND 100000 + @property_count
+  AND MOD(p.id, 4) = 1
+ON DUPLICATE KEY UPDATE amenity_code = VALUES(amenity_code);
+
+INSERT INTO property_amenity(property_id, amenity_code)
+SELECT p.id, 'coffee_maker'
+FROM property p
+WHERE p.id BETWEEN 100001 AND 100000 + @property_count
+  AND MOD(p.id, 3) = 2
+ON DUPLICATE KEY UPDATE amenity_code = VALUES(amenity_code);
+
+INSERT INTO property_amenity(property_id, amenity_code)
+SELECT p.id, 'bathtub'
+FROM property p
+WHERE p.id BETWEEN 100001 AND 100000 + @property_count
+  AND MOD(p.id, 5) IN (0, 1, 2)
+ON DUPLICATE KEY UPDATE amenity_code = VALUES(amenity_code);
+
+INSERT INTO property_amenity(property_id, amenity_code)
+SELECT p.id, 'toiletries'
+FROM property p
+WHERE p.id BETWEEN 100001 AND 100000 + @property_count
+  AND MOD(p.id, 2) = 1
+ON DUPLICATE KEY UPDATE amenity_code = VALUES(amenity_code);
+
+INSERT INTO property_amenity(property_id, amenity_code)
+SELECT p.id, 'balcony'
+FROM property p
+WHERE p.id BETWEEN 100001 AND 100000 + @property_count
+  AND p.city IN ('Seoul', 'Busan', 'Jeju', 'Barcelona', 'Athens', 'Sydney', 'Melbourne')
+  AND MOD(p.id, 3) = 0
+ON DUPLICATE KEY UPDATE amenity_code = VALUES(amenity_code);
+
+INSERT INTO property_amenity(property_id, amenity_code)
+SELECT p.id, 'private_pool'
+FROM property p
+WHERE p.id BETWEEN 100001 AND 100000 + @property_count
+  AND p.city IN ('Jeju', 'Bali', 'Phuket', 'Dubai')
+  AND MOD(p.id, 17) = 0
+ON DUPLICATE KEY UPDATE amenity_code = VALUES(amenity_code);
+
+INSERT INTO property_amenity(property_id, amenity_code)
+SELECT p.id, 'food_delivery_external'
+FROM property p
+WHERE p.id BETWEEN 100001 AND 100000 + @property_count
+  AND MOD(p.id, 3) IN (0, 1)
+ON DUPLICATE KEY UPDATE amenity_code = VALUES(amenity_code);
+
+INSERT INTO property_amenity(property_id, amenity_code)
+SELECT p.id, 'family_delivery_allowed'
+FROM property p
+WHERE p.id BETWEEN 100001 AND 100000 + @property_count
+  AND MOD(p.id, 7) IN (0, 1, 2)
+ON DUPLICATE KEY UPDATE amenity_code = VALUES(amenity_code);
+
+INSERT INTO property_amenity(property_id, amenity_code)
+SELECT p.id, 'early_checkin'
+FROM property p
+WHERE p.id BETWEEN 100001 AND 100000 + @property_count
+  AND MOD(p.id, 6) IN (0, 1, 2)
+ON DUPLICATE KEY UPDATE amenity_code = VALUES(amenity_code);
+
+INSERT INTO property_amenity(property_id, amenity_code)
+SELECT p.id, 'espresso_machine'
+FROM property p
+WHERE p.id BETWEEN 100001 AND 100000 + @property_count
+  AND MOD(p.id, 8) IN (0, 1)
+ON DUPLICATE KEY UPDATE amenity_code = VALUES(amenity_code);
+
+INSERT INTO property_amenity(property_id, amenity_code)
+SELECT p.id, 'late_checkout'
+FROM property p
+WHERE p.id BETWEEN 100001 AND 100000 + @property_count
+  AND MOD(p.id, 5) IN (0, 1)
+ON DUPLICATE KEY UPDATE amenity_code = VALUES(amenity_code);
+
+INSERT INTO property_amenity(property_id, amenity_code)
+SELECT p.id, 'convenience_delivery'
+FROM property p
+WHERE p.id BETWEEN 100001 AND 100000 + @property_count
+  AND MOD(p.id, 5) IN (1, 2, 3)
+ON DUPLICATE KEY UPDATE amenity_code = VALUES(amenity_code);
+
+INSERT INTO property_amenity(property_id, amenity_code)
+SELECT p.id, 'free_snack'
+FROM property p
+WHERE p.id BETWEEN 100001 AND 100000 + @property_count
+  AND MOD(p.id, 4) = 0
+ON DUPLICATE KEY UPDATE amenity_code = VALUES(amenity_code);
+
+INSERT INTO property_amenity(property_id, amenity_code)
+SELECT p.id, 'airport_transfer'
+FROM property p
+WHERE p.id BETWEEN 100001 AND 100000 + @property_count
+  AND MOD(p.id, 4) IN (0, 2)
+ON DUPLICATE KEY UPDATE amenity_code = VALUES(amenity_code);
+
+INSERT INTO property_amenity(property_id, amenity_code)
+SELECT p.id, 'treadmill'
+FROM property p
+WHERE p.id BETWEEN 100001 AND 100000 + @property_count
+  AND MOD(p.id, 9) IN (0, 1, 2)
+ON DUPLICATE KEY UPDATE amenity_code = VALUES(amenity_code);
+
+INSERT INTO property_amenity(property_id, amenity_code)
+SELECT p.id, 'dinner_included'
+FROM property p
+WHERE p.id BETWEEN 100001 AND 100000 + @property_count
+  AND MOD(p.id, 6) IN (0, 1)
+ON DUPLICATE KEY UPDATE amenity_code = VALUES(amenity_code);
+
+INSERT INTO property_amenity(property_id, amenity_code)
+SELECT p.id, 'afternoon_tea'
+FROM property p
+WHERE p.id BETWEEN 100001 AND 100000 + @property_count
+  AND MOD(p.id, 10) IN (0, 1, 2)
 ON DUPLICATE KEY UPDATE amenity_code = VALUES(amenity_code);
 
 -- Hot-key inventory scenario: one room_type has 365-day inventory total=1000
@@ -781,6 +1064,24 @@ ON DUPLICATE KEY UPDATE
   popularity_score = VALUES(popularity_score),
   rating_score = VALUES(rating_score),
   active = VALUES(active);
+
+DELETE FROM city_poi_popular WHERE city = 'Busan';
+INSERT INTO city_poi_popular(city, poi_id, rank_score)
+SELECT city, id, popularity_score
+FROM (
+  SELECT
+    poi.city,
+    poi.id,
+    poi.popularity_score,
+    ROW_NUMBER() OVER (
+      PARTITION BY poi.city
+      ORDER BY poi.popularity_score DESC, poi.rating_score DESC, poi.id ASC
+    ) AS rn
+  FROM poi
+  WHERE active = 1
+    AND poi.city = 'Busan'
+) ranked
+WHERE rn <= 36;
 
 -- Curated district naming for KR cities (for server-driven facets/recommendations)
 UPDATE property

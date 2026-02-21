@@ -2632,6 +2632,15 @@ button:disabled {
   grid-template-columns: 1.25fr 1fr 1fr auto;
 }
 
+.stay-search-form .search-cta,
+.alt-search-form .search-cta {
+  grid-column: auto;
+  justify-self: stretch;
+  width: 100%;
+  min-width: 132px;
+  align-self: stretch;
+}
+
 .search-place-input,
 .guests-picker,
 .date-picker {
@@ -2927,6 +2936,9 @@ button:disabled {
   gap: 10px;
   position: sticky;
   top: 112px;
+  max-height: calc(100vh - 124px);
+  overflow: auto;
+  padding-right: 4px;
 }
 
 .filter-section {
@@ -2985,6 +2997,17 @@ button:disabled {
   font-style: normal;
   color: #6280a7;
   font-size: 0.78rem;
+}
+
+.district-facet-list li {
+  display: grid;
+  gap: 4px;
+}
+
+.district-facet-list li small {
+  color: #6a80a1;
+  font-size: 0.76rem;
+  padding-left: 26px;
 }
 
 .copilot-explanation {
@@ -3129,6 +3152,9 @@ button:disabled {
 
   .search-filters-panel {
     position: static;
+    max-height: none;
+    overflow: visible;
+    padding-right: 0;
   }
 
   .search-results-grid,

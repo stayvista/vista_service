@@ -16,13 +16,16 @@ class DestinationRecommendationService(
         limit: Int,
     ): DestinationRecommendationData {
         val city = resolveCity(cityId, placeId)
+        val country = resolveCountry(city)
         val normalizedLimit = limit.coerceIn(4, 24)
         return DestinationRecommendationData(
             city = city,
+            country = country,
             lang = lang,
             districts = loadDistricts(city, normalizedLimit),
             pois = loadPois(city, normalizedLimit),
             featured_properties = loadFeaturedProperties(city, normalizedLimit),
+            country_popular_cities = loadCountryPopularCities(country, city, normalizedLimit),
         )
     }
 
@@ -40,6 +43,32 @@ class DestinationRecommendationService(
             return parsed.canonicalId
         }
         return "Seoul"
+    }
+
+    private fun resolveCountry(city: String): String {
+        val fromProperty = jdbcTemplate.query(
+            """
+            SELECT country
+            FROM property
+            WHERE city = ?
+              AND status = 'ACTIVE'
+              AND country IS NOT NULL
+              AND country <> ''
+            LIMIT 1
+            """.trimIndent(),
+            { rs, _ -> rs.getString("country") },
+            city,
+        ).firstOrNull()
+
+        if (!fromProperty.isNullOrBlank()) {
+            return fromProperty
+        }
+
+        return when (city) {
+            "Seoul", "Busan", "Jeju" -> "KR"
+            "Tokyo", "Osaka", "Kyoto" -> "JP"
+            else -> "KR"
+        }
     }
 
     private fun loadDistricts(city: String, limit: Int): List<DistrictRecommendation> {
@@ -188,14 +217,84 @@ class DestinationRecommendationService(
             limit,
         )
     }
+
+    private fun loadCountryPopularCities(country: String, city: String, limit: Int): List<PopularCityRecommendation> {
+        val candidates = jdbcTemplate.query(
+            """
+            SELECT p.city, COUNT(*) AS cnt
+            FROM property p
+            WHERE p.status = 'ACTIVE'
+              AND p.country = ?
+            GROUP BY p.city
+            ORDER BY cnt DESC, p.city ASC
+            LIMIT ?
+            """.trimIndent(),
+            { rs, _ ->
+                val cityName = rs.getString("city")
+                PopularCityRecommendation(
+                    city = cityName,
+                    country = country,
+                    property_count = rs.getInt("cnt"),
+                    highlights = cityHighlights(cityName),
+                )
+            },
+            country,
+            limit + 2,
+        ).filter { it.city != city }
+            .take(limit)
+
+        if (candidates.isNotEmpty()) {
+            return candidates
+        }
+
+        return listOf(
+            PopularCityRecommendation("Seoul", "KR", 0, "쇼핑, 레스토랑"),
+            PopularCityRecommendation("Busan", "KR", 0, "해변, 레스토랑"),
+            PopularCityRecommendation("Jeju", "KR", 0, "자연경관, 해변"),
+        )
+    }
+
+    private fun cityHighlights(city: String): String {
+        val categories = jdbcTemplate.query(
+            """
+            SELECT category, COUNT(*) AS cnt
+            FROM poi
+            WHERE city = ?
+              AND active = 1
+              AND category IS NOT NULL
+              AND category <> ''
+            GROUP BY category
+            ORDER BY cnt DESC, category ASC
+            LIMIT 2
+            """.trimIndent(),
+            { rs, _ -> rs.getString("category") },
+            city,
+        )
+        if (categories.isEmpty()) {
+            return "인기 여행지"
+        }
+        return categories.joinToString(", ") { categoryLabel(it) }
+    }
+
+    private fun categoryLabel(code: String): String {
+        return when (code.lowercase()) {
+            "food" -> "레스토랑"
+            "shopping" -> "쇼핑"
+            "museum" -> "관광"
+            "attraction" -> "관광"
+            else -> code
+        }
+    }
 }
 
 data class DestinationRecommendationData(
     val city: String,
+    val country: String,
     val lang: String,
     val districts: List<DistrictRecommendation>,
     val pois: List<PoiRecommendation>,
     val featured_properties: List<FeaturedPropertyRecommendation>,
+    val country_popular_cities: List<PopularCityRecommendation>,
 )
 
 data class DistrictRecommendation(
@@ -218,4 +317,11 @@ data class FeaturedPropertyRecommendation(
     val thumb: String?,
     val stars: Int,
     val rank: Int,
+)
+
+data class PopularCityRecommendation(
+    val city: String,
+    val country: String,
+    val property_count: Int,
+    val highlights: String,
 )

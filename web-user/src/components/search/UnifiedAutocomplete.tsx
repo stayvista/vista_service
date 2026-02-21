@@ -17,15 +17,24 @@ type AutocompleteResponse = {
 
 type DestinationRecommendationResponse = {
   city: string;
+  country: string;
   districts: Array<{ id: number; name: string; blurb?: string }>;
   pois: Array<{ poi_id: number; name: string; category: string }>;
   featured_properties: Array<{ property_id: number; name: string; stars: number }>;
+  country_popular_cities: Array<{ city: string; country: string; property_count: number; highlights: string }>;
 };
 
 type Section = {
   key: string;
   title: string;
   rows: PlaceSuggestion[];
+};
+
+type RecommendationRows = {
+  districtRows: PlaceSuggestion[];
+  poiRows: PlaceSuggestion[];
+  featuredRows: PlaceSuggestion[];
+  countryCityRows: PlaceSuggestion[];
 };
 
 type Props = {
@@ -130,10 +139,12 @@ export function UnifiedAutocomplete({
         ]);
 
         const autocompleteRows = autocompleteRes.items.map((item) => autocompleteItemToRow(item));
-        const recommendationRows = recommendationRes ? recommendationToRows(recommendationRes) : [];
+        const recommendationRows = recommendationRes
+          ? recommendationToRows(recommendationRes)
+          : { districtRows: [], poiRows: [], featuredRows: [], countryCityRows: [] };
         const nextSections = input
           ? buildTypedSections(autocompleteRows)
-          : buildEmptySections(autocompleteRows, recommendationRows, loadLocalRecent());
+          : buildEmptySections(autocompleteRows, recommendationRows, loadLocalRecent(), recommendationRes?.country);
 
         setSections(nextSections);
         const nextFlatRows = nextSections.flatMap((section) => section.rows);
@@ -284,8 +295,8 @@ function autocompleteItemToRow(item: AutocompleteItem): PlaceSuggestion {
   };
 }
 
-function recommendationToRows(data: DestinationRecommendationResponse): PlaceSuggestion[] {
-  const districtRows = data.districts.map((district) => ({
+function recommendationToRows(data: DestinationRecommendationResponse): RecommendationRows {
+  const districtRows: PlaceSuggestion[] = data.districts.map((district) => ({
     id: `district:${data.city}:${district.id}`,
     placeId: `city:${data.city}`,
     type: "DISTRICT",
@@ -296,7 +307,7 @@ function recommendationToRows(data: DestinationRecommendationResponse): PlaceSug
     district: district.name,
   }));
 
-  const poiRows = data.pois.map((poi) => ({
+  const poiRows: PlaceSuggestion[] = data.pois.map((poi) => ({
     id: `poi:${poi.poi_id}`,
     placeId: `poi:${poi.poi_id}`,
     type: "POI",
@@ -306,7 +317,7 @@ function recommendationToRows(data: DestinationRecommendationResponse): PlaceSug
     city: data.city,
   }));
 
-  const featuredRows = data.featured_properties.map((property) => ({
+  const featuredRows: PlaceSuggestion[] = data.featured_properties.map((property) => ({
     id: `property:${property.property_id}`,
     placeId: `property:${property.property_id}`,
     type: "PROPERTY",
@@ -316,7 +327,22 @@ function recommendationToRows(data: DestinationRecommendationResponse): PlaceSug
     city: data.city,
   }));
 
-  return dedupeRows([...districtRows, ...poiRows, ...featuredRows]);
+  const countryCityRows: PlaceSuggestion[] = data.country_popular_cities.map((city) => ({
+    id: `country-city:${city.country}:${city.city}`,
+    placeId: `city:${city.city}`,
+    type: "CITY",
+    display: city.city,
+    subtitle: city.highlights || `${city.country} 인기 도시`,
+    bucket: "country_popular",
+    city: city.city,
+  }));
+
+  return {
+    districtRows: dedupeRows(districtRows),
+    poiRows: dedupeRows(poiRows),
+    featuredRows: dedupeRows(featuredRows),
+    countryCityRows: dedupeRows(countryCityRows),
+  };
 }
 
 function buildTypedSections(rows: PlaceSuggestion[]): Section[] {
@@ -340,20 +366,23 @@ function buildTypedSections(rows: PlaceSuggestion[]): Section[] {
 
 function buildEmptySections(
   autocompleteRows: PlaceSuggestion[],
-  recommendationRows: PlaceSuggestion[],
+  recommendationRows: RecommendationRows,
   localRecentRows: PlaceSuggestion[],
+  countryCode?: string,
 ): Section[] {
   const recentRows = dedupeRows([
     ...localRecentRows,
     ...autocompleteRows.filter((row) => row.bucket === "recent"),
   ]).slice(0, 6);
 
-  const recommendedDistrictRows = recommendationRows.filter((row) => row.type === "DISTRICT").slice(0, 6);
-  const poiRows = recommendationRows.filter((row) => row.type === "POI").slice(0, 6);
-  const featuredRows = recommendationRows.filter((row) => row.type === "PROPERTY").slice(0, 6);
-  const popularCityRows = dedupeRows(
-    autocompleteRows.filter((row) => row.type === "CITY" && row.bucket !== "recent"),
+  const recommendedDistrictRows = recommendationRows.districtRows.slice(0, 6);
+  const poiRows = recommendationRows.poiRows.slice(0, 6);
+  const featuredRows = recommendationRows.featuredRows.slice(0, 6);
+  const countryPopularCityRows = recommendationRows.countryCityRows.slice(0, 8);
+  const fallbackPopularCities = dedupeRows(
+    autocompleteRows.filter((row) => row.type === "CITY" && row.bucket !== "recent" && row.bucket !== "country_popular"),
   ).slice(0, 6);
+  const popularCityRows = countryPopularCityRows.length > 0 ? countryPopularCityRows : fallbackPopularCities;
 
   const sections: Section[] = [];
   if (recentRows.length) {
@@ -369,7 +398,7 @@ function buildEmptySections(
     sections.push({ key: "featured", title: "숙소", rows: featuredRows });
   }
   if (popularCityRows.length) {
-    sections.push({ key: "city", title: "인기 도시", rows: popularCityRows });
+    sections.push({ key: "city", title: `${countryLabel(countryCode)} 인기 도시`, rows: popularCityRows });
   }
   return sections;
 }
@@ -409,6 +438,23 @@ function inferCity(placeId?: string, subtitle?: string): string | undefined {
   }
   const city = subtitle.split("·")[0]?.trim();
   return city || undefined;
+}
+
+function countryLabel(country?: string): string {
+  switch ((country ?? "").toUpperCase()) {
+    case "KR":
+      return "대한민국";
+    case "JP":
+      return "일본";
+    case "US":
+      return "미국";
+    case "GB":
+      return "영국";
+    case "FR":
+      return "프랑스";
+    default:
+      return "해당 국가";
+  }
 }
 
 function loadLocalRecent(): PlaceSuggestion[] {

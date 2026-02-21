@@ -16,6 +16,7 @@ type SearchItem = {
   rating: number;
   location_rating?: number;
   star_rating?: number;
+  review_count?: number;
   distance_m?: number;
   thumbnail_url?: string | null;
 };
@@ -39,11 +40,19 @@ type SearchFacetData = {
   districts: Array<{ id: number; name: string; blurb?: string; count: number }>;
   nearby_attractions: Array<{ poi_id: number; name: string; count: number }>;
   brands: FacetCountItem[];
+  amenity_groups: Array<{ group: string; items: FacetCountItem[] }>;
   stars: FacetCountItem[];
   property_types: FacetCountItem[];
   payment_options: FacetCountItem[];
   themes: FacetCountItem[];
   amenities: FacetCountItem[];
+  guest_rating_bands: FacetCountItem[];
+  location_rating_bands: FacetCountItem[];
+  distance_bands: FacetCountItem[];
+  bed_types: FacetCountItem[];
+  bedrooms: FacetCountItem[];
+  family_options: FacetCountItem[];
+  beach_options: FacetCountItem[];
 };
 
 type SearchResponse = {
@@ -77,6 +86,13 @@ const MULTI_VALUE_FILTERS = new Set([
   "payment_options",
   "themes",
   "brands",
+  "nearby_attractions",
+  "bed_types",
+  "guest_rating_bands",
+  "location_rating_bands",
+  "distance_bands",
+  "family_options",
+  "beach_options",
 ]);
 
 const CLEARABLE_FILTER_KEYS = [
@@ -93,6 +109,14 @@ const CLEARABLE_FILTER_KEYS = [
   "payment_options",
   "themes",
   "brands",
+  "nearby_attractions",
+  "bed_types",
+  "guest_rating_bands",
+  "location_rating_bands",
+  "distance_bands",
+  "family_options",
+  "beach_options",
+  "bedrooms",
   "sort",
   "page",
   "size",
@@ -276,6 +300,38 @@ export function SearchPage() {
     return () => window.clearTimeout(timer);
   }, [facets, items, params]);
 
+  const facetLabelMap = useMemo(() => {
+    const map = new Map<string, string>();
+    const register = (param: string, rows: FacetCountItem[] = []) => {
+      rows.forEach((row) => {
+        map.set(`${param}:${row.key}`, row.label);
+      });
+    };
+
+    if (facets) {
+      register("stars", facets.stars);
+      register("property_type", facets.property_types);
+      register("amenities", facets.amenities);
+      register("brands", facets.brands);
+      register("payment_options", facets.payment_options);
+      register("themes", facets.themes);
+      register("guest_rating_bands", facets.guest_rating_bands);
+      register("location_rating_bands", facets.location_rating_bands);
+      register("distance_bands", facets.distance_bands);
+      register("bed_types", facets.bed_types);
+      register("bedrooms", facets.bedrooms);
+      register("family_options", facets.family_options);
+      register("beach_options", facets.beach_options);
+      facets.districts.forEach((district) => {
+        map.set(`districts:${district.name}`, district.name);
+      });
+      facets.nearby_attractions.forEach((poi) => {
+        map.set(`nearby_attractions:${poi.poi_id}`, poi.name);
+      });
+    }
+    return map;
+  }, [facets]);
+
   const activeFilterChips = useMemo(() => {
     const chips: Array<{ key: string; value?: string; label: string }> = [];
 
@@ -290,6 +346,7 @@ export function SearchPage() {
       ["min_guest_rating", "게스트 평점"],
       ["min_location_rating", "위치 평점"],
       ["max_distance_m", "중심지 거리"],
+      ["bedrooms", "침실 수"],
       ["sort", "정렬"],
     ];
 
@@ -301,20 +358,47 @@ export function SearchPage() {
       chips.push({ key, label: `${label}: ${value}` });
     });
 
-    ["stars", "property_type", "districts", "amenities", "brands", "payment_options", "themes"].forEach((key) => {
+    [
+      "stars",
+      "property_type",
+      "districts",
+      "amenities",
+      "brands",
+      "payment_options",
+      "themes",
+      "nearby_attractions",
+      "bed_types",
+      "guest_rating_bands",
+      "location_rating_bands",
+      "distance_bands",
+      "family_options",
+      "beach_options",
+    ].forEach((key) => {
       const values = parseCsvValues(params.get(key));
       values.forEach((value) => {
-        chips.push({ key, value, label: `${key}: ${value}` });
+        const facetLabel = facetLabelMap.get(`${key}:${value}`) ?? value;
+        chips.push({ key, value, label: `${labelForFilterKey(key)}: ${facetLabel}` });
       });
     });
 
     return chips;
-  }, [params]);
+  }, [facetLabelMap, params]);
 
   const page = Number(params.get("page") ?? "1") || 1;
   const size = Number(params.get("size") ?? "20") || 20;
   const total = meta?.total ?? items.length;
   const hasMore = page * size < total;
+  const amenityGroupMap = useMemo(() => {
+    const map = new Map<string, FacetCountItem[]>();
+    (facets?.amenity_groups ?? []).forEach((group) => {
+      map.set(group.group, group.items ?? []);
+    });
+    return map;
+  }, [facets]);
+
+  const serviceOptionAmenities = amenityGroupMap.get("service_option") ?? [];
+  const propertyFacilityAmenities = amenityGroupMap.get("property_facility") ?? [];
+  const roomFacilityAmenities = amenityGroupMap.get("room_facility") ?? [];
 
   function updateParams(
     mutate: (next: URLSearchParams) => void,
@@ -474,7 +558,7 @@ export function SearchPage() {
           </section>
 
           <section className="filter-section">
-            <h3>빠른 필터</h3>
+            <h3>도시 인기 검색 조건</h3>
             <div className="filter-chip-wrap">
               {facets?.popular_filters?.map((preset) => (
                 <button
@@ -570,56 +654,125 @@ export function SearchPage() {
           </section>
 
           <FacetCheckGroup
-            title="성급"
-            paramName="stars"
-            items={facets?.stars ?? []}
-            selected={parseCsvValues(params.get("stars"))}
-            onToggle={toggleMulti}
-          />
-          <FacetCheckGroup
-            title="숙소 유형"
+            title="숙소 종류"
             paramName="property_type"
             items={facets?.property_types ?? []}
             selected={parseCsvValues(params.get("property_type"))}
             onToggle={toggleMulti}
           />
-          <FacetCheckGroup
+          <FacetDistrictGroup
             title="지역"
-            paramName="districts"
-            items={(facets?.districts ?? []).map((district) => ({
-              key: district.name,
-              label: district.name,
-              count: district.count,
-            }))}
+            districts={facets?.districts ?? []}
             selected={parseCsvValues(params.get("districts"))}
             onToggle={toggleMulti}
           />
           <FacetCheckGroup
-            title="편의시설"
-            paramName="amenities"
-            items={facets?.amenities ?? []}
-            selected={parseCsvValues(params.get("amenities"))}
-            onToggle={toggleMulti}
-          />
-          <FacetCheckGroup
-            title="브랜드"
-            paramName="brands"
-            items={facets?.brands ?? []}
-            selected={parseCsvValues(params.get("brands"))}
-            onToggle={toggleMulti}
-          />
-          <FacetCheckGroup
-            title="결제옵션"
+            title="결제 관련 옵션"
             paramName="payment_options"
             items={facets?.payment_options ?? []}
             selected={parseCsvValues(params.get("payment_options"))}
             onToggle={toggleMulti}
           />
           <FacetCheckGroup
-            title="테마"
+            title="숙소 성급"
+            paramName="stars"
+            items={facets?.stars ?? []}
+            selected={parseCsvValues(params.get("stars"))}
+            onToggle={toggleMulti}
+          />
+          <FacetCheckGroup
+            title="이용 가능 서비스/옵션"
+            paramName="amenities"
+            items={serviceOptionAmenities}
+            selected={parseCsvValues(params.get("amenities"))}
+            onToggle={toggleMulti}
+          />
+          <FacetCheckGroup
+            title="숙소 편의 시설 및 서비스"
+            paramName="amenities"
+            items={propertyFacilityAmenities}
+            selected={parseCsvValues(params.get("amenities"))}
+            onToggle={toggleMulti}
+          />
+          <FacetCheckGroup
+            title="투숙객 평가 점수"
+            paramName="guest_rating_bands"
+            items={facets?.guest_rating_bands ?? []}
+            selected={parseCsvValues(params.get("guest_rating_bands"))}
+            onToggle={toggleMulti}
+          />
+          <FacetCheckGroup
+            title="객실 편의 시설/서비스"
+            paramName="amenities"
+            items={roomFacilityAmenities}
+            selected={parseCsvValues(params.get("amenities"))}
+            onToggle={toggleMulti}
+          />
+          <FacetCheckGroup
+            title="도심까지의 거리"
+            paramName="distance_bands"
+            items={facets?.distance_bands ?? []}
+            selected={parseCsvValues(params.get("distance_bands"))}
+            onToggle={toggleMulti}
+          />
+          <FacetCheckGroup
+            title="침대 종류"
+            paramName="bed_types"
+            items={facets?.bed_types ?? []}
+            selected={parseCsvValues(params.get("bed_types"))}
+            onToggle={toggleMulti}
+          />
+          <FacetCheckGroup
+            title="가족 여행객에 인기 옵션"
+            paramName="family_options"
+            items={facets?.family_options ?? []}
+            selected={parseCsvValues(params.get("family_options"))}
+            onToggle={toggleMulti}
+          />
+          <FacetCheckGroup
+            title="숙소 위치 평가"
+            paramName="location_rating_bands"
+            items={facets?.location_rating_bands ?? []}
+            selected={parseCsvValues(params.get("location_rating_bands"))}
+            onToggle={toggleMulti}
+          />
+          <FacetCheckGroup
+            title="여행 테마"
             paramName="themes"
             items={facets?.themes ?? []}
             selected={parseCsvValues(params.get("themes"))}
+            onToggle={toggleMulti}
+          />
+          <FacetCheckGroup
+            title="주변 인기 명소"
+            paramName="nearby_attractions"
+            items={(facets?.nearby_attractions ?? []).map((poi) => ({
+              key: String(poi.poi_id),
+              label: poi.name,
+              count: poi.count,
+            }))}
+            selected={parseCsvValues(params.get("nearby_attractions"))}
+            onToggle={toggleMulti}
+          />
+          <FacetSingleSelectGroup
+            title="침실 수"
+            paramName="bedrooms"
+            items={facets?.bedrooms ?? []}
+            value={params.get("bedrooms") ?? ""}
+            onChange={upsertSingle}
+          />
+          <FacetCheckGroup
+            title="해변 근처"
+            paramName="beach_options"
+            items={facets?.beach_options ?? []}
+            selected={parseCsvValues(params.get("beach_options"))}
+            onToggle={toggleMulti}
+          />
+          <FacetCheckGroup
+            title="인기 호텔 브랜드"
+            paramName="brands"
+            items={facets?.brands ?? []}
+            selected={parseCsvValues(params.get("brands"))}
             onToggle={toggleMulti}
           />
         </aside>
@@ -681,6 +834,9 @@ export function SearchPage() {
                     <div className="badge-row">
                       <span className="price-badge">최저가 {item.price_min.toLocaleString()} {item.currency ?? locale.currency}</span>
                       <span className="rating-badge">★ {item.rating.toFixed(1)}</span>
+                      {typeof item.review_count === "number" && item.review_count > 0 && (
+                        <span className="rating-badge">리뷰 {item.review_count.toLocaleString()}</span>
+                      )}
                       {typeof item.location_rating === "number" && item.location_rating > 0 && (
                         <span className="rating-badge">위치 {item.location_rating.toFixed(1)}</span>
                       )}
@@ -751,6 +907,116 @@ function FacetCheckGroup({ title, paramName, items, selected, onToggle }: FacetC
       </ul>
     </section>
   );
+}
+
+type FacetDistrictGroupProps = {
+  title: string;
+  districts: Array<{ id: number; name: string; blurb?: string; count: number }>;
+  selected: string[];
+  onToggle: (name: string, value: string, checked: boolean) => void;
+};
+
+function FacetDistrictGroup({ title, districts, selected, onToggle }: FacetDistrictGroupProps) {
+  if (!districts.length) {
+    return null;
+  }
+  return (
+    <section className="filter-section">
+      <h3>{title}</h3>
+      <ul className="facet-check-list district-facet-list">
+        {districts.slice(0, 14).map((district) => {
+          const checked = selected.includes(district.name);
+          return (
+            <li key={`district:${district.id}`}>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  onChange={(event) => onToggle("districts", district.name, event.target.checked)}
+                />
+                <span>{district.name}</span>
+                <em>{district.count}</em>
+              </label>
+              {district.blurb && <small>{district.blurb}</small>}
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
+}
+
+type FacetSingleSelectGroupProps = {
+  title: string;
+  paramName: string;
+  items: FacetCountItem[];
+  value: string;
+  onChange: (name: string, value: string) => void;
+};
+
+function FacetSingleSelectGroup({ title, paramName, items, value, onChange }: FacetSingleSelectGroupProps) {
+  if (!items.length) {
+    return null;
+  }
+  return (
+    <section className="filter-section">
+      <h3>{title}</h3>
+      <div className="filter-chip-wrap">
+        <button
+          type="button"
+          className={value ? "chip-btn" : "chip-btn active"}
+          onClick={() => onChange(paramName, "")}
+        >
+          전체
+        </button>
+        {items.slice(0, 8).map((item) => (
+          <button
+            key={`${paramName}:${item.key}`}
+            type="button"
+            className={value === item.key ? "chip-btn active" : "chip-btn"}
+            onClick={() => onChange(paramName, item.key)}
+          >
+            {item.label} ({item.count})
+          </button>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function labelForFilterKey(key: string): string {
+  switch (key) {
+    case "stars":
+      return "성급";
+    case "amenities":
+      return "편의시설";
+    case "property_type":
+      return "숙소 종류";
+    case "districts":
+      return "지역";
+    case "payment_options":
+      return "결제 옵션";
+    case "themes":
+      return "여행 테마";
+    case "brands":
+      return "브랜드";
+    case "nearby_attractions":
+      return "주변 명소";
+    case "bed_types":
+      return "침대 종류";
+    case "guest_rating_bands":
+      return "투숙객 평점";
+    case "location_rating_bands":
+      return "숙소 위치 평가";
+    case "distance_bands":
+      return "도심 거리";
+    case "family_options":
+      return "가족 옵션";
+    case "beach_options":
+      return "해변 근처";
+    default:
+      return key;
+  }
 }
 
 function parseCsvValues(raw: string | null): string[] {

@@ -41,6 +41,10 @@ class SearchServiceOpenSearchFallbackTest {
               location_rating DECIMAL(3,2) DEFAULT 0,
               popularity_score INT DEFAULT 0,
               property_type_code VARCHAR(40),
+              review_count INT DEFAULT 0,
+              beach_distance_m INT NULL,
+              is_beachfront TINYINT(1) DEFAULT 0,
+              kid_free_stay TINYINT(1) DEFAULT 0,
               status VARCHAR(20) NOT NULL,
               rating DECIMAL(3,2),
               thumbnail_url VARCHAR(255),
@@ -65,8 +69,8 @@ class SearchServiceOpenSearchFallbackTest {
 
         jdbcTemplate.update(
             """
-            INSERT INTO property(id, name, city, district_name, star_rating, location_rating, popularity_score, property_type_code, status, rating, thumbnail_url, lat, lng)
-            VALUES (1101, 'Global Skyline Dubai Hotel', 'Dubai', 'Marina', 5, 4.4, 780, 'hotel', 'ACTIVE', 4.6, 'https://img/dubai', 25.2048, 55.2708)
+            INSERT INTO property(id, name, city, district_name, star_rating, location_rating, popularity_score, property_type_code, review_count, beach_distance_m, is_beachfront, kid_free_stay, status, rating, thumbnail_url, lat, lng)
+            VALUES (1101, 'Global Skyline Dubai Hotel', 'Dubai', 'Marina', 5, 4.4, 780, 'hotel', 760, 18000, 0, 0, 'ACTIVE', 4.6, 'https://img/dubai', 25.2048, 55.2708)
             """.trimIndent(),
         )
         jdbcTemplate.update(

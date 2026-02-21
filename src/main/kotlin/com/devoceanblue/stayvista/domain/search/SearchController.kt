@@ -43,6 +43,12 @@ class SearchController(
         @RequestParam(required = false) brands: String?,
         @RequestParam(required = false) bed_types: String?,
         @RequestParam(required = false) bedrooms: Int?,
+        @RequestParam(required = false) nearby_attractions: String?,
+        @RequestParam(required = false) guest_rating_bands: String?,
+        @RequestParam(required = false) location_rating_bands: String?,
+        @RequestParam(required = false) distance_bands: String?,
+        @RequestParam(required = false) family_options: String?,
+        @RequestParam(required = false) beach_options: String?,
         @RequestParam(required = false) sort: String?,
         @RequestParam(required = false) @Min(1) page: Int?,
         @RequestParam(required = false) @Min(1) @Max(50) size: Int?,
@@ -76,6 +82,12 @@ class SearchController(
                 brands = parseStringList(brands),
                 bed_types = parseStringList(bed_types),
                 bedrooms = bedrooms,
+                nearby_attractions = parseLongList(nearby_attractions),
+                guest_rating_bands = parseStringList(guest_rating_bands),
+                location_rating_bands = parseStringList(location_rating_bands),
+                distance_bands = parseStringList(distance_bands),
+                family_options = parseStringList(family_options),
+                beach_options = parseStringList(beach_options),
                 sort = sort,
                 page = page,
                 size = size,
@@ -111,5 +123,13 @@ class SearchController(
         }
         return raw.split(",")
             .mapNotNull { it.trim().toIntOrNull() }
+    }
+
+    private fun parseLongList(raw: String?): List<Long> {
+        if (raw.isNullOrBlank()) {
+            return emptyList()
+        }
+        return raw.split(",")
+            .mapNotNull { it.trim().toLongOrNull() }
     }
 }

@@ -81,6 +81,36 @@ class SearchCopilotService(
                 )
             }
         }
+        if (!current.containsKey("guest_rating_bands")) {
+            firstFacetValue(facets, "guest_rating_bands")?.let { facet ->
+                suggestions += SearchCopilotFilter(
+                    key = "guest_rating_bands",
+                    value = facet.key,
+                    label = "투숙객 평점 ${facet.label}",
+                    reason = "후기 만족도가 높은 숙소만 우선 보도록 돕습니다.",
+                )
+            }
+        }
+        if (!current.containsKey("distance_bands")) {
+            firstFacetValue(facets, "distance_bands")?.let { facet ->
+                suggestions += SearchCopilotFilter(
+                    key = "distance_bands",
+                    value = facet.key,
+                    label = facet.label,
+                    reason = "도심 접근성을 우선시한 추천입니다.",
+                )
+            }
+        }
+        if (!current.containsKey("payment_options")) {
+            firstFacetValue(facets, "payment_options")?.let { facet ->
+                suggestions += SearchCopilotFilter(
+                    key = "payment_options",
+                    value = facet.key,
+                    label = facet.label,
+                    reason = "결제/취소 정책을 먼저 고르면 비교가 빨라집니다.",
+                )
+            }
+        }
 
         val limited = suggestions.take(4)
         val explanation = if (limited.isEmpty()) {
