@@ -20,9 +20,10 @@ class PromotionService(
     private val domainSupportService: DomainSupportService,
     private val meterRegistry: MeterRegistry,
 ) {
-    fun listCampaigns(section: String, city: String?, limit: Int): PromotionCampaignListData {
+    fun listCampaigns(section: String, city: String?, excludeCountry: String?, limit: Int): PromotionCampaignListData {
         val normalizedSection = normalizeSection(section)
         val normalizedCity = city?.trim().orEmpty()
+        val normalizedExcludeCountry = excludeCountry?.trim().orEmpty().uppercase()
         val safeLimit = limit.coerceIn(1, 60)
         val now = Instant.now()
 
@@ -55,6 +56,17 @@ class PromotionService(
               AND status IN ('ACTIVE', 'PAUSED')
               AND ends_at >= DATE_SUB(NOW(3), INTERVAL 1 DAY)
               AND (? = '' OR city IS NULL OR LOWER(city) = LOWER(?))
+              AND (
+                    ? = ''
+                    OR city IS NULL
+                    OR NOT EXISTS (
+                        SELECT 1
+                        FROM property p
+                        WHERE p.city IS NOT NULL
+                          AND LOWER(p.city) = LOWER(promotion_campaign.city)
+                          AND UPPER(p.country) = ?
+                    )
+                  )
             ORDER BY priority DESC, starts_at ASC, id ASC
             LIMIT ?
             """.trimIndent(),
@@ -93,6 +105,8 @@ class PromotionService(
             normalizedSection,
             normalizedCity,
             normalizedCity,
+            normalizedExcludeCountry,
+            normalizedExcludeCountry,
             safeLimit,
         )
 
@@ -102,6 +116,8 @@ class PromotionService(
             normalizedSection,
             "has_city_filter",
             (normalizedCity.isNotBlank()).toString(),
+            "exclude_country",
+            normalizedExcludeCountry.ifBlank { "NONE" },
         ).increment()
 
         return PromotionCampaignListData(

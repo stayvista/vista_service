@@ -190,12 +190,21 @@ export function HomePage() {
       return;
     }
 
+    const normalizedCountry = locale.country?.trim().toUpperCase() ?? "KR";
+
     Promise.allSettled(
-      promotionSections.map((section) =>
-        apiGet<PromotionCampaignListData>(
-          `/v1/promotions/campaigns?section=${section.section_code}&city=Seoul&limit=12`,
-        ),
-      ),
+      promotionSections.map((section) => {
+        const query = new URLSearchParams({
+          section: section.section_code,
+          limit: "12",
+        });
+        if (section.section_code === "GLOBAL_PICK") {
+          query.set("exclude_country", normalizedCountry);
+        } else {
+          query.set("city", "Seoul");
+        }
+        return apiGet<PromotionCampaignListData>(`/v1/promotions/campaigns?${query.toString()}`);
+      }),
     ).then((results) => {
       const nextPromotions: Record<string, PromotionCampaign[]> = {};
       results.forEach((result, index) => {
@@ -208,7 +217,7 @@ export function HomePage() {
       });
       setPromotionsBySection(nextPromotions);
     });
-  }, [homeContent?.promotion_sections]);
+  }, [homeContent?.promotion_sections, locale.country]);
 
   function onSearch(next: StaySearchInput) {
     const params = setStaySearchParams(new URLSearchParams(), next);

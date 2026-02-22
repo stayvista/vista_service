@@ -22,11 +22,13 @@ class PromotionController(
     fun listCampaigns(
         @RequestParam(defaultValue = "HOTEL_SALE") section: String,
         @RequestParam(required = false) city: String?,
+        @RequestParam(name = "exclude_country", required = false) excludeCountry: String?,
         @RequestParam(defaultValue = "12") @Min(1) @Max(60) limit: Int,
     ) = ApiResponses.ok(
         promotionService.listCampaigns(
             section = section,
             city = city,
+            excludeCountry = excludeCountry,
             limit = limit,
         ),
     )
