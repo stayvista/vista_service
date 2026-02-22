@@ -122,9 +122,41 @@ const CLEARABLE_FILTER_KEYS = [
   "size",
 ];
 
+const SERVICE_OPTION_CODES = new Set([
+  "breakfast",
+  "food_delivery_external",
+  "family_delivery_allowed",
+  "early_checkin",
+  "espresso_machine",
+  "late_checkout",
+  "convenience_delivery",
+  "free_snack",
+  "airport_transfer",
+  "treadmill",
+  "dinner_included",
+  "afternoon_tea",
+]);
+
+const ROOM_FACILITY_CODES = new Set([
+  "fridge",
+  "air_conditioning",
+  "tv",
+  "heating",
+  "washer",
+  "coffee_maker",
+  "bathtub",
+  "toiletries",
+  "kitchen",
+  "balcony",
+  "private_pool",
+  "ocean_view",
+]);
+
 export function SearchPage() {
   const [params, setParams] = useSearchParams();
   const { locale } = useLocale();
+  const activeCurrency = (params.get("currency") ?? locale.currency).toUpperCase();
+  const activeCurrencySymbol = currencySymbol(activeCurrency);
 
   const [items, setItems] = useState<SearchItem[]>([]);
   const [meta, setMeta] = useState<SearchMeta | null>(null);
@@ -136,6 +168,7 @@ export function SearchPage() {
   const [copilotLoading, setCopilotLoading] = useState(false);
   const [copilotError, setCopilotError] = useState<string | null>(null);
   const [showCopilotReasons, setShowCopilotReasons] = useState(false);
+  const [mobileFilterOpen, setMobileFilterOpen] = useState(false);
 
   useEffect(() => {
     const next = new URLSearchParams(params);
@@ -250,6 +283,10 @@ export function SearchPage() {
 
     return () => controller.abort();
   }, [facetQueryString, requestQueryString]);
+
+  useEffect(() => {
+    setMobileFilterOpen(false);
+  }, [requestQueryString]);
 
   useEffect(() => {
     if (!facets) {
@@ -388,6 +425,27 @@ export function SearchPage() {
   const size = Number(params.get("size") ?? "20") || 20;
   const total = meta?.total ?? items.length;
   const hasMore = page * size < total;
+  const detailContextQuery = useMemo(() => {
+    const query = new URLSearchParams();
+    [
+      "check_in",
+      "check_out",
+      "adults",
+      "children",
+      "rooms",
+      "children_ages",
+      "city",
+      "place_id",
+      "place_label",
+      "currency",
+    ].forEach((key) => {
+      const value = params.get(key);
+      if (value) {
+        query.set(key, value);
+      }
+    });
+    return query.toString();
+  }, [params]);
   const amenityGroupMap = useMemo(() => {
     const map = new Map<string, FacetCountItem[]>();
     (facets?.amenity_groups ?? []).forEach((group) => {
@@ -396,9 +454,13 @@ export function SearchPage() {
     return map;
   }, [facets]);
 
-  const serviceOptionAmenities = amenityGroupMap.get("service_option") ?? [];
-  const propertyFacilityAmenities = amenityGroupMap.get("property_facility") ?? [];
-  const roomFacilityAmenities = amenityGroupMap.get("room_facility") ?? [];
+  const allAmenities = facets?.amenities ?? [];
+  const serviceOptionAmenities = amenityGroupMap.get("service_option") ??
+    allAmenities.filter((item) => SERVICE_OPTION_CODES.has(item.key));
+  const roomFacilityAmenities = amenityGroupMap.get("room_facility") ??
+    allAmenities.filter((item) => ROOM_FACILITY_CODES.has(item.key));
+  const propertyFacilityAmenities = amenityGroupMap.get("property_facility") ??
+    allAmenities.filter((item) => !SERVICE_OPTION_CODES.has(item.key) && !ROOM_FACILITY_CODES.has(item.key));
 
   function updateParams(
     mutate: (next: URLSearchParams) => void,
@@ -515,10 +577,25 @@ export function SearchPage() {
         <h2>검색 결과</h2>
         <p className="search-v3-subtitle">URL 공유만으로 동일 필터/결과를 재현할 수 있습니다.</p>
         <HeroSearchBox initial={stayInput} onSearch={applySearch} mode="compact" />
+        <div className="search-mobile-actions">
+          <button type="button" className="chip-btn" onClick={() => setMobileFilterOpen(true)}>필터 열기</button>
+        </div>
       </header>
 
-      <div className="search-v3-layout">
+      {mobileFilterOpen && (
+        <button
+          type="button"
+          className="mobile-filter-backdrop"
+          onClick={() => setMobileFilterOpen(false)}
+          aria-label="필터 닫기"
+        />
+      )}
+      <div className={mobileFilterOpen ? "search-v3-layout mobile-filters-open" : "search-v3-layout"}>
         <aside className="search-filters-panel">
+          <div className="mobile-filter-head">
+            <h3>필터</h3>
+            <button type="button" className="chip-btn" onClick={() => setMobileFilterOpen(false)}>닫기</button>
+          </div>
           <section className="filter-section ai-copilot-section">
             <div className="section-headline">
               <h3>AI 추천</h3>
@@ -555,32 +632,39 @@ export function SearchPage() {
                 )}
               </>
             )}
+            {!copilotLoading && !copilotError && !copilot && (
+              <p className="text-muted">추천 생성을 위해 검색 결과를 불러오는 중입니다.</p>
+            )}
           </section>
 
           <section className="filter-section">
             <h3>도시 인기 검색 조건</h3>
-            <div className="filter-chip-wrap">
-              {facets?.popular_filters?.map((preset) => (
-                <button
-                  key={`${preset.key}:${preset.value}`}
-                  type="button"
-                  className="chip-btn"
-                  onClick={() => applyCopilotFilter({
-                    key: preset.key,
-                    value: preset.value,
-                    label: preset.label,
-                  })}
-                >
-                  {preset.label} ({preset.count})
-                </button>
-              ))}
-            </div>
+            {(facets?.popular_filters?.length ?? 0) > 0 ? (
+              <div className="filter-chip-wrap">
+                {facets?.popular_filters?.map((preset) => (
+                  <button
+                    key={`${preset.key}:${preset.value}`}
+                    type="button"
+                    className="chip-btn"
+                    onClick={() => applyCopilotFilter({
+                      key: preset.key,
+                      value: preset.value,
+                      label: preset.label,
+                    })}
+                  >
+                    {preset.label} ({preset.count})
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <p className="text-muted">도시별 인기 검색 데이터 준비 중입니다.</p>
+            )}
           </section>
 
           <section className="filter-section">
             <h3>가격/정렬</h3>
             <label>
-              최소 가격
+              최소 가격 ({activeCurrencySymbol})
               <input
                 type="number"
                 value={params.get("min_price") ?? ""}
@@ -588,7 +672,7 @@ export function SearchPage() {
               />
             </label>
             <label>
-              최대 가격
+              최대 가격 ({activeCurrencySymbol})
               <input
                 type="number"
                 value={params.get("max_price") ?? ""}
@@ -819,20 +903,30 @@ export function SearchPage() {
             <ul className="card-list search-results-grid">
               {items.map((item) => (
                 <li key={item.property_id} className="card search-result-card">
-                  <img
-                    className="search-thumb"
-                    src={item.thumbnail_url || `https://picsum.photos/seed/search-${item.property_id}/420/260`}
-                    alt={`${item.name} 썸네일`}
-                    loading="lazy"
-                  />
+                  {item.thumbnail_url ? (
+                    <img
+                      className="search-thumb"
+                      src={item.thumbnail_url}
+                      alt={`${item.name} 썸네일`}
+                      loading="lazy"
+                    />
+                  ) : (
+                    <div className="search-thumb search-thumb-empty">이미지 준비중</div>
+                  )}
                   <div className="search-body">
                     <p className="search-card-subtitle">
                       {item.city ?? "도시 미지정"}
                       {item.district ? ` · ${item.district}` : ""}
                     </p>
-                    <h3>{item.name}</h3>
+                    <h3>
+                      <Link to={buildPropertyDetailLink(item.property_id, detailContextQuery)} className="search-title-link">
+                        {item.name}
+                      </Link>
+                    </h3>
                     <div className="badge-row">
-                      <span className="price-badge">최저가 {item.price_min.toLocaleString()} {item.currency ?? locale.currency}</span>
+                      <span className="price-badge">
+                        최저가 {formatCurrencyAmount(item.price_min, item.currency ?? locale.currency)}
+                      </span>
                       <span className="rating-badge">★ {item.rating.toFixed(1)}</span>
                       {typeof item.review_count === "number" && item.review_count > 0 && (
                         <span className="rating-badge">리뷰 {item.review_count.toLocaleString()}</span>
@@ -846,9 +940,6 @@ export function SearchPage() {
                       {typeof item.distance_m === "number" && item.distance_m > 0 && (
                         <span className="rating-badge">{item.distance_m.toLocaleString()}m</span>
                       )}
-                    </div>
-                    <div className="search-card-actions">
-                      <Link to={`/properties/${item.property_id}`} className="outline-btn">상세 보기</Link>
                     </div>
                   </div>
                 </li>
@@ -881,7 +972,12 @@ type FacetCheckGroupProps = {
 
 function FacetCheckGroup({ title, paramName, items, selected, onToggle }: FacetCheckGroupProps) {
   if (!items.length) {
-    return null;
+    return (
+      <section className="filter-section">
+        <h3>{title}</h3>
+        <p className="text-muted">해당 필터 데이터가 아직 충분하지 않습니다.</p>
+      </section>
+    );
   }
 
   return (
@@ -918,7 +1014,12 @@ type FacetDistrictGroupProps = {
 
 function FacetDistrictGroup({ title, districts, selected, onToggle }: FacetDistrictGroupProps) {
   if (!districts.length) {
-    return null;
+    return (
+      <section className="filter-section">
+        <h3>{title}</h3>
+        <p className="text-muted">지역 데이터가 아직 준비 중입니다.</p>
+      </section>
+    );
   }
   return (
     <section className="filter-section">
@@ -956,7 +1057,12 @@ type FacetSingleSelectGroupProps = {
 
 function FacetSingleSelectGroup({ title, paramName, items, value, onChange }: FacetSingleSelectGroupProps) {
   if (!items.length) {
-    return null;
+    return (
+      <section className="filter-section">
+        <h3>{title}</h3>
+        <p className="text-muted">해당 필터 데이터가 아직 충분하지 않습니다.</p>
+      </section>
+    );
   }
   return (
     <section className="filter-section">
@@ -982,6 +1088,13 @@ function FacetSingleSelectGroup({ title, paramName, items, value, onChange }: Fa
       </div>
     </section>
   );
+}
+
+function buildPropertyDetailLink(propertyId: number, contextQuery: string): string {
+  if (!contextQuery) {
+    return `/properties/${propertyId}`;
+  }
+  return `/properties/${propertyId}?${contextQuery}`;
 }
 
 function labelForFilterKey(key: string): string {
@@ -1054,4 +1167,24 @@ function addDays(days: number): string {
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
+}
+
+function currencySymbol(currency: string): string {
+  switch (currency.toUpperCase()) {
+    case "KRW":
+      return "₩";
+    case "USD":
+      return "$";
+    case "JPY":
+      return "¥";
+    case "EUR":
+      return "€";
+    default:
+      return `${currency.toUpperCase()} `;
+  }
+}
+
+function formatCurrencyAmount(amount: number, currency: string): string {
+  const symbol = currencySymbol(currency);
+  return `${symbol}${amount.toLocaleString()}`;
 }

@@ -396,6 +396,163 @@ ON DUPLICATE KEY UPDATE
   bedrooms = VALUES(bedrooms),
   updated_at = NOW(3);
 
+-- Property reviews (DB-backed detail/review UI)
+CREATE TABLE IF NOT EXISTS property_review (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  property_id BIGINT NOT NULL,
+  reviewer_name VARCHAR(120) NOT NULL,
+  reviewer_country VARCHAR(2) NULL,
+  traveler_type VARCHAR(80) NOT NULL DEFAULT '나홀로 여행객',
+  stay_date DATE NOT NULL,
+  nights INT NOT NULL DEFAULT 1,
+  score_overall DECIMAL(3,1) NOT NULL,
+  score_service DECIMAL(3,1) NULL,
+  score_cleanliness DECIMAL(3,1) NULL,
+  score_facility DECIMAL(3,1) NULL,
+  score_value DECIMAL(3,1) NULL,
+  score_location DECIMAL(3,1) NULL,
+  title VARCHAR(255) NOT NULL,
+  body TEXT NOT NULL,
+  status VARCHAR(20) NOT NULL DEFAULT 'PUBLISHED',
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  KEY idx_property_review_lookup (property_id, status, stay_date DESC, id DESC),
+  KEY idx_property_review_score (property_id, score_overall),
+  CONSTRAINT fk_property_review_property FOREIGN KEY (property_id) REFERENCES property(id)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS property_review_tag (
+  review_id BIGINT NOT NULL,
+  tag VARCHAR(60) NOT NULL,
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (review_id, tag),
+  KEY idx_property_review_tag_tag (tag, review_id),
+  CONSTRAINT fk_property_review_tag_review FOREIGN KEY (review_id) REFERENCES property_review(id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+SET @reviews_per_property := 3;
+
+DELETE prt
+FROM property_review_tag prt
+JOIN property_review pr ON pr.id = prt.review_id
+WHERE pr.property_id BETWEEN 100001 AND 100000 + @property_count;
+
+DELETE FROM property_review
+WHERE property_id BETWEEN 100001 AND 100000 + @property_count;
+
+INSERT INTO property_review(
+  property_id,
+  reviewer_name,
+  reviewer_country,
+  traveler_type,
+  stay_date,
+  nights,
+  score_overall,
+  score_service,
+  score_cleanliness,
+  score_facility,
+  score_value,
+  score_location,
+  title,
+  body,
+  status
+)
+WITH RECURSIVE property_seq(n) AS (
+  SELECT 1
+  UNION ALL
+  SELECT n + 1 FROM property_seq WHERE n < @property_count
+),
+review_seq(seq_no) AS (
+  SELECT 1
+  UNION ALL
+  SELECT seq_no + 1 FROM review_seq WHERE seq_no < @reviews_per_property
+)
+SELECT
+  p.id,
+  ELT(
+    MOD(property_seq.n * 7 + review_seq.seq_no * 13, 12) + 1,
+    '민지', '서연', '지수', '하은', '유나', '도윤',
+    '현우', '준서', '태현', '지안', '유진', '시우'
+  ) AS reviewer_name,
+  ELT(MOD(property_seq.n + review_seq.seq_no, 6) + 1, 'KR', 'JP', 'US', 'TW', 'SG', 'AU') AS reviewer_country,
+  CASE MOD(property_seq.n + review_seq.seq_no, 4)
+    WHEN 0 THEN '가족 여행객'
+    WHEN 1 THEN '커플/2인 여행객'
+    WHEN 2 THEN '나홀로 여행객'
+    ELSE '비즈니스 여행객'
+  END AS traveler_type,
+  DATE_SUB(CURDATE(), INTERVAL (MOD(property_seq.n * 17 + review_seq.seq_no * 19, 330) + 1) DAY) AS stay_date,
+  1 + MOD(property_seq.n + review_seq.seq_no, 4) AS nights,
+  ROUND(7.8 + (MOD(property_seq.n * 11 + review_seq.seq_no * 5, 21) / 10), 1) AS score_overall,
+  ROUND(LEAST(9.9, GREATEST(6.0, 7.9 + (MOD(property_seq.n * 13 + review_seq.seq_no * 7, 21) / 10))), 1) AS score_service,
+  ROUND(LEAST(9.9, GREATEST(6.0, 7.7 + (MOD(property_seq.n * 9 + review_seq.seq_no * 11, 22) / 10))), 1) AS score_cleanliness,
+  ROUND(LEAST(9.9, GREATEST(6.0, 7.6 + (MOD(property_seq.n * 5 + review_seq.seq_no * 17, 24) / 10))), 1) AS score_facility,
+  ROUND(LEAST(9.9, GREATEST(6.0, 7.5 + (MOD(property_seq.n * 3 + review_seq.seq_no * 13, 23) / 10))), 1) AS score_value,
+  ROUND(LEAST(9.9, GREATEST(6.0, 7.8 + (MOD(property_seq.n * 7 + review_seq.seq_no * 9, 21) / 10))), 1) AS score_location,
+  CASE MOD(review_seq.seq_no, 3)
+    WHEN 1 THEN '위치와 이동 동선이 편리했어요'
+    WHEN 2 THEN '객실 컨디션과 청결이 만족스러웠어요'
+    ELSE '서비스 응대가 빠르고 친절했어요'
+  END AS title,
+  CONCAT(
+    p.city,
+    ' 여행 기준으로 ',
+    p.name,
+    ' 투숙 경험이 안정적이었습니다. ',
+    CASE MOD(review_seq.seq_no, 3)
+      WHEN 1 THEN '체크인/체크아웃 동선이 편했고 주변 접근성이 좋았습니다.'
+      WHEN 2 THEN '객실 청결 상태가 좋고 편의시설 사용이 수월했습니다.'
+      ELSE '직원 응대가 빠르고 전반적인 숙박 경험이 만족스러웠습니다.'
+    END
+  ) AS body,
+  'PUBLISHED' AS status
+FROM property_seq
+JOIN property p
+  ON p.id = 100000 + property_seq.n
+JOIN review_seq
+WHERE p.status = 'ACTIVE';
+
+INSERT INTO property_review_tag(review_id, tag)
+SELECT
+  pr.id,
+  CASE MOD(pr.id, 6)
+    WHEN 0 THEN '서비스'
+    WHEN 1 THEN '조식'
+    WHEN 2 THEN '위치'
+    WHEN 3 THEN '청결'
+    WHEN 4 THEN '객실 전망/뷰'
+    ELSE '가족 여행객'
+  END
+FROM property_review pr
+WHERE pr.property_id BETWEEN 100001 AND 100000 + @property_count
+ON DUPLICATE KEY UPDATE tag = VALUES(tag);
+
+INSERT INTO property_review_tag(review_id, tag)
+SELECT
+  pr.id,
+  CASE MOD(pr.id + 3, 6)
+    WHEN 0 THEN '서비스'
+    WHEN 1 THEN '조식'
+    WHEN 2 THEN '위치'
+    WHEN 3 THEN '청결'
+    WHEN 4 THEN '객실 전망/뷰'
+    ELSE '가족 여행객'
+  END
+FROM property_review pr
+WHERE pr.property_id BETWEEN 100001 AND 100000 + @property_count
+ON DUPLICATE KEY UPDATE tag = VALUES(tag);
+
+UPDATE property p
+LEFT JOIN (
+  SELECT property_id, COUNT(*) AS cnt
+  FROM property_review
+  WHERE status = 'PUBLISHED'
+    AND property_id BETWEEN 100001 AND 100000 + @property_count
+  GROUP BY property_id
+) prc ON prc.property_id = p.id
+SET p.review_count = COALESCE(prc.cnt, 0)
+WHERE p.id BETWEEN 100001 AND 100000 + @property_count;
+
 -- Taxonomy + relations for search facets
 INSERT INTO brand(name)
 VALUES
@@ -811,7 +968,7 @@ ON DUPLICATE KEY UPDATE
   status = VALUES(status),
   updated_at = NOW(3);
 
-INSERT INTO ticket_event(id, product_id, start_time, end_time, status)
+INSERT IGNORE INTO ticket_event(id, product_id, start_time, end_time, status)
 WITH RECURSIVE day_seq(day_offset) AS (
   SELECT 0
   UNION ALL
@@ -1065,6 +1222,821 @@ ON DUPLICATE KEY UPDATE
   rating_score = VALUES(rating_score),
   active = VALUES(active);
 
+-- -----------------------------------------------------------------------------
+-- DB-backed rich content expansion (home/search/property detail)
+-- -----------------------------------------------------------------------------
+
+-- Ensure optional columns exist for media urls.
+SELECT COUNT(*) INTO @has_product_image_url
+FROM information_schema.columns
+WHERE table_schema = DATABASE()
+  AND table_name = 'product'
+  AND column_name = 'image_url';
+SET @add_product_image_url_sql = IF(
+  @has_product_image_url = 0,
+  'ALTER TABLE product ADD COLUMN image_url VARCHAR(500) NULL',
+  'DO 0'
+);
+PREPARE add_product_image_url_stmt FROM @add_product_image_url_sql;
+EXECUTE add_product_image_url_stmt;
+DEALLOCATE PREPARE add_product_image_url_stmt;
+
+SELECT COUNT(*) INTO @has_package_image_url
+FROM information_schema.columns
+WHERE table_schema = DATABASE()
+  AND table_name = 'package_product'
+  AND column_name = 'image_url';
+SET @add_package_image_url_sql = IF(
+  @has_package_image_url = 0,
+  'ALTER TABLE package_product ADD COLUMN image_url VARCHAR(500) NULL',
+  'DO 0'
+);
+PREPARE add_package_image_url_stmt FROM @add_package_image_url_sql;
+EXECUTE add_package_image_url_stmt;
+DEALLOCATE PREPARE add_package_image_url_stmt;
+
+SELECT COUNT(*) INTO @has_poi_image_urls
+FROM information_schema.columns
+WHERE table_schema = DATABASE()
+  AND table_name = 'poi'
+  AND column_name = 'image_urls';
+SET @add_poi_image_urls_sql = IF(
+  @has_poi_image_urls = 0,
+  'ALTER TABLE poi ADD COLUMN image_urls TEXT NULL',
+  'DO 0'
+);
+PREPARE add_poi_image_urls_stmt FROM @add_poi_image_urls_sql;
+EXECUTE add_poi_image_urls_stmt;
+DEALLOCATE PREPARE add_poi_image_urls_stmt;
+
+CREATE TABLE IF NOT EXISTS promotion_campaign (
+  id                  BIGINT PRIMARY KEY AUTO_INCREMENT,
+  code                VARCHAR(64) NOT NULL,
+  section             VARCHAR(40) NOT NULL,
+  title               VARCHAR(160) NOT NULL,
+  subtitle            VARCHAR(220) NULL,
+  description         VARCHAR(600) NULL,
+  city                VARCHAR(100) NULL,
+  image_url           VARCHAR(500) NULL,
+  badge_text          VARCHAR(40) NULL,
+  discount_text       VARCHAR(80) NULL,
+  currency            VARCHAR(10) NOT NULL DEFAULT 'KRW',
+  coupon_value_type   VARCHAR(16) NOT NULL DEFAULT 'PERCENT',
+  coupon_value        DECIMAL(10,2) NOT NULL DEFAULT 0,
+  min_order_amount    BIGINT NOT NULL DEFAULT 0,
+  issue_limit         INT NOT NULL,
+  issued_count        INT NOT NULL DEFAULT 0,
+  starts_at           DATETIME(3) NOT NULL,
+  ends_at             DATETIME(3) NOT NULL,
+  priority            INT NOT NULL DEFAULT 0,
+  status              VARCHAR(20) NOT NULL DEFAULT 'ACTIVE',
+  created_at          DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  updated_at          DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  UNIQUE KEY uk_promotion_campaign_code (code),
+  KEY idx_promotion_campaign_section (section, status, starts_at, ends_at),
+  KEY idx_promotion_campaign_city (city, status, starts_at, ends_at)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS home_hero (
+  id                   TINYINT PRIMARY KEY,
+  eyebrow_text         VARCHAR(120) NOT NULL,
+  title_text           VARCHAR(180) NOT NULL,
+  summary_text         VARCHAR(400) NOT NULL,
+  background_image_url VARCHAR(500) NULL,
+  active               TINYINT(1) NOT NULL DEFAULT 1,
+  created_at           DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  updated_at           DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS home_hero_metric (
+  id            BIGINT PRIMARY KEY AUTO_INCREMENT,
+  hero_id       TINYINT NOT NULL,
+  metric_value  VARCHAR(60) NOT NULL,
+  metric_label  VARCHAR(120) NOT NULL,
+  display_order INT NOT NULL DEFAULT 0,
+  active        TINYINT(1) NOT NULL DEFAULT 1,
+  created_at    DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  updated_at    DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  KEY idx_home_hero_metric (hero_id, active, display_order),
+  CONSTRAINT fk_home_hero_metric_hero FOREIGN KEY (hero_id) REFERENCES home_hero(id)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS home_quick_filter (
+  id            BIGINT PRIMARY KEY AUTO_INCREMENT,
+  label         VARCHAR(80) NOT NULL,
+  filter_key    VARCHAR(40) NOT NULL,
+  filter_value  VARCHAR(80) NOT NULL,
+  display_order INT NOT NULL DEFAULT 0,
+  active        TINYINT(1) NOT NULL DEFAULT 1,
+  created_at    DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  updated_at    DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  KEY idx_home_quick_filter (active, display_order)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS home_destination_card (
+  id            BIGINT PRIMARY KEY AUTO_INCREMENT,
+  section_code  VARCHAR(20) NOT NULL,
+  city          VARCHAR(120) NOT NULL,
+  country       VARCHAR(10) NULL,
+  label         VARCHAR(120) NOT NULL,
+  image_url     VARCHAR(500) NULL,
+  highlights    VARCHAR(220) NULL,
+  property_count INT NULL,
+  display_order INT NOT NULL DEFAULT 0,
+  active        TINYINT(1) NOT NULL DEFAULT 1,
+  created_at    DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  updated_at    DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  UNIQUE KEY uk_home_destination_section_city (section_code, city),
+  KEY idx_home_destination_section (section_code, active, display_order)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS promotion_section (
+  section_code  VARCHAR(40) PRIMARY KEY,
+  title         VARCHAR(120) NOT NULL,
+  subtitle      VARCHAR(220) NULL,
+  display_order INT NOT NULL DEFAULT 0,
+  active        TINYINT(1) NOT NULL DEFAULT 1,
+  created_at    DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  updated_at    DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS property_editorial (
+  property_id               BIGINT PRIMARY KEY,
+  short_description         TEXT NULL,
+  long_description          TEXT NULL,
+  check_in_time             VARCHAR(10) NULL,
+  check_out_time            VARCHAR(10) NULL,
+  airport_transfer_fee_krw  BIGINT NULL,
+  breakfast_fee_krw         BIGINT NULL,
+  remodeled_year            INT NULL,
+  children_policy           VARCHAR(220) NULL,
+  created_at                DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  updated_at                DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  CONSTRAINT fk_property_editorial_property FOREIGN KEY (property_id) REFERENCES property(id)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS property_highlight (
+  id            BIGINT PRIMARY KEY AUTO_INCREMENT,
+  property_id   BIGINT NOT NULL,
+  content       VARCHAR(255) NOT NULL,
+  display_order INT NOT NULL DEFAULT 0,
+  active        TINYINT(1) NOT NULL DEFAULT 1,
+  created_at    DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  updated_at    DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  KEY idx_property_highlight (property_id, active, display_order),
+  CONSTRAINT fk_property_highlight_property FOREIGN KEY (property_id) REFERENCES property(id)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS property_gallery_image (
+  id            BIGINT PRIMARY KEY AUTO_INCREMENT,
+  property_id   BIGINT NOT NULL,
+  image_url     VARCHAR(500) NOT NULL,
+  is_cover      TINYINT(1) NOT NULL DEFAULT 0,
+  display_order INT NOT NULL DEFAULT 0,
+  active        TINYINT(1) NOT NULL DEFAULT 1,
+  created_at    DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  updated_at    DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  KEY idx_property_gallery (property_id, active, is_cover, display_order),
+  CONSTRAINT fk_property_gallery_property FOREIGN KEY (property_id) REFERENCES property(id)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS property_staycation_card (
+  id            BIGINT PRIMARY KEY AUTO_INCREMENT,
+  property_id   BIGINT NOT NULL,
+  card_code     VARCHAR(40) NOT NULL,
+  title         VARCHAR(100) NOT NULL,
+  subtitle      VARCHAR(200) NULL,
+  display_order INT NOT NULL DEFAULT 0,
+  active        TINYINT(1) NOT NULL DEFAULT 1,
+  created_at    DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  updated_at    DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  UNIQUE KEY uk_property_staycation_card (property_id, card_code),
+  KEY idx_property_staycation_card (property_id, active, display_order),
+  CONSTRAINT fk_property_staycation_card_property FOREIGN KEY (property_id) REFERENCES property(id)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS property_staycation_item (
+  id            BIGINT PRIMARY KEY AUTO_INCREMENT,
+  card_id       BIGINT NOT NULL,
+  item_text     VARCHAR(160) NOT NULL,
+  display_order INT NOT NULL DEFAULT 0,
+  active        TINYINT(1) NOT NULL DEFAULT 1,
+  created_at    DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  updated_at    DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  KEY idx_property_staycation_item (card_id, active, display_order),
+  CONSTRAINT fk_property_staycation_item_card FOREIGN KEY (card_id) REFERENCES property_staycation_card(id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS room_type_media (
+  id            BIGINT PRIMARY KEY AUTO_INCREMENT,
+  room_type_id  BIGINT NOT NULL,
+  image_url     VARCHAR(500) NOT NULL,
+  display_order INT NOT NULL DEFAULT 0,
+  active        TINYINT(1) NOT NULL DEFAULT 1,
+  created_at    DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  updated_at    DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  KEY idx_room_type_media (room_type_id, active, display_order),
+  CONSTRAINT fk_room_type_media_room_type FOREIGN KEY (room_type_id) REFERENCES room_type(id)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS room_type_feature (
+  id            BIGINT PRIMARY KEY AUTO_INCREMENT,
+  room_type_id  BIGINT NOT NULL,
+  feature_text  VARCHAR(160) NOT NULL,
+  display_order INT NOT NULL DEFAULT 0,
+  active        TINYINT(1) NOT NULL DEFAULT 1,
+  created_at    DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  updated_at    DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  KEY idx_room_type_feature (room_type_id, active, display_order),
+  CONSTRAINT fk_room_type_feature_room_type FOREIGN KEY (room_type_id) REFERENCES room_type(id)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS room_rate_plan (
+  id             BIGINT PRIMARY KEY AUTO_INCREMENT,
+  room_type_id   BIGINT NOT NULL,
+  plan_code      VARCHAR(60) NOT NULL,
+  occupancy_text VARCHAR(120) NULL,
+  pay_summary    VARCHAR(120) NULL,
+  urgency_text   VARCHAR(120) NULL,
+  list_price_krw BIGINT NOT NULL,
+  sale_price_krw BIGINT NOT NULL,
+  display_order  INT NOT NULL DEFAULT 0,
+  active         TINYINT(1) NOT NULL DEFAULT 1,
+  created_at     DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  updated_at     DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  UNIQUE KEY uk_room_rate_plan_code (room_type_id, plan_code),
+  KEY idx_room_rate_plan (room_type_id, active, display_order),
+  CONSTRAINT fk_room_rate_plan_room_type FOREIGN KEY (room_type_id) REFERENCES room_type(id)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS room_rate_plan_benefit (
+  id            BIGINT PRIMARY KEY AUTO_INCREMENT,
+  plan_id       BIGINT NOT NULL,
+  benefit_text  VARCHAR(160) NOT NULL,
+  display_order INT NOT NULL DEFAULT 0,
+  active        TINYINT(1) NOT NULL DEFAULT 1,
+  created_at    DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  updated_at    DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  KEY idx_room_rate_plan_benefit (plan_id, active, display_order),
+  CONSTRAINT fk_room_rate_plan_benefit_plan FOREIGN KEY (plan_id) REFERENCES room_rate_plan(id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+INSERT INTO home_hero(id, eyebrow_text, title_text, summary_text, background_image_url, active)
+VALUES (
+  1,
+  'VERIFIED INVENTORY · REAL-TIME BOOKING',
+  '잊지못할 여행을 선물하세요',
+  '숙소, 티켓, 패키지 재고를 하나의 화면에서 실시간으로 확인하고 예약 하실수 있습니다.',
+  'https://picsum.photos/seed/stayvista-hero-main/1920/1080',
+  1
+)
+ON DUPLICATE KEY UPDATE
+  eyebrow_text = VALUES(eyebrow_text),
+  title_text = VALUES(title_text),
+  summary_text = VALUES(summary_text),
+  background_image_url = VALUES(background_image_url),
+  active = VALUES(active),
+  updated_at = NOW(3);
+
+DELETE FROM home_hero_metric WHERE hero_id = 1;
+INSERT INTO home_hero_metric(hero_id, metric_value, metric_label, display_order, active)
+VALUES
+  (1, '1.2M+', '누적 예약 건수', 10, 1),
+  (1, '4.8 / 5', '실제 투숙 후기 평점', 20, 1),
+  (1, '24/7', '운영 지원 및 고객 응대', 30, 1);
+
+DELETE FROM home_quick_filter;
+INSERT INTO home_quick_filter(label, filter_key, filter_value, display_order, active)
+VALUES
+  ('오션뷰', 'amenities', 'ocean_view', 10, 1),
+  ('프라이빗 풀', 'amenities', 'private_pool', 20, 1),
+  ('조식 포함', 'amenities', 'breakfast', 30, 1),
+  ('무료 취소', 'payment_options', 'free_cancel', 40, 1),
+  ('24시간 체크인', 'amenities', 'front24h', 50, 1),
+  ('반려동물 가능', 'amenities', 'pet_friendly', 60, 1),
+  ('공항 이동', 'amenities', 'airport_transfer', 70, 1),
+  ('가족 여행', 'themes', 'family', 80, 1),
+  ('도심 2km 이내', 'distance_bands', 'under_2km', 90, 1),
+  ('4성급 이상', 'stars', '4,5', 100, 1);
+
+DELETE FROM home_destination_card;
+INSERT INTO home_destination_card(section_code, city, country, label, image_url, highlights, property_count, display_order, active)
+VALUES
+  ('DOMESTIC', 'Seoul', 'KR', '서울', 'https://picsum.photos/seed/stayvista-city-seoul/640/420', '쇼핑, 레스토랑, 야경', 5945, 10, 1),
+  ('DOMESTIC', 'Busan', 'KR', '부산', 'https://picsum.photos/seed/stayvista-city-busan/640/420', '해변, 해산물, 오션뷰', 2734, 20, 1),
+  ('DOMESTIC', 'Jeju', 'KR', '제주', 'https://picsum.photos/seed/stayvista-city-jeju/640/420', '자연경관, 드라이브, 휴양', 4939, 30, 1),
+  ('DOMESTIC', 'Incheon', 'KR', '인천', 'https://picsum.photos/seed/stayvista-city-incheon/640/420', '공항 접근, 바다 전망', 2147, 40, 1),
+  ('DOMESTIC', 'Sokcho', 'KR', '속초', 'https://picsum.photos/seed/stayvista-city-sokcho/640/420', '바다, 시장, 설악산', 800, 50, 1),
+  ('DOMESTIC', 'Gangneung', 'KR', '강릉', 'https://picsum.photos/seed/stayvista-city-gangneung/640/420', '카페거리, 해변, 서핑', 1290, 60, 1),
+  ('DOMESTIC', 'Gyeongju', 'KR', '경주', 'https://picsum.photos/seed/stayvista-city-gyeongju/640/420', '역사유적, 가족여행', 910, 70, 1),
+  ('DOMESTIC', 'Yeosu', 'KR', '여수', 'https://picsum.photos/seed/stayvista-city-yeosu/640/420', '야경, 해상케이블카', 760, 80, 1),
+  ('GLOBAL', 'Tokyo', 'JP', '도쿄', 'https://picsum.photos/seed/stayvista-city-tokyo/640/420', '도심 쇼핑, 미식, 문화', 12486, 10, 1),
+  ('GLOBAL', 'Osaka', 'JP', '오사카', 'https://picsum.photos/seed/stayvista-city-osaka/640/420', '먹거리, 관광, 쇼핑', 8260, 20, 1),
+  ('GLOBAL', 'Bangkok', 'TH', '방콕', 'https://picsum.photos/seed/stayvista-city-bangkok/640/420', '가성비 호텔, 야시장', 12048, 30, 1),
+  ('GLOBAL', 'Singapore', 'SG', '싱가포르', 'https://picsum.photos/seed/stayvista-city-singapore/640/420', '비즈니스, 도심 휴양', 6450, 40, 1),
+  ('GLOBAL', 'Paris', 'FR', '파리', 'https://picsum.photos/seed/stayvista-city-paris/640/420', '예술, 미식, 쇼핑', 11230, 50, 1),
+  ('GLOBAL', 'London', 'GB', '런던', 'https://picsum.photos/seed/stayvista-city-london/640/420', '랜드마크, 뮤지컬', 10920, 60, 1),
+  ('GLOBAL', 'Barcelona', 'ES', '바르셀로나', 'https://picsum.photos/seed/stayvista-city-barcelona/640/420', '해변, 건축, 야경', 8430, 70, 1),
+  ('GLOBAL', 'New York', 'US', '뉴욕', 'https://picsum.photos/seed/stayvista-city-nyc/640/420', '브로드웨이, 쇼핑', 13320, 80, 1),
+  ('GLOBAL', 'Sydney', 'AU', '시드니', 'https://picsum.photos/seed/stayvista-city-sydney/640/420', '하버뷰, 비치', 5980, 90, 1),
+  ('GLOBAL', 'Dubai', 'AE', '두바이', 'https://picsum.photos/seed/stayvista-city-dubai/640/420', '럭셔리, 사막 투어', 7740, 100, 1);
+
+INSERT INTO promotion_section(section_code, title, subtitle, display_order, active)
+VALUES
+  ('HOTEL_SALE', '숙소 세일', '한정 수량 쿠폰 발급', 10, 1),
+  ('ACTIVITY_PROMO', '즐길 거리 프로모션', '티켓/체험 얼리버드 특가', 20, 1),
+  ('RECOMMENDED_STAY', '추천 숙소', '브랜드 제휴 할인 카드', 30, 1),
+  ('GLOBAL_PICK', '해외 인기 딜', '해외 도시 한정 프로모션', 40, 1)
+ON DUPLICATE KEY UPDATE
+  title = VALUES(title),
+  subtitle = VALUES(subtitle),
+  display_order = VALUES(display_order),
+  active = VALUES(active),
+  updated_at = NOW(3);
+
+SET @promo_campaign_count := 800;
+DELETE FROM promotion_campaign WHERE code LIKE 'SEED26_%';
+INSERT INTO promotion_campaign(
+  code, section, title, subtitle, description, city, image_url, badge_text, discount_text,
+  currency, coupon_value_type, coupon_value, min_order_amount, issue_limit, issued_count,
+  starts_at, ends_at, priority, status
+)
+WITH RECURSIVE campaign_seq(n) AS (
+  SELECT 1
+  UNION ALL
+  SELECT n + 1 FROM campaign_seq WHERE n < @promo_campaign_count
+)
+SELECT
+  CONCAT('SEED26_', LPAD(n, 4, '0')),
+  CASE MOD(n - 1, 4)
+    WHEN 0 THEN 'HOTEL_SALE'
+    WHEN 1 THEN 'ACTIVITY_PROMO'
+    WHEN 2 THEN 'RECOMMENDED_STAY'
+    ELSE 'GLOBAL_PICK'
+  END,
+  CONCAT(
+    ELT(MOD(n * 7, 10) + 1, 'MEGA SALE', 'SPRING DEAL', 'EARLY BIRD', 'CITY BREAK', 'WEEKEND PICK', 'FLASH SALE', 'LIMITED', 'FAMILY PACK', 'COUPON DAY', 'SMART BOOK'),
+    ' · ',
+    ELT(MOD(n - 1, 12) + 1, '서울', '부산', '제주', '도쿄', '오사카', '방콕', '싱가포르', '파리', '런던', '뉴욕', '시드니', '두바이')
+  ),
+  CONCAT('기간 한정 ', ELT(MOD(n * 5, 6) + 1, '숙소', '티켓', '패키지', '브랜드', '도시', '주말'), ' 혜택'),
+  CONCAT('선착순 발급 · 최소 주문금액 조건 충족 시 자동 적용 (캠페인 ', n, ').'),
+  ELT(MOD(n - 1, 12) + 1, 'Seoul', 'Busan', 'Jeju', 'Tokyo', 'Osaka', 'Bangkok', 'Singapore', 'Paris', 'London', 'New York', 'Sydney', 'Dubai'),
+  CONCAT('https://picsum.photos/seed/stayvista-promo-rich-', n, '/960/520'),
+  ELT(MOD(n, 6) + 1, 'HOT', 'FLASH', 'LIMITED', 'CITY', 'MEGA', 'PICK'),
+  CASE
+    WHEN MOD(n, 5) = 0 THEN CONCAT('최대 ', 15000 + MOD(n * 571, 85000), '원 할인')
+    ELSE CONCAT('최대 ', 5 + MOD(n * 11, 26), '% 할인')
+  END,
+  CASE
+    WHEN MOD(n, 12) IN (1, 2, 3) THEN 'JPY'
+    WHEN MOD(n, 12) IN (4, 5, 6) THEN 'USD'
+    WHEN MOD(n, 12) IN (7, 8) THEN 'EUR'
+    ELSE 'KRW'
+  END,
+  CASE WHEN MOD(n, 5) = 0 THEN 'AMOUNT' ELSE 'PERCENT' END,
+  CASE
+    WHEN MOD(n, 5) = 0 THEN 8000 + MOD(n * 37, 92000)
+    ELSE 4 + MOD(n * 7, 23)
+  END,
+  30000 + MOD(n * 4103, 240000),
+  500 + MOD(n * 43, 4500),
+  MOD(n * 19, 180),
+  DATE_SUB(NOW(3), INTERVAL MOD(n, 9) DAY),
+  DATE_ADD(NOW(3), INTERVAL 7 + MOD(n * 3, 44) DAY),
+  50 + MOD(n * 13, 120),
+  CASE WHEN MOD(n, 17) = 0 THEN 'PAUSED' ELSE 'ACTIVE' END
+FROM campaign_seq;
+
+SET @ticket_product_count := 800;
+SET @ticket_event_days := 60;
+SET @room_type_total := @property_count * @room_per_property;
+
+INSERT INTO product(id, partner_id, product_type, name, city, lat, lng, image_url, status)
+WITH RECURSIVE ticket_seq(n) AS (
+  SELECT 1
+  UNION ALL
+  SELECT n + 1 FROM ticket_seq WHERE n < @ticket_product_count
+)
+SELECT
+  300000 + n,
+  900002,
+  CASE MOD(n, 3)
+    WHEN 0 THEN 'ACTIVITY'
+    WHEN 1 THEN 'TICKET'
+    ELSE 'PASS'
+  END,
+  CONCAT(
+    ELT(MOD(n - 1, 12) + 1, 'Seoul', 'Busan', 'Jeju', 'Tokyo', 'Osaka', 'Bangkok', 'Singapore', 'Paris', 'London', 'New York', 'Sydney', 'Dubai'),
+    ' ',
+    ELT(MOD(n * 7, 10) + 1, 'Weekend Explorer', 'Culture Pass', 'Night Tour', 'Family Fun', 'Food Walk', 'Museum Hopper', 'City Highlights', 'River Cruise', 'Coastal Route', 'Festival Ticket')
+  ),
+  ELT(MOD(n - 1, 12) + 1, 'Seoul', 'Busan', 'Jeju', 'Tokyo', 'Osaka', 'Bangkok', 'Singapore', 'Paris', 'London', 'New York', 'Sydney', 'Dubai'),
+  CASE MOD(n - 1, 12)
+    WHEN 0 THEN 37.5665
+    WHEN 1 THEN 35.1796
+    WHEN 2 THEN 33.4996
+    WHEN 3 THEN 35.6762
+    WHEN 4 THEN 34.6937
+    WHEN 5 THEN 13.7563
+    WHEN 6 THEN 1.3521
+    WHEN 7 THEN 48.8566
+    WHEN 8 THEN 51.5074
+    WHEN 9 THEN 40.7128
+    WHEN 10 THEN -33.8688
+    ELSE 25.2048
+  END + ((MOD(n, 17) - 8) / 900),
+  CASE MOD(n - 1, 12)
+    WHEN 0 THEN 126.9780
+    WHEN 1 THEN 129.0756
+    WHEN 2 THEN 126.5312
+    WHEN 3 THEN 139.6503
+    WHEN 4 THEN 135.5023
+    WHEN 5 THEN 100.5018
+    WHEN 6 THEN 103.8198
+    WHEN 7 THEN 2.3522
+    WHEN 8 THEN -0.1278
+    WHEN 9 THEN -74.0060
+    WHEN 10 THEN 151.2093
+    ELSE 55.2708
+  END + ((MOD(n * 11, 17) - 8) / 900),
+  CONCAT('https://picsum.photos/seed/stayvista-ticket-rich-', n, '/640/380'),
+  'ACTIVE'
+FROM ticket_seq
+ON DUPLICATE KEY UPDATE
+  partner_id = VALUES(partner_id),
+  product_type = VALUES(product_type),
+  name = VALUES(name),
+  city = VALUES(city),
+  lat = VALUES(lat),
+  lng = VALUES(lng),
+  image_url = VALUES(image_url),
+  status = VALUES(status),
+  updated_at = NOW(3);
+
+INSERT IGNORE INTO ticket_event(id, product_id, start_time, end_time, status)
+WITH RECURSIVE day_seq(day_offset) AS (
+  SELECT 0
+  UNION ALL
+  SELECT day_offset + 1 FROM day_seq WHERE day_offset + 1 < @ticket_event_days
+),
+slot_seq(slot_no) AS (
+  SELECT 1
+  UNION ALL
+  SELECT 2
+  UNION ALL
+  SELECT 3
+),
+product_scope AS (
+  SELECT id, ROW_NUMBER() OVER (ORDER BY id) AS rn
+  FROM product
+  WHERE id BETWEEN 300001 AND (300000 + @ticket_product_count)
+)
+SELECT
+  400000000 + (product_scope.rn * 1000) + (day_seq.day_offset * 10) + slot_seq.slot_no,
+  product_scope.id,
+  TIMESTAMP(
+    DATE_ADD(CURDATE(), INTERVAL day_seq.day_offset DAY),
+    CASE slot_seq.slot_no
+      WHEN 1 THEN '09:00:00'
+      WHEN 2 THEN '13:00:00'
+      ELSE '18:00:00'
+    END
+  ),
+  DATE_ADD(
+    TIMESTAMP(
+      DATE_ADD(CURDATE(), INTERVAL day_seq.day_offset DAY),
+      CASE slot_seq.slot_no
+        WHEN 1 THEN '09:00:00'
+        WHEN 2 THEN '13:00:00'
+        ELSE '18:00:00'
+      END
+    ),
+    INTERVAL
+      CASE slot_seq.slot_no
+        WHEN 1 THEN 90
+        WHEN 2 THEN 120
+        ELSE 150
+      END MINUTE
+  ),
+  'ACTIVE'
+FROM product_scope
+CROSS JOIN day_seq
+CROSS JOIN slot_seq;
+
+INSERT INTO ticket_inventory(event_id, total, hold, sold)
+SELECT
+  id,
+  120 + MOD(id, 320),
+  MOD(id, 35),
+  MOD(id, 60)
+FROM ticket_event
+WHERE product_id BETWEEN 300001 AND (300000 + @ticket_product_count)
+ON DUPLICATE KEY UPDATE
+  total = VALUES(total),
+  hold = VALUES(hold),
+  sold = VALUES(sold),
+  updated_at = NOW(3);
+
+SET @package_count := 500;
+DELETE FROM package_product_component
+WHERE package_id BETWEEN 500001 AND (500000 + @package_count);
+
+INSERT INTO package_product(id, name, status, currency, amount_total, image_url)
+WITH RECURSIVE package_seq(n) AS (
+  SELECT 1
+  UNION ALL
+  SELECT n + 1 FROM package_seq WHERE n < @package_count
+)
+SELECT
+  500000 + n,
+  CONCAT(
+    ELT(MOD(n * 3, 10) + 1, 'Seoul', 'Busan', 'Jeju', 'Tokyo', 'Osaka', 'Bangkok', 'Singapore', 'Paris', 'London', 'Sydney'),
+    ' ',
+    ELT(MOD(n * 9, 8) + 1, 'Weekend Explorer Package', 'Family Escape Package', 'City Culture Package', 'Food Discovery Package', 'Ocean View Package', 'Museum & Stay Package', 'Festival Night Package', 'Smart Booking Package')
+  ),
+  CASE WHEN MOD(n, 13) = 0 THEN 'PAUSED' ELSE 'ACTIVE' END,
+  CASE
+    WHEN MOD(n, 10) IN (0, 1, 2) THEN 'KRW'
+    WHEN MOD(n, 10) IN (3, 4) THEN 'JPY'
+    WHEN MOD(n, 10) IN (5, 6, 7) THEN 'USD'
+    ELSE 'EUR'
+  END,
+  89000 + MOD(n * 2701, 420000),
+  CONCAT('https://picsum.photos/seed/stayvista-package-rich-', n, '/640/380')
+FROM package_seq
+ON DUPLICATE KEY UPDATE
+  name = VALUES(name),
+  status = VALUES(status),
+  currency = VALUES(currency),
+  amount_total = VALUES(amount_total),
+  image_url = VALUES(image_url),
+  updated_at = NOW(3);
+
+INSERT INTO package_product_component(
+  package_id, component_type, room_type_id, ticket_event_id, nights, rooms, quantity
+)
+SELECT
+  p.id,
+  'ACCOMMODATION',
+  200000 + MOD((p.id - 500000) * 37, @room_type_total) + 1,
+  NULL,
+  1 + MOD(p.id, 3),
+  1 + MOD(p.id, 2),
+  NULL
+FROM package_product p
+WHERE p.id BETWEEN 500001 AND (500000 + @package_count);
+
+INSERT INTO package_product_component(
+  package_id, component_type, room_type_id, ticket_event_id, nights, rooms, quantity
+)
+SELECT
+  p.id,
+  'TICKET',
+  NULL,
+  400000000
+    + ((MOD((p.id - 500000) * 7, @ticket_product_count) + 1) * 1000)
+    + (MOD((p.id - 500000) * 11, @ticket_event_days) * 10)
+    + (MOD(p.id, 3) + 1),
+  NULL,
+  NULL,
+  1 + MOD(p.id, 4)
+FROM package_product p
+WHERE p.id BETWEEN 500001 AND (500000 + @package_count);
+
+UPDATE product
+SET image_url = CONCAT('https://picsum.photos/seed/stayvista-ticket-', id, '/640/380')
+WHERE status = 'ACTIVE'
+  AND (image_url IS NULL OR image_url = '');
+
+UPDATE package_product
+SET image_url = CONCAT('https://picsum.photos/seed/stayvista-package-', id, '/640/380')
+WHERE status = 'ACTIVE'
+  AND (image_url IS NULL OR image_url = '');
+
+SET @content_property_count := @property_count;
+SET @content_room_type_max_id := 200000 + (@content_property_count * @room_per_property);
+
+DELETE psi
+FROM property_staycation_item psi
+JOIN property_staycation_card psc ON psc.id = psi.card_id
+WHERE psc.property_id BETWEEN 100001 AND (100000 + @content_property_count);
+DELETE FROM property_staycation_card
+WHERE property_id BETWEEN 100001 AND (100000 + @content_property_count);
+DELETE FROM property_gallery_image
+WHERE property_id BETWEEN 100001 AND (100000 + @content_property_count);
+DELETE FROM property_highlight
+WHERE property_id BETWEEN 100001 AND (100000 + @content_property_count);
+DELETE FROM property_editorial
+WHERE property_id BETWEEN 100001 AND (100000 + @content_property_count);
+
+INSERT INTO property_editorial(
+  property_id, short_description, long_description, check_in_time, check_out_time,
+  airport_transfer_fee_krw, breakfast_fee_krw, remodeled_year, children_policy
+)
+SELECT
+  p.id,
+  CONCAT(p.city, ' ', p.district_name, ' 중심의 ', COALESCE(p.property_type_code, 'hotel'), ' 숙소입니다.'),
+  CONCAT(
+    p.name,
+    '은(는) ',
+    p.city,
+    ' ',
+    p.district_name,
+    ' 권역에서 이동성과 접근성이 좋은 숙소입니다. ',
+    '비즈니스/가족/커플 여행객 모두가 이용하기 좋은 객실 구성을 제공하며, ',
+    '실시간 재고 및 요금 기준으로 예약이 확정됩니다.'
+  ),
+  CASE MOD(p.id, 4)
+    WHEN 0 THEN '14:00'
+    WHEN 1 THEN '15:00'
+    WHEN 2 THEN '16:00'
+    ELSE '15:30'
+  END,
+  CASE MOD(p.id, 3)
+    WHEN 0 THEN '11:00'
+    WHEN 1 THEN '11:30'
+    ELSE '12:00'
+  END,
+  50000 + MOD(p.id * 37, 280000),
+  12000 + MOD(p.id * 53, 110000),
+  1998 + MOD(p.id, 27),
+  CASE
+    WHEN p.kid_free_stay = 1 THEN '일부 객실 타입은 아동 무료 투숙이 가능합니다.'
+    ELSE '아동 동반 가능하며 객실 타입별 인원 정책이 다를 수 있습니다.'
+  END
+FROM property p
+WHERE p.id BETWEEN 100001 AND (100000 + @content_property_count);
+
+INSERT INTO property_highlight(property_id, content, display_order, active)
+SELECT
+  p.id,
+  CASE hs.seq_no
+    WHEN 1 THEN CONCAT(p.city, ' 핵심 이동 동선 접근 우수')
+    WHEN 2 THEN CONCAT('평점 ', FORMAT(p.rating, 1), ' / 위치 ', FORMAT(p.location_rating, 1), ' 기반 인기 숙소')
+    WHEN 3 THEN CONCAT('투숙객 리뷰 ', FORMAT(p.review_count, 0), '건 이상 누적')
+    ELSE CONCAT('도심/주요 명소 접근성 ', IF(p.beach_distance_m < 2000, '우수', '양호'))
+  END,
+  hs.seq_no * 10,
+  1
+FROM property p
+JOIN (
+  SELECT 1 AS seq_no UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4
+) hs
+WHERE p.id BETWEEN 100001 AND (100000 + @content_property_count);
+
+INSERT INTO property_gallery_image(property_id, image_url, is_cover, display_order, active)
+SELECT
+  p.id,
+  CONCAT('https://picsum.photos/seed/stayvista-property-gallery-', p.id, '-', gs.seq_no, '/960/640'),
+  CASE WHEN gs.seq_no = 1 THEN 1 ELSE 0 END,
+  gs.seq_no * 10,
+  1
+FROM property p
+JOIN (
+  SELECT 1 AS seq_no UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6
+) gs
+WHERE p.id BETWEEN 100001 AND (100000 + @content_property_count);
+
+INSERT INTO property_staycation_card(property_id, card_code, title, subtitle, display_order, active)
+SELECT
+  p.id,
+  ELT(cs.seq_no, 'dining', 'wellness', 'activity', 'family'),
+  ELT(cs.seq_no, '식음료', '웰니스', '즐길 거리', '가족'),
+  CASE cs.seq_no
+    WHEN 1 THEN '조식/라운지/레스토랑 혜택'
+    WHEN 2 THEN '피트니스/스파/사우나 이용'
+    WHEN 3 THEN '주변 명소/체험 추천'
+    ELSE '키즈/패밀리 친화 옵션'
+  END,
+  cs.seq_no * 10,
+  1
+FROM property p
+JOIN (
+  SELECT 1 AS seq_no UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4
+) cs
+WHERE p.id BETWEEN 100001 AND (100000 + @content_property_count);
+
+INSERT INTO property_staycation_item(card_id, item_text, display_order, active)
+SELECT
+  c.id,
+  CASE item_seq.seq_no
+    WHEN 1 THEN CASE c.card_code WHEN 'dining' THEN '룸서비스(24시간)' WHEN 'wellness' THEN '피트니스 센터' WHEN 'activity' THEN '실내 수영장' ELSE '키즈 라운지' END
+    WHEN 2 THEN CASE c.card_code WHEN 'dining' THEN '레스토랑' WHEN 'wellness' THEN '사우나' WHEN 'activity' THEN '도심 투어 제휴' ELSE '패밀리 객실 우선 배정' END
+    WHEN 3 THEN CASE c.card_code WHEN 'dining' THEN '바/라운지' WHEN 'wellness' THEN '스파' WHEN 'activity' THEN '명소 할인 혜택' ELSE '아동 동반 서비스' END
+    ELSE CASE c.card_code WHEN 'dining' THEN '조식 포함 옵션' WHEN 'wellness' THEN '요가 클래스' WHEN 'activity' THEN '체험 상품 번들' ELSE '유아용 편의 비품' END
+  END,
+  item_seq.seq_no * 10,
+  1
+FROM property_staycation_card c
+JOIN (
+  SELECT 1 AS seq_no UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4
+) item_seq
+WHERE c.property_id BETWEEN 100001 AND (100000 + @content_property_count);
+
+DELETE rpb
+FROM room_rate_plan_benefit rpb
+JOIN room_rate_plan rp ON rp.id = rpb.plan_id
+WHERE rp.room_type_id BETWEEN 200001 AND @content_room_type_max_id;
+DELETE FROM room_rate_plan
+WHERE room_type_id BETWEEN 200001 AND @content_room_type_max_id;
+DELETE FROM room_type_feature
+WHERE room_type_id BETWEEN 200001 AND @content_room_type_max_id;
+DELETE FROM room_type_media
+WHERE room_type_id BETWEEN 200001 AND @content_room_type_max_id;
+
+INSERT INTO room_type_media(room_type_id, image_url, display_order, active)
+SELECT
+  rt.id,
+  CONCAT('https://picsum.photos/seed/stayvista-room-media-', rt.id, '-', ms.seq_no, '/720/480'),
+  ms.seq_no * 10,
+  1
+FROM room_type rt
+JOIN (
+  SELECT 1 AS seq_no UNION ALL SELECT 2 UNION ALL SELECT 3
+) ms
+WHERE rt.id BETWEEN 200001 AND @content_room_type_max_id
+  AND rt.status = 'ACTIVE';
+
+INSERT INTO room_type_feature(room_type_id, feature_text, display_order, active)
+SELECT
+  rt.id,
+  CASE fs.seq_no
+    WHEN 1 THEN CONCAT('침대 유형 ', rt.bed_type)
+    WHEN 2 THEN CONCAT('전망 ', rt.view_type)
+    WHEN 3 THEN CONCAT('침실 ', rt.bedrooms, '개')
+    WHEN 4 THEN CONCAT('최대 성인 ', rt.capacity_adults, '인')
+    WHEN 5 THEN CASE MOD(rt.id, 2) WHEN 0 THEN '욕조' ELSE '샤워부스' END
+    ELSE CASE MOD(rt.id, 3) WHEN 0 THEN '무료 Wi-Fi' WHEN 1 THEN '커피/티 메이커' ELSE '금연 객실' END
+  END,
+  fs.seq_no * 10,
+  1
+FROM room_type rt
+JOIN (
+  SELECT 1 AS seq_no UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6
+) fs
+WHERE rt.id BETWEEN 200001 AND @content_room_type_max_id
+  AND rt.status = 'ACTIVE';
+
+INSERT INTO room_rate_plan(
+  room_type_id, plan_code, occupancy_text, pay_summary, urgency_text, list_price_krw, sale_price_krw, display_order, active
+)
+SELECT
+  rt.id,
+  CASE ps.seq_no
+    WHEN 1 THEN 'FLEX_CANCEL'
+    WHEN 2 THEN 'PAY_LATER'
+    ELSE 'BREAKFAST_SAVER'
+  END,
+  CONCAT('아동 ', rt.capacity_children, '명 · 투숙 무료'),
+  CASE ps.seq_no
+    WHEN 1 THEN '지금 예약 & 결제하기'
+    WHEN 2 THEN '숙소에서 요금 결제'
+    ELSE '선예약 후지불'
+  END,
+  CASE
+    WHEN MOD(rt.id + ps.seq_no, 6) = 0 THEN '마지막 객실 임박'
+    WHEN MOD(rt.id + ps.seq_no, 5) = 0 THEN '오늘 예약 급증'
+    ELSE '예약 가능'
+  END,
+  ROUND(rt.base_price * CASE ps.seq_no WHEN 1 THEN 1.20 WHEN 2 THEN 1.12 ELSE 1.08 END),
+  ROUND(rt.base_price * CASE ps.seq_no WHEN 1 THEN 1.00 WHEN 2 THEN 0.96 ELSE 0.92 END),
+  ps.seq_no * 10,
+  1
+FROM room_type rt
+JOIN (
+  SELECT 1 AS seq_no UNION ALL SELECT 2 UNION ALL SELECT 3
+) ps
+WHERE rt.id BETWEEN 200001 AND @content_room_type_max_id
+  AND rt.status = 'ACTIVE';
+
+INSERT INTO room_rate_plan_benefit(plan_id, benefit_text, display_order, active)
+SELECT
+  rp.id,
+  CASE bs.seq_no
+    WHEN 1 THEN '무료 Wi-Fi'
+    WHEN 2 THEN CASE rp.plan_code WHEN 'BREAKFAST_SAVER' THEN '조식 포함' ELSE '무료 취소 가능' END
+    WHEN 3 THEN CASE rp.plan_code WHEN 'PAY_LATER' THEN '숙소에서 요금 결제' ELSE '주차' END
+    ELSE CASE rp.plan_code WHEN 'FLEX_CANCEL' THEN '변경 유연 정책' ELSE '피트니스 센터' END
+  END,
+  bs.seq_no * 10,
+  1
+FROM room_rate_plan rp
+JOIN (
+  SELECT 1 AS seq_no UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4
+) bs
+WHERE rp.room_type_id BETWEEN 200001 AND @content_room_type_max_id
+  AND rp.active = 1;
+
+UPDATE poi
+SET image_urls = JSON_ARRAY(
+  CONCAT('https://picsum.photos/seed/stayvista-poi-', id, '-1/640/420'),
+  CONCAT('https://picsum.photos/seed/stayvista-poi-', id, '-2/640/420'),
+  CONCAT('https://picsum.photos/seed/stayvista-poi-', id, '-3/640/420')
+)
+WHERE active = 1
+  AND (image_urls IS NULL OR image_urls = '');
+
 DELETE FROM city_poi_popular WHERE city = 'Busan';
 INSERT INTO city_poi_popular(city, poi_id, rank_score)
 SELECT city, id, popularity_score
@@ -1120,15 +2092,14 @@ VALUES
 
 DELETE FROM city_featured_property WHERE city IN ('Seoul', 'Busan', 'Jeju');
 INSERT INTO city_featured_property(city, property_id, rank_score)
-SELECT city, id, rank_score
+SELECT
+  city,
+  id,
+  CAST(GREATEST(0, 1000 - (CAST(rn AS SIGNED) * 10)) AS SIGNED) AS rank_score
 FROM (
   SELECT
     p.city,
     p.id,
-    (1000 - (ROW_NUMBER() OVER (
-      PARTITION BY p.city
-      ORDER BY p.rating DESC, p.popularity_score DESC, p.id ASC
-    ) * 10)) AS rank_score,
     ROW_NUMBER() OVER (
       PARTITION BY p.city
       ORDER BY p.rating DESC, p.popularity_score DESC, p.id ASC
@@ -1162,12 +2133,19 @@ WHERE stay_date >= CURDATE()
   AND stay_date < DATE_ADD(CURDATE(), INTERVAL 120 DAY);
 
 INSERT INTO city_day_min_price(city, stay_date, min_price_krw)
-WITH RECURSIVE day_seq(day_offset) AS (
-  SELECT 0
-  UNION ALL
-  SELECT day_offset + 1 FROM day_seq WHERE day_offset < 119
-),
-city_min_price AS (
+SELECT
+  cmp.city,
+  DATE_ADD(CURDATE(), INTERVAL ds.day_offset DAY),
+  ROUND(
+    cmp.min_price * (
+      1 + CASE
+        WHEN DAYOFWEEK(DATE_ADD(CURDATE(), INTERVAL ds.day_offset DAY)) IN (1, 7) THEN 0.10
+        WHEN DAYOFWEEK(DATE_ADD(CURDATE(), INTERVAL ds.day_offset DAY)) = 6 THEN 0.07
+        ELSE 0
+      END
+    )
+  )
+FROM (
   SELECT p.city, MIN(rt.base_price) AS min_price
   FROM property p
   JOIN room_type rt
@@ -1176,24 +2154,23 @@ city_min_price AS (
   WHERE p.status = 'ACTIVE'
     AND p.city IS NOT NULL
   GROUP BY p.city
-)
-SELECT
-  cmp.city,
-  DATE_ADD(CURDATE(), INTERVAL day_seq.day_offset DAY),
-  ROUND(
-    cmp.min_price * (
-      1 + CASE
-        WHEN DAYOFWEEK(DATE_ADD(CURDATE(), INTERVAL day_seq.day_offset DAY)) IN (1, 7) THEN 0.10
-        WHEN DAYOFWEEK(DATE_ADD(CURDATE(), INTERVAL day_seq.day_offset DAY)) = 6 THEN 0.07
-        ELSE 0
-      END
-    )
-  )
-FROM city_min_price cmp
-CROSS JOIN day_seq
-ON DUPLICATE KEY UPDATE
-  min_price_krw = VALUES(min_price_krw),
-  updated_at = NOW(3);
+) cmp
+CROSS JOIN (
+  SELECT (u.n + t.n * 10 + h.n * 100) AS day_offset
+  FROM (
+    SELECT 0 AS n UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4
+    UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9
+  ) u
+  CROSS JOIN (
+    SELECT 0 AS n UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4
+    UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9
+  ) t
+  CROSS JOIN (
+    SELECT 0 AS n UNION ALL SELECT 1
+  ) h
+  WHERE (u.n + t.n * 10 + h.n * 100) < 120
+) ds
+;
 
 -- Busan shopping POI boost for Korean shopping intent queries
 INSERT INTO poi(

@@ -7,6 +7,7 @@ type PackageItem = {
   name: string;
   status: string;
   price: { amount_total: number; currency?: string };
+  image_url?: string | null;
 };
 type ApiError = { code?: string; message?: string };
 
@@ -81,12 +82,16 @@ export function PackagesPage() {
       <ul className="product-grid">
         {items.map((item) => (
           <li className="product-card package-card" key={item.package_id}>
-            <img
-              className="product-thumb"
-              src={`https://picsum.photos/seed/package-${item.package_id}/640/380`}
-              alt={item.name}
-              loading="lazy"
-            />
+            {item.image_url ? (
+              <img
+                className="product-thumb"
+                src={item.image_url}
+                alt={item.name}
+                loading="lazy"
+              />
+            ) : (
+              <div className="product-thumb product-thumb-empty">이미지 준비중</div>
+            )}
             <div className="product-body">
               <div className="product-row">
                 <span className={item.status === "ACTIVE" ? "status-pill active" : "status-pill"}>

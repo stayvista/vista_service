@@ -109,6 +109,19 @@
    - Nearby API p95/p99 정상화
    - 429/5xx 비율 정상화
 
+### 2.8 프로모션 쿠폰 발급 장애
+1) 주요 지표 확인
+   - `promotion_campaign_list_total`
+   - `promotion_claim_total{result=*}` (`success`, `already_claimed`, `sold_out`, `out_of_window`, `inactive`)
+2) 증상별 즉시 조치
+   - `sold_out` 급증: `promotion_campaign.issue_limit`, `issued_count`를 확인하고 필요 시 운영자 정책으로 증량/종료
+   - `out_of_window` 급증: 캠페인 `starts_at`, `ends_at` 타임존/서버시간(NTP) 확인
+   - `inactive` 급증: 캠페인 상태(`status`) 및 배포 데이터 점검
+3) 정합성 점검 쿼리
+   - `SELECT code, issue_limit, issued_count FROM promotion_campaign WHERE id = ?;`
+   - `SELECT COUNT(*) FROM promotion_coupon_claim WHERE campaign_id = ?;`
+   - 두 값이 불일치하면 트랜잭션 실패/수동 조작 이력을 확인한다.
+
 ## 3) Local LLM 운영 절차 (Ollama)
 
 ### 3.1 서비스 기동

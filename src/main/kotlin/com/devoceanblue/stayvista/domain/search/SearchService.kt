@@ -702,7 +702,7 @@ data class SearchRequest(
     fun normalize(): SearchRequest {
         return copy(
             q = q?.trim()?.takeIf { it.isNotBlank() },
-            city = city?.trim()?.takeIf { it.isNotBlank() },
+            city = CityCanonicalizer.canonicalize(city),
             place_id = place_id?.trim()?.takeIf { it.isNotBlank() },
             adults = adults?.coerceIn(1, 16),
             children = children?.coerceIn(0, 8),

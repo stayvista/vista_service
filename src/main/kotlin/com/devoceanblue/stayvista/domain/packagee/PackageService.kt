@@ -35,8 +35,8 @@ class PackageService(
         jdbcTemplate.update({ connection ->
             val ps = connection.prepareStatement(
                 """
-                INSERT INTO package_product(name, status, currency, amount_total)
-                VALUES (?, ?, ?, ?)
+                INSERT INTO package_product(name, status, currency, amount_total, image_url)
+                VALUES (?, ?, ?, ?, ?)
                 """.trimIndent(),
                 PreparedStatement.RETURN_GENERATED_KEYS,
             )
@@ -44,6 +44,7 @@ class PackageService(
             ps.setString(2, request.status)
             ps.setString(3, request.price.currency)
             ps.setLong(4, request.price.amount_total)
+            ps.setString(5, request.image_url)
             ps
         }, keyHolder)
         val packageId = keyHolder.key?.toLong() ?: throw DomainException(ErrorCode.INTERNAL, "Failed to create package")
@@ -71,7 +72,7 @@ class PackageService(
     fun getPackage(packageId: Long): PackageDetail {
         val pack = jdbcTemplate.query(
             """
-            SELECT id, name, status, currency, amount_total
+            SELECT id, name, status, currency, amount_total, image_url
             FROM package_product
             WHERE id = ?
             """.trimIndent(),
@@ -82,6 +83,7 @@ class PackageService(
                     status = rs.getString("status"),
                     currency = rs.getString("currency"),
                     amount = rs.getLong("amount_total"),
+                    imageUrl = rs.getString("image_url"),
                 )
             },
             packageId,
@@ -92,13 +94,14 @@ class PackageService(
             status = pack.status,
             components = components(pack.id),
             price = PackagePrice(pack.currency, pack.amount),
+            image_url = pack.imageUrl,
         )
     }
 
     fun listPackages(): PackageListData {
         val items = jdbcTemplate.query(
             """
-            SELECT id, name, status, currency, amount_total
+            SELECT id, name, status, currency, amount_total, image_url
             FROM package_product
             WHERE status='ACTIVE'
             ORDER BY id DESC
@@ -112,6 +115,7 @@ class PackageService(
                         currency = rs.getString("currency"),
                         amount_total = rs.getLong("amount_total"),
                     ),
+                    image_url = rs.getString("image_url"),
                 )
             },
         )
@@ -401,6 +405,7 @@ data class CreatePackageRequest(
     val name: String,
     val status: String = "ACTIVE",
     val price: PackagePrice,
+    val image_url: String? = null,
     val components: List<PackageComponent>,
 )
 
@@ -423,6 +428,7 @@ data class PackageSummary(
     val name: String,
     val status: String,
     val price: PackagePrice,
+    val image_url: String?,
 )
 
 data class PackageListData(
@@ -435,6 +441,7 @@ data class PackageDetail(
     val status: String,
     val components: List<PackageComponent>,
     val price: PackagePrice,
+    val image_url: String?,
 )
 
 data class PackageHoldRequest(
@@ -488,6 +495,7 @@ private data class PackageBase(
     val status: String,
     val currency: String,
     val amount: Long,
+    val imageUrl: String?,
 )
 
 private data class PackageOrderRow(

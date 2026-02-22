@@ -18,6 +18,8 @@ import org.springframework.web.bind.annotation.RestController
 @RequestMapping("/v1")
 class CatalogController(
     private val catalogService: CatalogService,
+    private val homeContentService: HomeContentService,
+    private val propertyContentService: PropertyContentService,
 ) {
     @PostMapping("/admin/properties")
     fun createProperty(@Valid @RequestBody request: CreatePropertyRequest) = ApiResponses.ok(
@@ -62,6 +64,9 @@ class CatalogController(
     @GetMapping("/properties/{propertyId}")
     fun getProperty(@PathVariable propertyId: Long) = ApiResponses.ok(catalogService.getProperty(propertyId))
 
+    @GetMapping("/home/content")
+    fun getHomeContent() = ApiResponses.ok(homeContentService.getContent())
+
     @GetMapping("/properties")
     fun listProperties(
         @RequestParam(defaultValue = "20") @Min(1) @Max(50) limit: Int,
@@ -75,4 +80,22 @@ class CatalogController(
 
     @GetMapping("/properties/{propertyId}/room-types")
     fun listRoomTypes(@PathVariable propertyId: Long) = ApiResponses.ok(catalogService.listRoomTypes(propertyId))
+
+    @GetMapping("/properties/{propertyId}/reviews")
+    fun listPropertyReviews(
+        @PathVariable propertyId: Long,
+        @RequestParam(required = false) tag: String?,
+        @RequestParam(defaultValue = "1") @Min(1) page: Int,
+        @RequestParam(defaultValue = "12") @Min(1) @Max(50) size: Int,
+    ) = ApiResponses.ok(
+        catalogService.listPropertyReviews(
+            propertyId = propertyId,
+            tag = tag?.trim()?.takeIf { it.isNotEmpty() },
+            page = page,
+            size = size,
+        ),
+    )
+
+    @GetMapping("/properties/{propertyId}/content")
+    fun getPropertyContent(@PathVariable propertyId: Long) = ApiResponses.ok(propertyContentService.getContent(propertyId))
 }

@@ -8,6 +8,7 @@ type TicketProduct = {
   category: string;
   city?: string | null;
   status?: string;
+  image_url?: string | null;
 };
 type ApiError = { code?: string; message?: string };
 
@@ -131,12 +132,16 @@ export function TicketsPage() {
       <ul className="product-grid">
         {filtered.map((item) => (
           <li key={item.product_id} className="product-card">
-            <img
-              className="product-thumb"
-              src={`https://picsum.photos/seed/ticket-${item.product_id}/640/380`}
-              alt={item.name}
-              loading="lazy"
-            />
+            {item.image_url ? (
+              <img
+                className="product-thumb"
+                src={item.image_url}
+                alt={item.name}
+                loading="lazy"
+              />
+            ) : (
+              <div className="product-thumb product-thumb-empty">이미지 준비중</div>
+            )}
             <div className="product-body">
               <p className="product-type">{item.category}</p>
               <h3>{item.name}</h3>

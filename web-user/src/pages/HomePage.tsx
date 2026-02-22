@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
+import { CSSProperties, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { apiGet } from "../api/client";
+import { apiGet, apiPost } from "../api/client";
 import { useLocale } from "../components/locale/LocaleContext";
 import { HeroSearchBox } from "../components/search/HeroSearchBox";
 import { getStaySearchInput, setStaySearchParams } from "../components/search/searchState";
 import { StaySearchInput } from "../components/search/searchTypes";
+import { getAuthUser } from "../auth/session";
 
 type FeaturedHotel = {
   property_id: number;
@@ -18,7 +19,92 @@ type FeaturedHotel = {
 
 type ApiError = { code?: string; message?: string };
 
-const quickFilters = ["오션뷰", "프라이빗 풀", "조식 포함", "무료 취소", "24시간 체크인"];
+type QuickFilter = {
+  label: string;
+  filter_key: string;
+  filter_value: string;
+};
+
+type SearchMeta = {
+  total: number;
+};
+
+type PromotionCampaign = {
+  campaign_id: number;
+  section: string;
+  title: string;
+  subtitle?: string;
+  description?: string;
+  city?: string;
+  image_url?: string;
+  badge_text?: string;
+  discount_text?: string;
+  coupon_value_type: string;
+  coupon_value: number;
+  currency: string;
+  min_order_amount: number;
+  issue_limit: number;
+  issued_count: number;
+  remaining_count: number;
+  claimable: boolean;
+  starts_at: string;
+  ends_at: string;
+};
+
+type PromotionCampaignListData = {
+  section: string;
+  items: PromotionCampaign[];
+};
+
+type PromotionClaimData = {
+  campaign_id: number;
+  claim_id: number;
+  coupon_code: string;
+  already_claimed: boolean;
+  remaining_count: number;
+  expires_at: string;
+  message: string;
+};
+
+type DestinationCard = {
+  city: string;
+  country?: string | null;
+  label: string;
+  image_url?: string | null;
+  property_count: number;
+  highlights?: string | null;
+};
+
+type HomeHeroMetric = {
+  metric_value: string;
+  metric_label: string;
+};
+
+type HomeHeroData = {
+  eyebrow_text: string;
+  title_text: string;
+  summary_text: string;
+  background_image_url?: string | null;
+  metrics: HomeHeroMetric[];
+};
+
+type HomeDestinationSection = {
+  section_code: string;
+  items: DestinationCard[];
+};
+
+type HomePromotionSection = {
+  section_code: string;
+  title: string;
+  subtitle?: string | null;
+};
+
+type HomeContentData = {
+  hero?: HomeHeroData | null;
+  quick_filters: QuickFilter[];
+  destination_sections: HomeDestinationSection[];
+  promotion_sections: HomePromotionSection[];
+};
 
 function pickFeaturedHotels(items: FeaturedHotel[]): FeaturedHotel[] {
   const selected: FeaturedHotel[] = [];
@@ -46,7 +132,12 @@ function pickFeaturedHotels(items: FeaturedHotel[]): FeaturedHotel[] {
 export function HomePage() {
   const navigate = useNavigate();
   const { locale } = useLocale();
+  const [selectedQuickFilters, setSelectedQuickFilters] = useState<string[]>([]);
   const [featuredHotels, setFeaturedHotels] = useState<FeaturedHotel[]>([]);
+  const [homeContent, setHomeContent] = useState<HomeContentData | null>(null);
+  const [promotionsBySection, setPromotionsBySection] = useState<Record<string, PromotionCampaign[]>>({});
+  const [claimingCampaignIds, setClaimingCampaignIds] = useState<Record<number, boolean>>({});
+  const [claimNotice, setClaimNotice] = useState<string | null>(null);
   const [featuredLoading, setFeaturedLoading] = useState(false);
   const [featuredError, setFeaturedError] = useState<string | null>(null);
 
@@ -73,13 +164,18 @@ export function HomePage() {
       city: "Seoul",
     });
 
-    apiGet<{ items: FeaturedHotel[] }>(`/v1/search/properties?${query.toString()}`)
-      .then((response) => {
-        setFeaturedHotels(pickFeaturedHotels(response.data.items ?? []));
+    Promise.all([
+      apiGet<{ items: FeaturedHotel[]; meta?: SearchMeta }>(`/v1/search/properties?${query.toString()}`),
+      apiGet<HomeContentData>("/v1/home/content"),
+    ])
+      .then(([featuredResponse, homeContentResponse]) => {
+        setFeaturedHotels(pickFeaturedHotels(featuredResponse.data.items ?? []));
+        setHomeContent(homeContentResponse.data);
       })
       .catch((e: unknown) => {
         const err = e as ApiError;
         setFeaturedHotels([]);
+        setHomeContent(null);
         setFeaturedError(`${err.code ?? "ERROR"}: ${err.message ?? "추천 호텔 조회 실패"}`);
       })
       .finally(() => {
@@ -87,43 +183,179 @@ export function HomePage() {
       });
   }, [locale.currency]);
 
+  useEffect(() => {
+    const promotionSections = homeContent?.promotion_sections ?? [];
+    if (!promotionSections.length) {
+      setPromotionsBySection({});
+      return;
+    }
+
+    Promise.allSettled(
+      promotionSections.map((section) =>
+        apiGet<PromotionCampaignListData>(
+          `/v1/promotions/campaigns?section=${section.section_code}&city=Seoul&limit=12`,
+        ),
+      ),
+    ).then((results) => {
+      const nextPromotions: Record<string, PromotionCampaign[]> = {};
+      results.forEach((result, index) => {
+        const section = promotionSections[index];
+        if (result.status === "fulfilled") {
+          nextPromotions[section.section_code] = result.value.data.items ?? [];
+        } else {
+          nextPromotions[section.section_code] = [];
+        }
+      });
+      setPromotionsBySection(nextPromotions);
+    });
+  }, [homeContent?.promotion_sections]);
+
   function onSearch(next: StaySearchInput) {
     const params = setStaySearchParams(new URLSearchParams(), next);
+    const grouped = new Map<string, Set<string>>();
+    selectedQuickFilters.forEach((label) => {
+      const filter = homeContent?.quick_filters.find((item) => item.label === label);
+      if (!filter) {
+        return;
+      }
+      const bucket = grouped.get(filter.filter_key) ?? new Set<string>();
+      bucket.add(filter.filter_value);
+      grouped.set(filter.filter_key, bucket);
+    });
+    grouped.forEach((values, key) => {
+      if (values.size > 0) {
+        params.set(key, Array.from(values).join(","));
+      }
+    });
     navigate(`/search?${params.toString()}`);
+  }
+
+  function toggleQuickFilter(label: string) {
+    setSelectedQuickFilters((prev) =>
+      prev.includes(label) ? prev.filter((item) => item !== label) : [...prev, label],
+    );
+  }
+
+  function buildCitySearchHref(card: DestinationCard): string {
+    const next = setStaySearchParams(
+      new URLSearchParams(),
+      {
+        ...initialSearch,
+        placeId: `city:${card.city}`,
+        placeLabel: card.label,
+        city: card.city,
+        district: undefined,
+        currency: locale.currency,
+      },
+    );
+    return `/search?${next.toString()}`;
+  }
+
+  const hero = homeContent?.hero ?? null;
+  const quickFilters = homeContent?.quick_filters ?? [];
+
+  const domesticDestinations = useMemo(
+    () => homeContent?.destination_sections.find((section) => section.section_code === "DOMESTIC")?.items ?? [],
+    [homeContent?.destination_sections],
+  );
+  const globalDestinations = useMemo(
+    () => homeContent?.destination_sections.find((section) => section.section_code === "GLOBAL")?.items ?? [],
+    [homeContent?.destination_sections],
+  );
+  const heroStyle = useMemo<CSSProperties | undefined>(() => {
+    if (!hero?.background_image_url) return undefined;
+    return {
+      backgroundImage: `linear-gradient(135deg, rgba(7, 17, 37, 0.72) 0%, rgba(8, 31, 67, 0.4) 60%, rgba(11, 52, 117, 0.2) 100%), url("${hero.background_image_url}")`,
+    };
+  }, [hero?.background_image_url]);
+
+  function formatCouponValue(campaign: PromotionCampaign): string {
+    if (campaign.coupon_value_type === "AMOUNT") {
+      return `${currencySymbol(campaign.currency)}${campaign.coupon_value.toLocaleString()}`;
+    }
+    return `${campaign.coupon_value}%`;
+  }
+
+  function formatDateRange(campaign: PromotionCampaign): string {
+    const starts = new Date(campaign.starts_at);
+    const ends = new Date(campaign.ends_at);
+    return `${starts.getMonth() + 1}/${starts.getDate()} ~ ${ends.getMonth() + 1}/${ends.getDate()}`;
+  }
+
+  async function claimCampaign(campaignId: number) {
+    if (!getAuthUser()) {
+      setClaimNotice("쿠폰 발급은 로그인 후 이용할 수 있습니다.");
+      navigate("/login");
+      return;
+    }
+
+    setClaimingCampaignIds((prev) => ({ ...prev, [campaignId]: true }));
+    setClaimNotice(null);
+    try {
+      const response = await apiPost<PromotionClaimData>(`/v1/promotions/campaigns/${campaignId}/claim`, {});
+      const claimed = response.data;
+      setPromotionsBySection((prev) => {
+        const next: Record<string, PromotionCampaign[]> = {};
+        Object.entries(prev).forEach(([section, campaigns]) => {
+          next[section] = campaigns.map((campaign) => {
+            if (campaign.campaign_id !== campaignId) {
+              return campaign;
+            }
+            const remaining = claimed.remaining_count;
+            return {
+              ...campaign,
+              issued_count: Math.min(campaign.issue_limit, campaign.issue_limit - remaining),
+              remaining_count: remaining,
+              claimable: !claimed.already_claimed && remaining > 0,
+            };
+          });
+        });
+        return next;
+      });
+      setClaimNotice(`${claimed.message} 코드: ${claimed.coupon_code}`);
+    } catch (e: unknown) {
+      const err = e as ApiError;
+      setClaimNotice(`${err.code ?? "ERROR"}: ${err.message ?? "쿠폰 발급에 실패했습니다."}`);
+    } finally {
+      setClaimingCampaignIds((prev) => ({ ...prev, [campaignId]: false }));
+    }
   }
 
   return (
     <>
-      <section className="hero">
+      <section className="hero" style={heroStyle}>
         <div className="hero-content">
-          <p className="hero-eyebrow">VERIFIED INVENTORY · REAL-TIME BOOKING</p>
-          <h1>잊지못할 여행을 선물하세요</h1>
+          <p className="hero-eyebrow">{hero?.eyebrow_text ?? "STAYVISTA"}</p>
+          <h1>{hero?.title_text ?? "잊지못할 여행을 선물하세요"}</h1>
           <p className="hero-summary">
-            숙소, 티켓, 패키지 재고를 하나의 화면에서 실시간으로 확인하고
-            예약 하실수 있습니다.
+            {hero?.summary_text ?? "숙소, 티켓, 패키지 재고를 하나의 화면에서 실시간으로 확인하고 예약 하실수 있습니다."}
           </p>
 
           <HeroSearchBox initial={initialSearch} onSearch={onSearch} mode="hero" />
 
           <div className="quick-filters">
             {quickFilters.map((filter) => (
-              <button key={filter} type="button" className="quick-chip">{filter}</button>
+              <button
+                key={filter.label}
+                type="button"
+                className={selectedQuickFilters.includes(filter.label) ? "quick-chip active" : "quick-chip"}
+                aria-pressed={selectedQuickFilters.includes(filter.label)}
+                onClick={() => toggleQuickFilter(filter.label)}
+              >
+                {filter.label}
+              </button>
             ))}
           </div>
-          <ul className="hero-metrics">
-            <li>
-              <strong>1.2M+</strong>
-              <span>누적 예약 건수</span>
-            </li>
-            <li>
-              <strong>4.8 / 5</strong>
-              <span>실제 투숙 후기 평점</span>
-            </li>
-            <li>
-              <strong>24/7</strong>
-              <span>운영 지원 및 고객 응대</span>
-            </li>
-          </ul>
+          {hero?.metrics?.length ? (
+            <ul className="hero-metrics">
+              {hero.metrics.map((metric) => (
+                <li key={`${metric.metric_value}-${metric.metric_label}`}>
+                  <strong>{metric.metric_value}</strong>
+                  <span>{metric.metric_label}</span>
+                </li>
+              ))}
+            </ul>
+          ) : null}
         </div>
       </section>
 
@@ -141,11 +373,15 @@ export function HomePage() {
           {featuredHotels.map((hotel) => (
             <li key={hotel.property_id} className="destination-card">
               <Link to={`/properties/${hotel.property_id}`}>
-                <img
-                  src={hotel.thumbnail_url || `https://picsum.photos/seed/property-${hotel.property_id}/880/540`}
-                  alt={hotel.name}
-                  loading="lazy"
-                />
+                {hotel.thumbnail_url ? (
+                  <img
+                    src={hotel.thumbnail_url}
+                    alt={hotel.name}
+                    loading="lazy"
+                  />
+                ) : (
+                  <div className="destination-thumb-empty">이미지 준비중</div>
+                )}
                 <div className="destination-meta">
                   <p className="destination-subtitle">
                     {hotel.city ?? "도시 미지정"} · 평점 {(hotel.rating ?? 0).toFixed(1)} · 최저가 {(hotel.price_min ?? 0).toLocaleString()} {hotel.currency ?? locale.currency}
@@ -160,23 +396,131 @@ export function HomePage() {
 
       <section className="home-section">
         <div className="section-head">
-          <h2>StayVista 운영 원칙</h2>
+          <h2>대한민국 내 인기 여행지</h2>
         </div>
-        <ul className="pillar-grid">
-          <li className="pillar-card">
-            <h3>실시간 재고 동기화</h3>
-            <p>숙소 재고와 가격이 즉시 반영되어 예약 실패 확률을 최소화합니다.</p>
-          </li>
-          <li className="pillar-card">
-            <h3>검증된 파트너만 노출</h3>
-            <p>품질 기준을 통과한 운영 파트너의 객실과 상품만 제공합니다.</p>
-          </li>
-          <li className="pillar-card">
-            <h3>예약 후 운영지원</h3>
-            <p>변경·문의·환불 요청을 빠르게 처리하는 전담 지원 채널을 제공합니다.</p>
-          </li>
+        {!domesticDestinations.length && <p className="notice info">도시 데이터 준비중입니다.</p>}
+        <ul className="home-scroll-list city-scroll-list">
+          {domesticDestinations.map((card) => (
+            <li key={`domestic-${card.city}`} className="city-scroll-card">
+              <Link to={buildCitySearchHref(card)}>
+                {card.image_url ? (
+                  <img src={card.image_url} alt={`${card.label} 여행지`} loading="lazy" />
+                ) : (
+                  <div className="city-thumb-empty">이미지 준비중</div>
+                )}
+                <div className="city-scroll-meta">
+                  <h3>{card.label}</h3>
+                  <p>숙소 {card.property_count.toLocaleString()}개</p>
+                  <span>{card.highlights ?? "주요 정보 준비중"}</span>
+                </div>
+              </Link>
+            </li>
+          ))}
+        </ul>
+      </section>
+
+      {(homeContent?.promotion_sections ?? []).map((section) => {
+        const campaigns = promotionsBySection[section.section_code] ?? [];
+        return (
+          <section className="home-section" key={`promotion-${section.section_code}`}>
+            <div className="section-head">
+              <h2>{section.title}</h2>
+              <p className="section-head-note">{section.subtitle}</p>
+            </div>
+            {campaigns.length === 0 ? (
+              <p className="notice info">진행 중인 프로모션이 없습니다.</p>
+            ) : (
+              <ul className="home-scroll-list promo-scroll-list">
+                {campaigns.map((campaign) => (
+                  <li key={campaign.campaign_id} className="promo-scroll-card">
+                    {campaign.image_url ? (
+                      <img
+                        src={campaign.image_url}
+                        alt={campaign.title}
+                        loading="lazy"
+                      />
+                    ) : (
+                      <div className="promo-thumb-empty">이미지 준비중</div>
+                    )}
+                    <div className="promo-card-overlay">
+                      <p className="promo-badge">
+                        {campaign.badge_text || "PROMO"}
+                      </p>
+                      <h3>{campaign.title}</h3>
+                      <p>{campaign.subtitle || campaign.description || "기간 한정 혜택"}</p>
+                      <div className="promo-meta-row">
+                        <span>{campaign.discount_text || `${formatCouponValue(campaign)} 쿠폰`}</span>
+                        <span>{formatDateRange(campaign)}</span>
+                      </div>
+                      <div className="promo-meta-row">
+                        <span>남은 수량 {campaign.remaining_count.toLocaleString()}개</span>
+                        <button
+                          type="button"
+                          className={campaign.claimable ? "promo-claim-btn" : "promo-claim-btn disabled"}
+                          disabled={!campaign.claimable || claimingCampaignIds[campaign.campaign_id]}
+                          onClick={() => claimCampaign(campaign.campaign_id)}
+                        >
+                          {claimingCampaignIds[campaign.campaign_id]
+                            ? "발급 중..."
+                            : campaign.claimable
+                              ? "쿠폰 받기"
+                              : "소진/종료"}
+                        </button>
+                      </div>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        );
+      })}
+
+      {claimNotice && (
+        <section className="home-section home-notice-section">
+          <p className="notice info">{claimNotice}</p>
+        </section>
+      )}
+
+      <section className="home-section">
+        <div className="section-head">
+          <h2>대한민국 외 인기 여행지</h2>
+        </div>
+        {!globalDestinations.length && <p className="notice info">도시 데이터 준비중입니다.</p>}
+        <ul className="home-scroll-list city-scroll-list">
+          {globalDestinations.map((card) => (
+            <li key={`global-${card.city}`} className="city-scroll-card">
+              <Link to={buildCitySearchHref(card)}>
+                {card.image_url ? (
+                  <img src={card.image_url} alt={`${card.label} 여행지`} loading="lazy" />
+                ) : (
+                  <div className="city-thumb-empty">이미지 준비중</div>
+                )}
+                <div className="city-scroll-meta">
+                  <h3>{card.label}</h3>
+                  <p>숙소 {card.property_count.toLocaleString()}개</p>
+                  <span>{card.highlights ?? "주요 정보 준비중"}</span>
+                </div>
+              </Link>
+            </li>
+          ))}
         </ul>
       </section>
     </>
   );
+}
+
+function currencySymbol(currency: string): string {
+  switch (currency.toUpperCase()) {
+    case "KRW":
+      return "₩";
+    case "USD":
+      return "$";
+    case "JPY":
+      return "¥";
+    case "EUR":
+      return "€";
+    default:
+      return `${currency.toUpperCase()} `;
+  }
 }

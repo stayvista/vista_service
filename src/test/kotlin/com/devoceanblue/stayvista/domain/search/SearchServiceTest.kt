@@ -264,4 +264,27 @@ class SearchServiceTest {
         assertEquals(1, result.items.size)
         assertEquals(1003L, result.items.first().property_id)
     }
+
+    @Test
+    fun `search should normalize korean city name`() {
+        val result = searchService.search(
+            SearchRequest(
+                q = null,
+                city = "서울",
+                check_in = null,
+                check_out = null,
+                adults = null,
+                children = null,
+                min_price = null,
+                max_price = null,
+                min_rating = null,
+                sort = "rating_desc",
+                cursor = null,
+                limit = 20,
+            ),
+        )
+
+        assertEquals(2, result.items.size)
+        assertEquals(listOf(1001L, 1002L), result.items.map { it.property_id })
+    }
 }

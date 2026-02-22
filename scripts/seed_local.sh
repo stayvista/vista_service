@@ -15,6 +15,8 @@ API_BASE="${API_BASE:-http://localhost:18765}"
 ADMIN_ID="${ADMIN_ID:-1}"
 SEED_PROPERTY_COUNT="${SEED_PROPERTY_COUNT:-20000}"
 REINDEX_AFTER_SEED="${REINDEX_AFTER_SEED:-true}"
+REINDEX_CONNECT_TIMEOUT_SEC="${REINDEX_CONNECT_TIMEOUT_SEC:-3}"
+REINDEX_MAX_TIME_SEC="${REINDEX_MAX_TIME_SEC:-20}"
 
 run_seed_with_local_mysql() {
   mysql \
@@ -82,7 +84,11 @@ if [[ "${REINDEX_AFTER_SEED}" == "true" ]]; then
   if command -v curl >/dev/null 2>&1; then
     reindex_url="${API_BASE}/v1/admin/search/reindex?limit=${SEED_PROPERTY_COUNT}"
     echo "[seed] triggering search reindex via ${reindex_url} (X-Admin-Id=${ADMIN_ID})"
-    if ! curl -fsS -X POST -H "X-Admin-Id: ${ADMIN_ID}" "${reindex_url}" >/dev/null; then
+    if ! curl -fsS -X POST \
+      --connect-timeout "${REINDEX_CONNECT_TIMEOUT_SEC}" \
+      --max-time "${REINDEX_MAX_TIME_SEC}" \
+      -H "X-Admin-Id: ${ADMIN_ID}" \
+      "${reindex_url}" >/dev/null; then
       echo "[seed] warning: reindex call failed. ensure app is running, OpenSearch is reachable, and ADMIN_ID is numeric."
     else
       echo "[seed] reindex request submitted."

@@ -95,6 +95,7 @@ class AuthGuardFilter(
         if (method == "GET" && path == "/v1/geo/pois/nearby") return true
         if (method == "GET" && path == "/v1/poi/nearby") return true
         if (method == "GET" && path.startsWith("/v1/poi/")) return true
+        if (method == "GET" && path == "/v1/promotions/campaigns") return true
         if (method == "POST" && path == "/v1/chat/recommend") return true
         if (path == "/v1/queue/join" || path == "/v1/queue/status") return true
         return false
@@ -104,6 +105,7 @@ class AuthGuardFilter(
         if (path.startsWith("/v1/admin/")) return false
         if (path.startsWith("/v1/me/")) return true
         if (path.startsWith("/v1/tickets/orders/")) return true
+        if (method == "POST" && path.matches(Regex("/v1/promotions/campaigns/\\d+/claim"))) return true
         if (method == "GET") return false
         return path.startsWith("/v1/bookings/") ||
             path.matches(Regex("/v1/packages/.+/(holds|confirm)$"))

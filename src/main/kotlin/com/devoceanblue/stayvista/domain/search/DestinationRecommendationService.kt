@@ -32,20 +32,21 @@ class DestinationRecommendationService(
     private fun resolveCity(cityId: String?, placeId: String?): String {
         val fromCity = cityId?.trim()?.takeIf { it.isNotBlank() }
         if (fromCity != null) {
-            return fromCity
+            return CityCanonicalizer.canonicalize(fromCity) ?: fromCity
         }
 
         if (!placeId.isNullOrBlank() && !placeId.contains(':')) {
-            return placeId.trim()
+            return CityCanonicalizer.canonicalize(placeId) ?: placeId.trim()
         }
         val parsed = PlaceIdCodec.parseOrNull(placeId)
         if (parsed != null && parsed.type == PlaceType.CITY) {
-            return parsed.canonicalId
+            return CityCanonicalizer.canonicalize(parsed.canonicalId) ?: parsed.canonicalId
         }
         return "Seoul"
     }
 
     private fun resolveCountry(city: String): String {
+        val normalizedCity = CityCanonicalizer.canonicalize(city) ?: city
         val fromProperty = jdbcTemplate.query(
             """
             SELECT country
@@ -57,14 +58,14 @@ class DestinationRecommendationService(
             LIMIT 1
             """.trimIndent(),
             { rs, _ -> rs.getString("country") },
-            city,
+            normalizedCity,
         ).firstOrNull()
 
         if (!fromProperty.isNullOrBlank()) {
             return fromProperty
         }
 
-        return when (city) {
+        return when (normalizedCity) {
             "Seoul", "Busan", "Jeju" -> "KR"
             "Tokyo", "Osaka", "Kyoto" -> "JP"
             else -> "KR"

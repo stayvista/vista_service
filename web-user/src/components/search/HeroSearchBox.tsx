@@ -6,7 +6,7 @@ import { getStaySearchInput, guestSummary, inferCityFromPlaceId } from "./search
 import { PlaceSuggestion, StaySearchInput } from "./searchTypes";
 import { UnifiedAutocomplete } from "./UnifiedAutocomplete";
 
-type HeroTab = "stay" | "flight_hotel" | "package" | "ticket";
+type HeroTab = "stay" | "package" | "ticket";
 
 type Props = {
   initial: StaySearchInput;
@@ -16,7 +16,6 @@ type Props = {
 
 const HERO_TABS: Array<{ id: HeroTab; label: string }> = [
   { id: "stay", label: "숙소" },
-  { id: "flight_hotel", label: "항공 + 숙소" },
   { id: "package", label: "패키지" },
   { id: "ticket", label: "티켓" },
 ];
@@ -32,9 +31,6 @@ export function HeroSearchBox({ initial, onSearch, mode = "hero" }: Props) {
   const [checkOut, setCheckOut] = useState(initial.checkOut);
   const [guests, setGuests] = useState(initial.guests);
 
-  const [flightFrom, setFlightFrom] = useState("서울");
-  const [flightTo, setFlightTo] = useState("도쿄");
-  const [flightDate, setFlightDate] = useState(initial.checkIn);
   const [ticketKeyword, setTicketKeyword] = useState("");
 
   useEffect(() => {
@@ -90,16 +86,6 @@ export function HeroSearchBox({ initial, onSearch, mode = "hero" }: Props) {
 
   function handleOtherTabSubmit(event: FormEvent) {
     event.preventDefault();
-    if (activeTab === "flight_hotel") {
-      const query = new URLSearchParams({
-        from: flightFrom,
-        to: flightTo,
-        date: flightDate,
-        adults: String(guests.adults),
-      });
-      navigate(`/packages?${query.toString()}`);
-      return;
-    }
     if (activeTab === "package") {
       const query = new URLSearchParams({ city: city ?? (placeLabel || "Seoul") });
       navigate(`/packages?${query.toString()}`);
@@ -170,14 +156,6 @@ export function HeroSearchBox({ initial, onSearch, mode = "hero" }: Props) {
         </form>
       ) : (
         <form className="alt-search-form" onSubmit={handleOtherTabSubmit}>
-          {activeTab === "flight_hotel" && (
-            <>
-              <input value={flightFrom} onChange={(event) => setFlightFrom(event.target.value)} placeholder="출발지" />
-              <input value={flightTo} onChange={(event) => setFlightTo(event.target.value)} placeholder="도착지" />
-              <input type="date" value={flightDate} onChange={(event) => setFlightDate(event.target.value)} />
-              <GuestsPickerPopover value={guests} onApply={setGuests} />
-            </>
-          )}
           {activeTab === "package" && (
             <>
               <input

@@ -83,13 +83,25 @@ class PriceCalendarService(
 
     private fun resolvePlace(placeId: String): ResolvedPlace {
         if (!placeId.contains(':')) {
-            return ResolvedPlace(PlaceType.CITY, placeId)
+            return ResolvedPlace(
+                PlaceType.CITY,
+                CityCanonicalizer.canonicalize(placeId) ?: placeId,
+            )
         }
         val parsed = PlaceIdCodec.parseOrNull(placeId)
         if (parsed != null) {
+            if (parsed.type == PlaceType.CITY) {
+                return ResolvedPlace(
+                    parsed.type,
+                    CityCanonicalizer.canonicalize(parsed.canonicalId) ?: parsed.canonicalId,
+                )
+            }
             return ResolvedPlace(parsed.type, parsed.canonicalId)
         }
-        return ResolvedPlace(PlaceType.CITY, placeId)
+        return ResolvedPlace(
+            PlaceType.CITY,
+            CityCanonicalizer.canonicalize(placeId) ?: placeId,
+        )
     }
 
     private fun resolvePoiCity(poiCanonicalId: String): String? {
@@ -100,8 +112,8 @@ class PriceCalendarService(
             FROM poi
             WHERE id = ?
             LIMIT 1
-            """.trimIndent(),
-            { rs, _ -> rs.getString("city") },
+                """.trimIndent(),
+            { rs, _ -> CityCanonicalizer.canonicalize(rs.getString("city")) ?: rs.getString("city") },
             poiId,
         ).firstOrNull()
     }

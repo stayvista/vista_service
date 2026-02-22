@@ -44,8 +44,8 @@ class TicketService(
         jdbcTemplate.update({ connection ->
             val ps = connection.prepareStatement(
                 """
-                INSERT INTO product(partner_id, product_type, name, city, status)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO product(partner_id, product_type, name, city, image_url, status)
+                VALUES (?, ?, ?, ?, ?, ?)
                 """.trimIndent(),
                 PreparedStatement.RETURN_GENERATED_KEYS,
             )
@@ -53,7 +53,8 @@ class TicketService(
             ps.setString(2, request.category)
             ps.setString(3, request.name)
             ps.setString(4, request.city)
-            ps.setString(5, request.status)
+            ps.setString(5, request.image_url)
+            ps.setString(6, request.status)
             ps
         }, keyHolder)
         val id = keyHolder.key?.toLong() ?: throw DomainException(ErrorCode.INTERNAL, "Failed to create ticket product")
@@ -130,7 +131,7 @@ class TicketService(
     fun listProducts(): TicketProductListData {
         val rows = jdbcTemplate.query(
             """
-            SELECT id, name, product_type, city, status
+            SELECT id, name, product_type, city, status, image_url
             FROM product
             WHERE status='ACTIVE'
             ORDER BY id DESC
@@ -142,6 +143,7 @@ class TicketService(
                     category = rs.getString("product_type"),
                     city = rs.getString("city"),
                     status = rs.getString("status"),
+                    image_url = rs.getString("image_url"),
                 )
             },
         )
@@ -151,7 +153,7 @@ class TicketService(
     fun getProduct(productId: Long): TicketProductDetail {
         return jdbcTemplate.query(
             """
-            SELECT id, name, product_type, city, status
+            SELECT id, name, product_type, city, status, image_url
             FROM product
             WHERE id = ?
             """.trimIndent(),
@@ -162,6 +164,7 @@ class TicketService(
                     category = rs.getString("product_type"),
                     city = rs.getString("city"),
                     status = rs.getString("status"),
+                    image_url = rs.getString("image_url"),
                 )
             },
             productId,
@@ -584,6 +587,7 @@ data class CreateTicketProductRequest(
     val name: String,
     val category: String,
     val city: String? = null,
+    val image_url: String? = null,
     val status: String = "ACTIVE",
 )
 
@@ -604,6 +608,7 @@ data class TicketProductSummary(
     val category: String,
     val city: String?,
     val status: String,
+    val image_url: String?,
 )
 
 data class TicketProductDetail(
@@ -612,6 +617,7 @@ data class TicketProductDetail(
     val category: String,
     val city: String?,
     val status: String,
+    val image_url: String?,
 )
 
 data class TicketProductListData(

@@ -161,10 +161,6 @@ function categoryLabel(category?: string): string {
   return CATEGORY_LABELS[category] ?? category.toUpperCase();
 }
 
-function buildFallbackImage(id: number): string {
-  return `https://picsum.photos/seed/stayvista-poi-${id}/640/420`;
-}
-
 function reviewSummary(rating?: number, reviewCount?: number): string {
   if (rating && reviewCount) {
     return `★ ${rating.toFixed(1)} · 리뷰 ${reviewCount.toLocaleString()}`;
@@ -402,7 +398,6 @@ export function NearbyPage() {
   const effectiveImages = useMemo(() => {
     if (selectedDetail?.images?.length) return selectedDetail.images;
     if (selectedItem?.preview?.thumbnail_url) return [selectedItem.preview.thumbnail_url];
-    if (selectedItem) return [buildFallbackImage(selectedItem.id)];
     return [];
   }, [selectedDetail, selectedItem]);
 
@@ -1091,7 +1086,7 @@ export function NearbyPage() {
                   const selected = item.id === selectedId;
                   const hovered = item.id === hoveredId;
                   const saved = savedIds.has(item.id);
-                  const thumbnail = item.preview?.thumbnail_url ?? buildFallbackImage(item.id);
+                  const thumbnail = item.preview?.thumbnail_url;
                   return (
                     <li
                       key={item.id}
@@ -1106,7 +1101,11 @@ export function NearbyPage() {
                           selectItem(item.id, true);
                         }}
                       >
-                        <img src={thumbnail} alt={`${item.name} 썸네일`} />
+                        {thumbnail ? (
+                          <img src={thumbnail} alt={`${item.name} 썸네일`} />
+                        ) : (
+                          <div className="nearby-thumb-fallback">이미지 준비중</div>
+                        )}
                         <div>
                           <p className="nearby-card-category">{categoryLabel(item.category)}</p>
                           <h3>{item.name}</h3>

@@ -7,6 +7,7 @@ import com.devoceanblue.stayvista.domain.common.DomainSupportService
 import java.sql.Date
 import java.sql.PreparedStatement
 import java.time.LocalDate
+import kotlin.math.round
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.jdbc.support.GeneratedKeyHolder
 import org.springframework.stereotype.Service
@@ -197,11 +198,31 @@ class CatalogService(
     }
 
     fun getProperty(propertyId: Long): PropertyDetail {
-        return jdbcTemplate.query(
+        val detail = jdbcTemplate.query(
             """
-            SELECT id, name, city, country, address1, lat, lng, status, rating, thumbnail_url
-            FROM property
-            WHERE id = ?
+            SELECT p.id,
+                   p.name,
+                   p.city,
+                   p.country,
+                   p.address1,
+                   p.lat,
+                   p.lng,
+                   p.status,
+                   p.rating,
+                   p.thumbnail_url,
+                   p.district_name,
+                   p.property_type_code,
+                   pt.label_ko AS property_type_label,
+                   p.star_rating,
+                   p.location_rating,
+                   p.review_count,
+                   p.beach_distance_m,
+                   p.is_beachfront,
+                   p.kid_free_stay,
+                   p.popularity_score
+            FROM property p
+            LEFT JOIN property_type pt ON pt.code = p.property_type_code
+            WHERE p.id = ?
             """.trimIndent(),
             { rs, _ ->
                 PropertyDetail(
@@ -215,10 +236,104 @@ class CatalogService(
                     status = rs.getString("status"),
                     rating = rs.getBigDecimal("rating")?.toDouble() ?: 0.0,
                     thumbnail_url = rs.getString("thumbnail_url"),
+                    district_name = rs.getString("district_name"),
+                    property_type_code = rs.getString("property_type_code"),
+                    property_type_label = rs.getString("property_type_label"),
+                    star_rating = rs.getInt("star_rating"),
+                    location_rating = rs.getBigDecimal("location_rating")?.toDouble() ?: 0.0,
+                    review_count = rs.getInt("review_count"),
+                    beach_distance_m = rs.getInt("beach_distance_m").let { if (rs.wasNull()) null else it },
+                    is_beachfront = rs.getBoolean("is_beachfront"),
+                    kid_free_stay = rs.getBoolean("kid_free_stay"),
+                    popularity_score = rs.getInt("popularity_score"),
+                    brand_names = emptyList(),
+                    amenity_groups = emptyList(),
+                    payment_options = emptyList(),
+                    themes = emptyList(),
                 )
             },
             propertyId,
         ).firstOrNull() ?: throw DomainException(ErrorCode.NOT_FOUND, "Property not found")
+
+        val amenityRows = jdbcTemplate.query(
+            """
+            SELECT a.group_code, a.code, a.label_ko
+            FROM property_amenity pa
+            JOIN amenity a ON a.code = pa.amenity_code
+            WHERE pa.property_id = ?
+            ORDER BY a.group_code, a.label_ko
+            """.trimIndent(),
+            { rs, _ ->
+                AmenityRow(
+                    groupCode = rs.getString("group_code"),
+                    code = rs.getString("code"),
+                    label = rs.getString("label_ko"),
+                )
+            },
+            propertyId,
+        )
+
+        val amenityGroups = amenityRows.groupBy { it.groupCode }
+            .toSortedMap()
+            .map { (group, rows) ->
+                PropertyAmenityGroup(
+                    group = group,
+                    items = rows.map { row -> PropertyCodeLabel(code = row.code, label = row.label) },
+                )
+            }
+
+        val paymentOptions = jdbcTemplate.query(
+            """
+            SELECT po.code, po.label_ko
+            FROM property_payment_option ppo
+            JOIN payment_option po ON po.code = ppo.payment_option_code
+            WHERE ppo.property_id = ?
+            ORDER BY po.label_ko
+            """.trimIndent(),
+            { rs, _ ->
+                PropertyCodeLabel(
+                    code = rs.getString("code"),
+                    label = rs.getString("label_ko"),
+                )
+            },
+            propertyId,
+        )
+
+        val themes = jdbcTemplate.query(
+            """
+            SELECT t.code, t.label_ko
+            FROM property_theme pt
+            JOIN theme t ON t.code = pt.theme_code
+            WHERE pt.property_id = ?
+            ORDER BY t.label_ko
+            """.trimIndent(),
+            { rs, _ ->
+                PropertyCodeLabel(
+                    code = rs.getString("code"),
+                    label = rs.getString("label_ko"),
+                )
+            },
+            propertyId,
+        )
+
+        val brands = jdbcTemplate.query(
+            """
+            SELECT b.name
+            FROM property_brand pb
+            JOIN brand b ON b.id = pb.brand_id
+            WHERE pb.property_id = ?
+            ORDER BY b.name
+            """.trimIndent(),
+            { rs, _ -> rs.getString("name") },
+            propertyId,
+        )
+
+        return detail.copy(
+            brand_names = brands,
+            amenity_groups = amenityGroups,
+            payment_options = paymentOptions,
+            themes = themes,
+        )
     }
 
     fun listProperties(limit: Int, cursor: Long?): PropertyListData {
@@ -254,7 +369,7 @@ class CatalogService(
     fun listRoomTypes(propertyId: Long): RoomTypeListData {
         val rows = jdbcTemplate.query(
             """
-            SELECT id, name, capacity_adults, status, base_price
+            SELECT id, name, capacity_adults, status, base_price, bed_type, view_type, bedrooms
             FROM room_type
             WHERE property_id = ? AND status='ACTIVE'
             ORDER BY id
@@ -269,11 +384,181 @@ class CatalogService(
                         currency = "KRW",
                         amount = rs.getLong("base_price"),
                     ),
+                    bed_type = rs.getString("bed_type"),
+                    view_type = rs.getString("view_type"),
+                    bedrooms = rs.getInt("bedrooms").takeIf { !rs.wasNull() },
                 )
             },
             propertyId,
         )
         return RoomTypeListData(items = rows)
+    }
+
+    fun listPropertyReviews(
+        propertyId: Long,
+        tag: String?,
+        page: Int,
+        size: Int,
+    ): PropertyReviewData {
+        val normalizedPage = page.coerceAtLeast(1)
+        val normalizedSize = size.coerceIn(1, 50)
+        val normalizedTag = tag?.trim()?.takeIf { it.isNotEmpty() }
+
+        val exists = jdbcTemplate.queryForObject(
+            "SELECT COUNT(*) FROM property WHERE id = ?",
+            Long::class.java,
+            propertyId,
+        ) ?: 0L
+        if (exists == 0L) {
+            throw DomainException(ErrorCode.NOT_FOUND, "Property not found")
+        }
+
+        val summary = jdbcTemplate.query(
+            """
+            SELECT COUNT(*) AS total_count,
+                   AVG(pr.score_overall) AS avg_score,
+                   AVG(pr.score_service) AS service_score,
+                   AVG(pr.score_cleanliness) AS cleanliness_score,
+                   AVG(pr.score_facility) AS facility_score,
+                   AVG(pr.score_value) AS value_score,
+                   AVG(pr.score_location) AS location_score
+            FROM property_review pr
+            WHERE pr.property_id = ?
+              AND pr.status = 'PUBLISHED'
+            """.trimIndent(),
+            { rs, _ ->
+                PropertyReviewSummary(
+                    total = rs.getLong("total_count"),
+                    avg_score = roundToOne(rs.getDouble("avg_score")),
+                    service = roundToOne(rs.getDouble("service_score")),
+                    cleanliness = roundToOne(rs.getDouble("cleanliness_score")),
+                    facility = roundToOne(rs.getDouble("facility_score")),
+                    value_for_money = roundToOne(rs.getDouble("value_score")),
+                    location = roundToOne(rs.getDouble("location_score")),
+                )
+            },
+            propertyId,
+        ).firstOrNull() ?: PropertyReviewSummary(
+            total = 0L,
+            avg_score = 0.0,
+            service = 0.0,
+            cleanliness = 0.0,
+            facility = 0.0,
+            value_for_money = 0.0,
+            location = 0.0,
+        )
+
+        val tags = jdbcTemplate.query(
+            """
+            SELECT prt.tag, COUNT(*) AS cnt
+            FROM property_review pr
+            JOIN property_review_tag prt ON prt.review_id = pr.id
+            WHERE pr.property_id = ?
+              AND pr.status = 'PUBLISHED'
+            GROUP BY prt.tag
+            ORDER BY cnt DESC, prt.tag ASC
+            """.trimIndent(),
+            { rs, _ ->
+                PropertyReviewTagCount(
+                    tag = rs.getString("tag"),
+                    count = rs.getLong("cnt"),
+                )
+            },
+            propertyId,
+        )
+
+        val where = mutableListOf(
+            "pr.property_id = ?",
+            "pr.status = 'PUBLISHED'",
+        )
+        val whereParams = mutableListOf<Any?>(propertyId)
+        if (normalizedTag != null) {
+            where += "EXISTS (SELECT 1 FROM property_review_tag prt WHERE prt.review_id = pr.id AND prt.tag = ?)"
+            whereParams += normalizedTag
+        }
+        val whereClause = where.joinToString(" AND ")
+
+        val totalFiltered = jdbcTemplate.queryForObject(
+            "SELECT COUNT(*) FROM property_review pr WHERE $whereClause",
+            Long::class.java,
+            *whereParams.toTypedArray(),
+        ) ?: 0L
+
+        val reviewRows = jdbcTemplate.query(
+            """
+            SELECT pr.id,
+                   pr.reviewer_name,
+                   pr.traveler_type,
+                   pr.stay_date,
+                   pr.score_overall,
+                   pr.title,
+                   pr.body
+            FROM property_review pr
+            WHERE $whereClause
+            ORDER BY pr.stay_date DESC, pr.id DESC
+            LIMIT ?
+            OFFSET ?
+            """.trimIndent(),
+            { rs, _ ->
+                PropertyReviewRow(
+                    reviewId = rs.getLong("id"),
+                    reviewer = rs.getString("reviewer_name"),
+                    travelerType = rs.getString("traveler_type"),
+                    stayMonth = formatStayMonth(rs.getDate("stay_date").toLocalDate()),
+                    score = roundToOne(rs.getDouble("score_overall")),
+                    title = rs.getString("title"),
+                    body = rs.getString("body"),
+                )
+            },
+            *(whereParams + listOf(normalizedSize, (normalizedPage - 1) * normalizedSize)).toTypedArray(),
+        )
+
+        val reviewTagsById = if (reviewRows.isEmpty()) {
+            emptyMap()
+        } else {
+            val placeholders = reviewRows.joinToString(",") { "?" }
+            jdbcTemplate.query(
+                """
+                SELECT review_id, tag
+                FROM property_review_tag
+                WHERE review_id IN ($placeholders)
+                ORDER BY review_id, tag
+                """.trimIndent(),
+                { rs, _ ->
+                    PropertyReviewTagRow(
+                        reviewId = rs.getLong("review_id"),
+                        tag = rs.getString("tag"),
+                    )
+                },
+                *reviewRows.map { it.reviewId }.toTypedArray(),
+            ).groupBy { it.reviewId }
+                .mapValues { (_, rows) -> rows.map { it.tag } }
+        }
+
+        val items = reviewRows.map { row ->
+            PropertyReviewItem(
+                review_id = row.reviewId,
+                reviewer = row.reviewer,
+                score = row.score,
+                title = row.title,
+                body = row.body,
+                stay_month = row.stayMonth,
+                traveler_type = row.travelerType,
+                tags = reviewTagsById[row.reviewId] ?: emptyList(),
+            )
+        }
+
+        return PropertyReviewData(
+            summary = summary,
+            tags = tags,
+            items = items,
+            meta = PropertyReviewMeta(
+                page = normalizedPage,
+                size = normalizedSize,
+                has_more = totalFiltered > (normalizedPage.toLong() * normalizedSize),
+                total = totalFiltered,
+            ),
+        )
     }
 }
 
@@ -329,6 +614,30 @@ data class PropertyDetail(
     val status: String,
     val rating: Double,
     val thumbnail_url: String?,
+    val district_name: String?,
+    val property_type_code: String?,
+    val property_type_label: String?,
+    val star_rating: Int,
+    val location_rating: Double,
+    val review_count: Int,
+    val beach_distance_m: Int?,
+    val is_beachfront: Boolean,
+    val kid_free_stay: Boolean,
+    val popularity_score: Int,
+    val brand_names: List<String>,
+    val amenity_groups: List<PropertyAmenityGroup>,
+    val payment_options: List<PropertyCodeLabel>,
+    val themes: List<PropertyCodeLabel>,
+)
+
+data class PropertyCodeLabel(
+    val code: String,
+    val label: String,
+)
+
+data class PropertyAmenityGroup(
+    val group: String,
+    val items: List<PropertyCodeLabel>,
 )
 
 data class PropertySummary(
@@ -350,13 +659,84 @@ data class RoomTypeSummary(
     val max_guests: Int,
     val status: String,
     val base_price: Money,
+    val bed_type: String?,
+    val view_type: String?,
+    val bedrooms: Int?,
 )
 
 data class RoomTypeListData(
     val items: List<RoomTypeSummary>,
 )
 
+data class PropertyReviewData(
+    val summary: PropertyReviewSummary,
+    val tags: List<PropertyReviewTagCount>,
+    val items: List<PropertyReviewItem>,
+    val meta: PropertyReviewMeta,
+)
+
+data class PropertyReviewSummary(
+    val total: Long,
+    val avg_score: Double,
+    val service: Double,
+    val cleanliness: Double,
+    val facility: Double,
+    val value_for_money: Double,
+    val location: Double,
+)
+
+data class PropertyReviewTagCount(
+    val tag: String,
+    val count: Long,
+)
+
+data class PropertyReviewItem(
+    val review_id: Long,
+    val reviewer: String,
+    val score: Double,
+    val title: String,
+    val body: String,
+    val stay_month: String,
+    val traveler_type: String,
+    val tags: List<String>,
+)
+
+data class PropertyReviewMeta(
+    val page: Int,
+    val size: Int,
+    val has_more: Boolean,
+    val total: Long,
+)
+
 data class Money(
     val currency: String,
     val amount: Long,
 )
+
+private data class AmenityRow(
+    val groupCode: String,
+    val code: String,
+    val label: String,
+)
+
+private data class PropertyReviewRow(
+    val reviewId: Long,
+    val reviewer: String,
+    val travelerType: String,
+    val stayMonth: String,
+    val score: Double,
+    val title: String,
+    val body: String,
+)
+
+private data class PropertyReviewTagRow(
+    val reviewId: Long,
+    val tag: String,
+)
+
+private fun roundToOne(value: Double): Double {
+    if (!value.isFinite()) return 0.0
+    return round(value * 10.0) / 10.0
+}
+
+private fun formatStayMonth(date: LocalDate): String = "${date.year}년 ${date.monthValue}월"

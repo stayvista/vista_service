@@ -127,7 +127,7 @@ export function PriceCalendarPopover({
     if (!checkIn || !checkOut) {
       return "체크인 / 체크아웃 선택";
     }
-    return `${checkIn} ~ ${checkOut}`;
+    return formatRangeSummary(checkIn, checkOut);
   }, [checkIn, checkOut]);
 
   function selectDate(date: string) {
@@ -287,4 +287,16 @@ function formatDayPrice(price: number | null): string {
     return `${Math.round(price / 1000)}K`;
   }
   return String(price);
+}
+
+function formatRangeSummary(checkIn: string, checkOut: string): string {
+  const [inYear, inMonth, inDay] = checkIn.split("-");
+  const [outYear, outMonth, outDay] = checkOut.split("-");
+  if (!inYear || !inMonth || !inDay || !outYear || !outMonth || !outDay) {
+    return `${checkIn} ~ ${checkOut}`;
+  }
+  if (inYear === outYear) {
+    return `${inYear}-${inMonth}-${inDay} ~ ${outMonth}-${outDay}`;
+  }
+  return `${checkIn} ~ ${checkOut}`;
 }
