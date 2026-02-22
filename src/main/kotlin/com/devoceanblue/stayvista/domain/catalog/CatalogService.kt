@@ -366,32 +366,117 @@ class CatalogService(
         return PropertyListData(items = items, next_cursor = nextCursor)
     }
 
-    fun listRoomTypes(propertyId: Long): RoomTypeListData {
-        val rows = jdbcTemplate.query(
-            """
-            SELECT id, name, capacity_adults, status, base_price, bed_type, view_type, bedrooms
-            FROM room_type
-            WHERE property_id = ? AND status='ACTIVE'
-            ORDER BY id
-            """.trimIndent(),
-            { rs, _ ->
-                RoomTypeSummary(
-                    room_type_id = rs.getLong("id"),
-                    name = rs.getString("name"),
-                    max_guests = rs.getInt("capacity_adults"),
-                    status = rs.getString("status"),
-                    base_price = Money(
-                        currency = "KRW",
-                        amount = rs.getLong("base_price"),
-                    ),
-                    bed_type = rs.getString("bed_type"),
-                    view_type = rs.getString("view_type"),
-                    bedrooms = rs.getInt("bedrooms").takeIf { !rs.wasNull() },
-                )
-            },
-            propertyId,
-        )
+    fun listRoomTypes(
+        propertyId: Long,
+        checkIn: LocalDate? = null,
+        checkOut: LocalDate? = null,
+        rooms: Int = 1,
+    ): RoomTypeListData {
+        val availabilityWindow = resolveAvailabilityWindow(checkIn = checkIn, checkOut = checkOut)
+        val rows = if (availabilityWindow == null) {
+            jdbcTemplate.query(
+                """
+                SELECT id, name, capacity_adults, status, base_price, bed_type, view_type, bedrooms
+                FROM room_type
+                WHERE property_id = ? AND status='ACTIVE'
+                ORDER BY id
+                """.trimIndent(),
+                { rs, _ ->
+                    RoomTypeSummary(
+                        room_type_id = rs.getLong("id"),
+                        name = rs.getString("name"),
+                        max_guests = rs.getInt("capacity_adults"),
+                        status = rs.getString("status"),
+                        base_price = Money(
+                            currency = "KRW",
+                            amount = rs.getLong("base_price"),
+                        ),
+                        bed_type = rs.getString("bed_type"),
+                        view_type = rs.getString("view_type"),
+                        bedrooms = rs.getInt("bedrooms").takeIf { !rs.wasNull() },
+                    )
+                },
+                propertyId,
+            )
+        } else {
+            jdbcTemplate.query(
+                """
+                SELECT rt.id,
+                       rt.name,
+                       rt.capacity_adults,
+                       rt.status,
+                       rt.base_price,
+                       rt.bed_type,
+                       rt.view_type,
+                       rt.bedrooms,
+                       inv.available_rooms,
+                       inv.covered_nights,
+                       CASE
+                         WHEN inv.covered_nights = ? AND inv.available_rooms >= ? THEN 1
+                         ELSE 0
+                       END AS is_available
+                FROM room_type rt
+                LEFT JOIN (
+                  SELECT room_type_id,
+                         MIN(total - hold - sold) AS available_rooms,
+                         COUNT(*) AS covered_nights
+                  FROM inventory_night
+                  WHERE stay_date >= ?
+                    AND stay_date < ?
+                  GROUP BY room_type_id
+                ) inv ON inv.room_type_id = rt.id
+                WHERE rt.property_id = ?
+                  AND rt.status = 'ACTIVE'
+                ORDER BY rt.id
+                """.trimIndent(),
+                { rs, _ ->
+                    val availableRooms = rs.getInt("available_rooms").takeIf { !rs.wasNull() }
+                    val isAvailable = rs.getInt("is_available") == 1
+                    RoomTypeSummary(
+                        room_type_id = rs.getLong("id"),
+                        name = rs.getString("name"),
+                        max_guests = rs.getInt("capacity_adults"),
+                        status = rs.getString("status"),
+                        base_price = Money(
+                            currency = "KRW",
+                            amount = rs.getLong("base_price"),
+                        ),
+                        bed_type = rs.getString("bed_type"),
+                        view_type = rs.getString("view_type"),
+                        bedrooms = rs.getInt("bedrooms").takeIf { !rs.wasNull() },
+                        available_rooms = availableRooms,
+                        is_available = isAvailable,
+                    )
+                },
+                availabilityWindow.nights,
+                rooms.coerceAtLeast(1),
+                Date.valueOf(availabilityWindow.checkIn),
+                Date.valueOf(availabilityWindow.checkOut),
+                propertyId,
+            )
+        }
         return RoomTypeListData(items = rows)
+    }
+
+    private fun resolveAvailabilityWindow(checkIn: LocalDate?, checkOut: LocalDate?): AvailabilityWindow? {
+        if (checkIn == null && checkOut == null) {
+            return null
+        }
+        if (checkIn == null || checkOut == null) {
+            throw DomainException(ErrorCode.VALIDATION_ERROR, "check_in and check_out are required together")
+        }
+        val nights = DateRange.nights(checkIn, checkOut)
+        if (nights.isEmpty()) {
+            throw DomainException(ErrorCode.VALIDATION_ERROR, "check_out must be after check_in")
+        }
+        if (nights.size > 30) {
+            throw DomainException(ErrorCode.VALIDATION_ERROR, "max stay nights exceeded")
+        }
+        return AvailabilityWindow(
+            checkIn = checkIn,
+            checkOut = checkOut,
+            nights = nights.size,
+        )
     }
 
     fun listPropertyReviews(
@@ -662,6 +747,8 @@ data class RoomTypeSummary(
     val bed_type: String?,
     val view_type: String?,
     val bedrooms: Int?,
+    val available_rooms: Int? = null,
+    val is_available: Boolean? = null,
 )
 
 data class RoomTypeListData(
@@ -732,6 +819,12 @@ private data class PropertyReviewRow(
 private data class PropertyReviewTagRow(
     val reviewId: Long,
     val tag: String,
+)
+
+private data class AvailabilityWindow(
+    val checkIn: LocalDate,
+    val checkOut: LocalDate,
+    val nights: Int,
 )
 
 private fun roundToOne(value: Double): Double {

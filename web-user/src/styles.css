@@ -1919,6 +1919,281 @@ button:disabled {
   font-size: 0.88rem;
 }
 
+.checkout-booking-page {
+  gap: 14px;
+}
+
+.checkout-clock-banner {
+  border: 1px solid #e7d5cc;
+  border-radius: 14px;
+  background: #fff4ee;
+  color: #8a3d21;
+  padding: 10px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-weight: 700;
+}
+
+.checkout-clock-banner strong {
+  color: #d03c25;
+  font-size: 1.08rem;
+}
+
+.checkout-booking-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.85fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.checkout-booking-main {
+  display: grid;
+  gap: 12px;
+}
+
+.checkout-booking-section {
+  gap: 10px;
+}
+
+.checkout-radio-list {
+  display: grid;
+  gap: 10px;
+}
+
+.checkout-radio-item {
+  border: 1px solid #d9e3f2;
+  border-radius: 12px;
+  background: #fbfdff;
+  padding: 10px;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.checkout-booking-page input[type="checkbox"],
+.checkout-booking-page input[type="radio"] {
+  width: auto;
+  min-width: 16px;
+  height: 16px;
+  margin-top: 3px;
+  padding: 0;
+}
+
+.checkout-radio-item strong {
+  display: block;
+  font-size: 0.96rem;
+  color: #173863;
+}
+
+.checkout-radio-item p {
+  margin: 3px 0 0;
+  color: #5a6e8e;
+  font-size: 0.86rem;
+}
+
+.checkout-pay-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.checkout-pay-badges span {
+  border: 1px solid #d6e2f5;
+  border-radius: 8px;
+  background: #f5f9ff;
+  padding: 5px 8px;
+  font-size: 0.75rem;
+  font-weight: 800;
+  color: #32527f;
+}
+
+.checkout-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.checkout-form-grid label {
+  display: grid;
+  gap: 6px;
+  color: #334b70;
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+
+.checkout-form-grid label.field-full {
+  grid-column: 1 / -1;
+}
+
+.checkout-request-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 10px;
+}
+
+.checkout-request-grid label,
+.checkout-agreement-box label {
+  border: 1px solid #dce6f4;
+  border-radius: 10px;
+  background: #f9fbff;
+  padding: 8px 10px;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  color: #2f4668;
+  font-size: 0.86rem;
+  font-weight: 600;
+}
+
+.checkout-agreement-box {
+  display: grid;
+  gap: 8px;
+}
+
+.checkout-benefit-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.checkout-benefit-list li {
+  border: 1px solid #dce8f6;
+  border-radius: 10px;
+  background: #f3f8ff;
+  padding: 9px 11px;
+  color: #2b4d7b;
+  font-weight: 700;
+}
+
+.checkout-primary-cta {
+  width: 100%;
+  border-radius: 999px;
+  padding: 13px 16px;
+  font-size: 1.04rem;
+}
+
+.checkout-booking-side {
+  min-width: 0;
+}
+
+.checkout-side-sticky {
+  position: sticky;
+  top: 98px;
+}
+
+.checkout-side-property {
+  border: 1px solid #dce7f5;
+  border-radius: 12px;
+  background: #f9fcff;
+  padding: 10px 11px;
+  display: grid;
+  gap: 4px;
+}
+
+.checkout-side-property strong {
+  font-size: 1.02rem;
+  color: #162f58;
+}
+
+.checkout-side-property p {
+  margin: 0;
+  color: #4f6484;
+  font-size: 0.86rem;
+}
+
+.checkout-coupon-box {
+  border: 1px solid #80c6a1;
+  border-radius: 12px;
+  background: #f3fff8;
+  padding: 10px 11px;
+  display: grid;
+  gap: 4px;
+}
+
+.checkout-coupon-box strong {
+  color: #187341;
+}
+
+.checkout-coupon-box p {
+  margin: 0;
+  color: #267f4d;
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+
+.checkout-price-table {
+  border: 1px solid #dce5f4;
+  border-radius: 12px;
+  background: #fbfdff;
+  padding: 8px 10px;
+  display: grid;
+  gap: 2px;
+}
+
+.checkout-price-table p {
+  margin: 0;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  color: #355076;
+  font-size: 0.9rem;
+}
+
+.checkout-price-table p.total {
+  margin-top: 6px;
+  padding-top: 7px;
+  border-top: 1px solid #dae5f4;
+  color: #162c51;
+  font-size: 1.03rem;
+  font-weight: 800;
+}
+
+.checkout-cancel-policy {
+  border: 1px solid #dce7f5;
+  border-radius: 12px;
+  background: #f8fbff;
+  padding: 10px 11px;
+  display: grid;
+  gap: 7px;
+}
+
+.checkout-cancel-policy strong {
+  color: #163661;
+}
+
+.checkout-cancel-policy p {
+  margin: 0;
+  color: #466180;
+  font-size: 0.86rem;
+}
+
+.checkout-cancel-timeline {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.checkout-cancel-timeline span {
+  text-align: center;
+  border-radius: 999px;
+  border: 1px solid #d5e3f7;
+  background: #eef5ff;
+  color: #46658d;
+  padding: 5px 6px;
+  font-size: 0.79rem;
+  font-weight: 700;
+}
+
+.checkout-cancel-timeline span.active {
+  border-color: #82c59f;
+  background: #e9f9ef;
+  color: #1f7c4b;
+}
+
 @media (max-width: 1080px) {
   .top-nav {
     flex-wrap: wrap;
@@ -1973,6 +2248,14 @@ button:disabled {
 
   .checkout-grid {
     grid-template-columns: 1fr;
+  }
+
+  .checkout-booking-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .checkout-side-sticky {
+    position: static;
   }
 }
 
@@ -2062,6 +2345,16 @@ button:disabled {
   .checkout-summary dd {
     justify-self: start;
     text-align: left;
+  }
+
+  .checkout-form-grid,
+  .checkout-request-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .checkout-clock-banner {
+    flex-direction: column;
+    align-items: flex-start;
   }
 
   .mini-meta div {

@@ -39,7 +39,13 @@ export function toFriendlyCheckoutError(
   stage: CheckoutStage,
   error: CheckoutApiError,
 ): FriendlyCheckoutError {
-  const code = (error.code ?? "").trim();
+  const code = (error.code ?? "").trim().toUpperCase();
+  const message = (error.message ?? "").trim();
+  const lowerMessage = message.toLowerCase();
+  const soldOutByMessage =
+    lowerMessage.includes("not enough inventory") ||
+    lowerMessage.includes("overbook") ||
+    lowerMessage.includes("sold out");
 
   if (stage === "queue" && code === "QUEUE_TOKEN_INVALID") {
     return {
@@ -48,10 +54,17 @@ export function toFriendlyCheckoutError(
     };
   }
 
-  if (stage === "confirm" && SOLD_OUT_CODES.has(code)) {
+  if (stage === "confirm" && (SOLD_OUT_CODES.has(code) || soldOutByMessage)) {
     return {
       status: "재고 마감",
       message: `결제 직전 재고 재검증 중 다른 고객이 먼저 결제를 완료했습니다. 선택하신 ${flowItemLabel(flow)}은(는) 현재 마감되어 다른 옵션을 선택해 주세요.`,
+    };
+  }
+
+  if (stage === "hold" && (SOLD_OUT_CODES.has(code) || soldOutByMessage)) {
+    return {
+      status: "재고 마감",
+      message: `선택하신 ${flowItemLabel(flow)}의 잔여 재고가 부족합니다. 날짜/객실 수 또는 다른 옵션으로 다시 확인해 주세요.`,
     };
   }
 
@@ -69,9 +82,9 @@ export function toFriendlyCheckoutError(
     };
   }
 
-  const fallback = error.message ?? `${stage} 실패`;
+  const fallback = message || `${stage} 실패`;
   return {
-    status: stage === "confirm" ? "CONFIRM 실패" : stage === "hold" ? "HOLD 실패" : "대기열 실패",
+    status: stage === "confirm" ? "결제 진행 실패" : stage === "hold" ? "예약 진행 실패" : "대기열 실패",
     message: code ? `${fallback} (${code})` : fallback,
   };
 }

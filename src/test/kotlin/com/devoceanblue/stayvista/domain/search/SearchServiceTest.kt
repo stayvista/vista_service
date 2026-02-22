@@ -1,11 +1,14 @@
 package com.devoceanblue.stayvista.domain.search
 
+import com.devoceanblue.stayvista.common.api.DomainException
+import com.devoceanblue.stayvista.common.api.ErrorCode
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.assertThrows
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.jdbc.core.JdbcTemplate
@@ -24,6 +27,7 @@ class SearchServiceTest {
 
     @BeforeEach
     fun setupSchemaAndData() {
+        jdbcTemplate.execute("DROP TABLE IF EXISTS inventory_night")
         jdbcTemplate.execute("DROP TABLE IF EXISTS room_type")
         jdbcTemplate.execute("DROP TABLE IF EXISTS property")
         jdbcTemplate.execute("DROP TABLE IF EXISTS poi")
@@ -63,6 +67,18 @@ class SearchServiceTest {
         )
         jdbcTemplate.execute(
             """
+            CREATE TABLE IF NOT EXISTS inventory_night (
+              room_type_id BIGINT NOT NULL,
+              stay_date DATE NOT NULL,
+              total INT NOT NULL,
+              hold INT NOT NULL DEFAULT 0,
+              sold INT NOT NULL DEFAULT 0,
+              PRIMARY KEY (room_type_id, stay_date)
+            )
+            """.trimIndent(),
+        )
+        jdbcTemplate.execute(
+            """
             CREATE TABLE IF NOT EXISTS poi (
               id BIGINT PRIMARY KEY,
               name VARCHAR(255) NOT NULL,
@@ -76,6 +92,7 @@ class SearchServiceTest {
         )
 
         jdbcTemplate.update("DELETE FROM room_type")
+        jdbcTemplate.update("DELETE FROM inventory_night")
         jdbcTemplate.update("DELETE FROM property")
         jdbcTemplate.update("DELETE FROM poi")
 
@@ -108,11 +125,19 @@ class SearchServiceTest {
         jdbcTemplate.update("INSERT INTO room_type(id, property_id, status, base_price) VALUES (2002, 1002, 'ACTIVE', 90000)")
         jdbcTemplate.update("INSERT INTO room_type(id, property_id, status, base_price) VALUES (2003, 1003, 'ACTIVE', 150000)")
         jdbcTemplate.update("INSERT INTO room_type(id, property_id, status, base_price) VALUES (2004, 1001, 'INACTIVE', 50000)")
+
+        jdbcTemplate.update("INSERT INTO inventory_night(room_type_id, stay_date, total, hold, sold) VALUES (2001, DATE '2026-03-01', 1, 0, 0)")
+        jdbcTemplate.update("INSERT INTO inventory_night(room_type_id, stay_date, total, hold, sold) VALUES (2001, DATE '2026-03-02', 1, 0, 0)")
+        jdbcTemplate.update("INSERT INTO inventory_night(room_type_id, stay_date, total, hold, sold) VALUES (2002, DATE '2026-03-01', 1, 0, 1)")
+        jdbcTemplate.update("INSERT INTO inventory_night(room_type_id, stay_date, total, hold, sold) VALUES (2002, DATE '2026-03-02', 1, 0, 1)")
+        jdbcTemplate.update("INSERT INTO inventory_night(room_type_id, stay_date, total, hold, sold) VALUES (2003, DATE '2026-03-01', 2, 0, 0)")
+        jdbcTemplate.update("INSERT INTO inventory_night(room_type_id, stay_date, total, hold, sold) VALUES (2003, DATE '2026-03-02', 2, 0, 0)")
         jdbcTemplate.update("INSERT INTO poi(id, name, category, city, active, lat, lng) VALUES (3001, 'Busan Harbor Point', 'poi', 'Busan', 1, 35.1689, 129.1287)")
     }
 
     @AfterEach
     fun cleanup() {
+        jdbcTemplate.update("DELETE FROM inventory_night")
         jdbcTemplate.update("DELETE FROM room_type")
         jdbcTemplate.update("DELETE FROM property")
         jdbcTemplate.update("DELETE FROM poi")
@@ -286,5 +311,52 @@ class SearchServiceTest {
 
         assertEquals(2, result.items.size)
         assertEquals(listOf(1001L, 1002L), result.items.map { it.property_id })
+    }
+
+    @Test
+    fun `search should include only properties with inventory for requested stay`() {
+        val result = searchService.search(
+            SearchRequest(
+                q = null,
+                city = "Seoul",
+                check_in = "2026-03-01",
+                check_out = "2026-03-03",
+                adults = null,
+                children = null,
+                rooms = 1,
+                min_price = null,
+                max_price = null,
+                min_rating = null,
+                sort = "price_asc",
+                cursor = null,
+                limit = 20,
+            ),
+        )
+
+        assertEquals(listOf(1001L), result.items.map { it.property_id })
+    }
+
+    @Test
+    fun `search should fail on invalid availability date range`() {
+        val ex = assertThrows<DomainException> {
+            searchService.search(
+                SearchRequest(
+                    q = null,
+                    city = "Seoul",
+                    check_in = "2026-03-03",
+                    check_out = "2026-03-01",
+                    adults = null,
+                    children = null,
+                    rooms = 1,
+                    min_price = null,
+                    max_price = null,
+                    min_rating = null,
+                    sort = "price_asc",
+                    cursor = null,
+                    limit = 20,
+                ),
+            )
+        }
+        assertEquals(ErrorCode.VALIDATION_ERROR.code, ex.errorCode.code)
     }
 }

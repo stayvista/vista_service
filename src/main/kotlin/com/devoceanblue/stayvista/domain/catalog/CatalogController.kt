@@ -4,6 +4,8 @@ import com.devoceanblue.stayvista.common.api.ApiResponses
 import jakarta.validation.Valid
 import jakarta.validation.constraints.Max
 import jakarta.validation.constraints.Min
+import java.time.LocalDate
+import org.springframework.format.annotation.DateTimeFormat
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PatchMapping
 import org.springframework.web.bind.annotation.PathVariable
@@ -79,7 +81,19 @@ class CatalogController(
     )
 
     @GetMapping("/properties/{propertyId}/room-types")
-    fun listRoomTypes(@PathVariable propertyId: Long) = ApiResponses.ok(catalogService.listRoomTypes(propertyId))
+    fun listRoomTypes(
+        @PathVariable propertyId: Long,
+        @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) check_in: LocalDate?,
+        @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) check_out: LocalDate?,
+        @RequestParam(required = false, defaultValue = "1") @Min(1) rooms: Int,
+    ) = ApiResponses.ok(
+        catalogService.listRoomTypes(
+            propertyId = propertyId,
+            checkIn = check_in,
+            checkOut = check_out,
+            rooms = rooms,
+        ),
+    )
 
     @GetMapping("/properties/{propertyId}/reviews")
     fun listPropertyReviews(

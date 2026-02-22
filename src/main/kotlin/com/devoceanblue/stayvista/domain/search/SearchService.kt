@@ -3,12 +3,15 @@ package com.devoceanblue.stayvista.domain.search
 import com.devoceanblue.stayvista.common.api.DomainException
 import com.devoceanblue.stayvista.common.api.ErrorCode
 import com.devoceanblue.stayvista.common.cache.SimpleTtlCache
+import com.devoceanblue.stayvista.common.time.DateRange
 import com.devoceanblue.stayvista.domain.common.PlaceIdCodec
 import com.devoceanblue.stayvista.domain.common.PlaceType
 import com.devoceanblue.stayvista.domain.fx.FxService
 import io.micrometer.core.instrument.MeterRegistry
 import java.security.MessageDigest
+import java.sql.Date
 import java.time.Duration
+import java.time.LocalDate
 import java.util.Locale
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.jdbc.core.JdbcTemplate
@@ -259,6 +262,28 @@ class SearchService(
                   )
                 """.trimIndent()
             }
+        }
+
+        val availabilityFilter = resolveAvailabilityFilter(request)
+        if (availabilityFilter != null) {
+            where += """
+              EXISTS (
+                SELECT 1
+                FROM room_type rt_inv
+                JOIN inventory_night inv ON inv.room_type_id = rt_inv.id
+                WHERE rt_inv.property_id = p.id
+                  AND rt_inv.status = 'ACTIVE'
+                  AND inv.stay_date >= ?
+                  AND inv.stay_date < ?
+                GROUP BY rt_inv.id
+                HAVING COUNT(*) = ?
+                   AND MIN(inv.total - inv.hold - inv.sold) >= ?
+              )
+            """.trimIndent()
+            params += Date.valueOf(availabilityFilter.checkIn)
+            params += Date.valueOf(availabilityFilter.checkOut)
+            params += availabilityFilter.nights
+            params += availabilityFilter.rooms
         }
 
         if (request.family_options.any { it == "kid_free_stay" || it == "child_free_stay" }) {
@@ -644,6 +669,40 @@ class SearchService(
         }
     }
 
+    private fun resolveAvailabilityFilter(request: SearchRequest): SearchAvailabilityWindow? {
+        val checkInRaw = request.check_in?.trim()?.takeIf { it.isNotEmpty() }
+        val checkOutRaw = request.check_out?.trim()?.takeIf { it.isNotEmpty() }
+        if (checkInRaw == null && checkOutRaw == null) {
+            return null
+        }
+        if (checkInRaw == null || checkOutRaw == null) {
+            throw DomainException(ErrorCode.VALIDATION_ERROR, "check_in and check_out are required together")
+        }
+        val checkIn = parseLocalDate(raw = checkInRaw, field = "check_in")
+        val checkOut = parseLocalDate(raw = checkOutRaw, field = "check_out")
+        val nights = DateRange.nights(checkIn, checkOut)
+        if (nights.isEmpty()) {
+            throw DomainException(ErrorCode.VALIDATION_ERROR, "check_out must be after check_in")
+        }
+        if (nights.size > 30) {
+            throw DomainException(ErrorCode.VALIDATION_ERROR, "max stay nights exceeded")
+        }
+        return SearchAvailabilityWindow(
+            checkIn = checkIn,
+            checkOut = checkOut,
+            nights = nights.size,
+            rooms = (request.rooms ?: 1).coerceAtLeast(1),
+        )
+    }
+
+    private fun parseLocalDate(raw: String, field: String): LocalDate {
+        return try {
+            LocalDate.parse(raw)
+        } catch (_: Exception) {
+            throw DomainException(ErrorCode.VALIDATION_ERROR, "$field must be yyyy-MM-dd")
+        }
+    }
+
     private fun resolvePoiCity(canonicalId: String): String? {
         val poiId = canonicalId.toLongOrNull() ?: return null
         return jdbcTemplate.query(
@@ -764,4 +823,11 @@ data class SearchMeta(
 private data class LatLng(
     val lat: Double,
     val lng: Double,
+)
+
+private data class SearchAvailabilityWindow(
+    val checkIn: LocalDate,
+    val checkOut: LocalDate,
+    val nights: Int,
+    val rooms: Int,
 )

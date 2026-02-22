@@ -46,6 +46,8 @@ type RoomType = {
   bed_type?: string | null;
   view_type?: string | null;
   bedrooms?: number | null;
+  available_rooms?: number | null;
+  is_available?: boolean | null;
   base_price: {
     amount: number;
     currency?: string;
@@ -207,15 +209,27 @@ export function PropertyPage() {
   const [expandedDescription, setExpandedDescription] = useState(false);
   const [activeReviewTag, setActiveReviewTag] = useState("all");
 
+  const checkIn = search.get("check_in") ?? "2026-03-02";
+  const checkOut = search.get("check_out") ?? "2026-03-03";
+  const adults = search.get("adults") ?? "2";
+  const children = search.get("children") ?? "0";
+  const rooms = search.get("rooms") ?? "1";
+  const destinationLabel = search.get("place_label") ?? property?.city ?? "서울";
+
   useEffect(() => {
     if (!id) return;
     let cancelled = false;
     setLoading(true);
     setError(null);
+    const roomTypeQuery = new URLSearchParams({
+      check_in: checkIn,
+      check_out: checkOut,
+      rooms: String(Math.max(1, Number(rooms) || 1)),
+    });
 
     Promise.all([
       apiGet<Property>(`/v1/properties/${id}`),
-      apiGet<{ items: RoomType[] }>(`/v1/properties/${id}/room-types`),
+      apiGet<{ items: RoomType[] }>(`/v1/properties/${id}/room-types?${roomTypeQuery.toString()}`),
       apiGet<PropertyContentData>(`/v1/properties/${id}/content`),
     ])
       .then(([propertyRes, roomRes, contentRes]) => {
@@ -237,7 +251,7 @@ export function PropertyPage() {
     return () => {
       cancelled = true;
     };
-  }, [id]);
+  }, [checkIn, checkOut, id, rooms]);
 
   useEffect(() => {
     setActiveReviewTag("all");
@@ -335,13 +349,6 @@ export function PropertyPage() {
     };
   }, [property?.lat, property?.lng]);
 
-  const checkIn = search.get("check_in") ?? "2026-03-02";
-  const checkOut = search.get("check_out") ?? "2026-03-03";
-  const adults = search.get("adults") ?? "2";
-  const children = search.get("children") ?? "0";
-  const rooms = search.get("rooms") ?? "1";
-  const destinationLabel = search.get("place_label") ?? property?.city ?? "서울";
-
   const searchPageLink = useMemo(() => {
     const query = new URLSearchParams({
       place_id: `city:${property?.city ?? "Seoul"}`,
@@ -382,7 +389,7 @@ export function PropertyPage() {
     return new Map((propertyContent?.room_content ?? []).map((item) => [item.room_type_id, item]));
   }, [propertyContent?.room_content]);
 
-  const roomOffers = useMemo<RoomOffer[]>(() => {
+  const allRoomOffers = useMemo<RoomOffer[]>(() => {
     return roomTypes.map((room) => {
       const content = roomContentByType.get(room.room_type_id);
       const media = content?.media?.length
@@ -396,6 +403,9 @@ export function PropertyPage() {
         const listPrice = convertFromKrw(Math.max(0, plan.list_price_krw), fxRate, locale.currency);
         const salePrice = convertFromKrw(Math.max(0, plan.sale_price_krw), fxRate, locale.currency);
         const discountPercent = listPrice > 0 ? Math.max(0, Math.round((1 - salePrice / listPrice) * 100)) : 0;
+        const urgencyText = room.is_available === false
+          ? "현재 잔여 객실이 부족합니다"
+          : "결제 직전 재고/요금을 다시 확인합니다";
         return {
           planId: `${room.room_type_id}-${plan.plan_code}-${planIndex}`,
           listPrice,
@@ -403,7 +413,7 @@ export function PropertyPage() {
           discountPercent,
           occupancy: plan.occupancy_text ?? `아동 ${children}명 · 투숙 무료`,
           paySummary: plan.pay_summary ?? "결제 정책 확인",
-          urgencyText: plan.urgency_text ?? "요금 조건 확인 필요",
+          urgencyText,
           benefits: plan.benefits ?? [],
         };
       });
@@ -419,15 +429,22 @@ export function PropertyPage() {
     });
   }, [children, fxRate, locale.currency, property?.rating, property?.thumbnail_url, roomContentByType, roomTypes]);
 
+  const roomOffers = useMemo<RoomOffer[]>(() => {
+    return allRoomOffers.filter((offer) => offer.room.is_available !== false);
+  }, [allRoomOffers]);
+
+  const soldOutRoomTypeCount = Math.max(0, allRoomOffers.length - roomOffers.length);
+
   const roomFilterChips = useMemo(() => {
+    const estimatedCount = (ratio: number) => (roomOffers.length === 0 ? 0 : Math.max(1, Math.floor(roomOffers.length * ratio)));
     const chips = [
-      { label: "금연", count: Math.max(1, Math.floor(roomOffers.length * 0.7)) },
+      { label: "금연", count: estimatedCount(0.7) },
       { label: "조식 포함", count: roomOffers.reduce((acc, room) => acc + room.plans.filter((p) => p.benefits.includes("조식 포함")).length, 0) },
       { label: "후지불 가능", count: roomOffers.reduce((acc, room) => acc + room.plans.filter((p) => p.paySummary.includes("숙소")).length, 0) },
       { label: "예약 무료 취소", count: roomOffers.reduce((acc, room) => acc + room.plans.filter((p) => p.urgencyText.includes("무료 취소")).length, 0) },
-      { label: "트윈베드", count: Math.max(1, Math.floor(roomOffers.length * 0.45)) },
-      { label: "마운틴뷰", count: Math.max(1, Math.floor(roomOffers.length * 0.35)) },
-      { label: "가족 여행객에게 추천", count: Math.max(1, Math.floor(roomOffers.length * 0.25)) },
+      { label: "트윈베드", count: estimatedCount(0.45) },
+      { label: "마운틴뷰", count: estimatedCount(0.35) },
+      { label: "가족 여행객에게 추천", count: estimatedCount(0.25) },
     ];
     return chips.filter((chip) => chip.count > 0);
   }, [roomOffers]);
@@ -753,6 +770,11 @@ export function PropertyPage() {
             <p className="section-helper">
               원하는 숙박 날짜까지 아직 시간이 많이 남았습니다. 예약 무료 취소 가능한 상품을 선택해 만약의 변경에 대비하세요.
             </p>
+            {soldOutRoomTypeCount > 0 && (
+              <p className="notice info">
+                선택한 일정 기준 재고 부족으로 {soldOutRoomTypeCount}개 객실 타입은 목록에서 제외되었습니다.
+              </p>
+            )}
             <div className="room-filter-chip-row">
               {roomFilterChips.map((chip) => (
                 <span key={chip.label} className="chip-btn">{chip.label} ({chip.count})</span>
@@ -816,12 +838,22 @@ export function PropertyPage() {
                           <div className="room-plan-cta">
                             <span className="room-plan-qty">1</span>
                             <Link
-                              to={buildCheckoutLink(offer.room.room_type_id, checkoutBaseQuery)}
+                              to={buildCheckoutLink(
+                                property.property_id,
+                                property.name,
+                                offer.room.room_type_id,
+                                offer.room.name,
+                                checkoutBaseQuery,
+                              )}
                               className="inline-cta"
                             >
                               지금 예약하기
                             </Link>
-                            <em>{plan.urgencyText}</em>
+                            <em>
+                              {offer.room.available_rooms != null
+                                ? `잔여 객실 ${offer.room.available_rooms}개 · ${plan.urgencyText}`
+                                : plan.urgencyText}
+                            </em>
                           </div>
                         </article>
                       ))}
@@ -989,9 +1021,18 @@ export function PropertyPage() {
   );
 }
 
-function buildCheckoutLink(roomTypeId: number, query: Record<string, string>): string {
+function buildCheckoutLink(
+  propertyId: number,
+  propertyName: string,
+  roomTypeId: number,
+  roomName: string,
+  query: Record<string, string>,
+): string {
   const params = new URLSearchParams({
+    property_id: String(propertyId),
+    property_name: propertyName,
     room_type_id: String(roomTypeId),
+    room_name: roomName,
     check_in: query.check_in,
     check_out: query.check_out,
     adults: query.adults,
