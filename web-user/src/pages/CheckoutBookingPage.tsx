@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { apiGet, apiPost } from "../api/client";
+import { toFriendlyCheckoutError, type CheckoutApiError } from "./checkoutErrorMessage";
 
 type QueueJoinData = {
   queue_key: string;
@@ -14,11 +15,6 @@ type QueueStatusData = {
   position: number;
   estimated_wait_seconds: number;
   admit_token: string | null;
-};
-
-type ApiError = {
-  code?: string;
-  message?: string;
 };
 
 type StatusTone = "neutral" | "info" | "success" | "warning" | "danger";
@@ -55,6 +51,27 @@ function toCountdownLabel(seconds: number | null): string {
 }
 
 function describeStatus(status: string, hasError: boolean): StatusDescriptor {
+  if (status.includes("재고 마감")) {
+    return {
+      title: "선택한 객실/요금이 마감되었습니다",
+      description: "결제 직전 재고 재검증 과정에서 다른 고객이 먼저 결제를 완료했습니다. 다른 객실 또는 날짜로 다시 진행해 주세요.",
+      tone: "warning",
+    };
+  }
+  if (status.includes("보유 시간 만료")) {
+    return {
+      title: "객실 보유 시간이 만료되었습니다",
+      description: "다시 검색 후 객실을 선택해 예약을 진행해 주세요.",
+      tone: "warning",
+    };
+  }
+  if (status.includes("결제 승인 실패")) {
+    return {
+      title: "결제 승인이 실패했습니다",
+      description: "결제 수단을 확인한 뒤 다시 시도해 주세요.",
+      tone: "danger",
+    };
+  }
   if (hasError || status.includes("실패")) {
     return {
       title: "요청 처리에 문제가 발생했어요",
@@ -165,9 +182,9 @@ export function CheckoutBookingPage() {
     return () => window.clearInterval(timer);
   }, [expiresAt]);
 
-  function toApiError(value: unknown): ApiError {
+  function toApiError(value: unknown): CheckoutApiError {
     if (typeof value === "object" && value !== null) {
-      return value as ApiError;
+      return value as CheckoutApiError;
     }
     return {};
   }
@@ -232,8 +249,9 @@ export function CheckoutBookingPage() {
 
       if (statusResult.data.state === "EXPIRED") {
         resetQueueState();
-        setStatus("대기열 만료");
-        setError("QUEUE_TOKEN_INVALID: 대기열 티켓이 만료되었습니다.");
+        const friendly = toFriendlyCheckoutError("booking", "queue", { code: "QUEUE_TOKEN_INVALID" });
+        setStatus(friendly.status);
+        setError(friendly.message);
         return;
       }
 
@@ -247,8 +265,9 @@ export function CheckoutBookingPage() {
           setStatus("HOLD 완료");
         } catch (holdError) {
           const err = toApiError(holdError);
-          setStatus("HOLD 실패");
-          setError(`${err.code ?? "ERROR"}: ${err.message ?? "hold 실패"}`);
+          const friendly = toFriendlyCheckoutError("booking", "hold", err);
+          setStatus(friendly.status);
+          setError(friendly.message);
         }
       }
     };
@@ -282,8 +301,9 @@ export function CheckoutBookingPage() {
 
       if (statusResult.data.state === "EXPIRED") {
         resetQueueState();
-        setStatus("대기열 만료");
-        setError("QUEUE_TOKEN_INVALID: 대기열 티켓이 만료되었습니다.");
+        const friendly = toFriendlyCheckoutError("booking", "queue", { code: "QUEUE_TOKEN_INVALID" });
+        setStatus(friendly.status);
+        setError(friendly.message);
         return;
       }
 
@@ -294,8 +314,9 @@ export function CheckoutBookingPage() {
           await attemptConfirm(statusResult.data.admit_token);
         } catch (confirmError) {
           const err = toApiError(confirmError);
-          setStatus("CONFIRM 실패");
-          setError(`${err.code ?? "ERROR"}: ${err.message ?? "confirm 실패"}`);
+          const friendly = toFriendlyCheckoutError("booking", "confirm", err);
+          setStatus(friendly.status);
+          setError(friendly.message);
         }
       }
     };
@@ -327,13 +348,15 @@ export function CheckoutBookingPage() {
       if (err.code === "QUEUE_REQUIRED") {
         await handleQueueFlow().catch((queueError: unknown) => {
           const queueErr = toApiError(queueError);
-          setStatus("대기열 실패");
-          setError(`${queueErr.code ?? "ERROR"}: ${queueErr.message ?? "queue 처리 실패"}`);
+          const friendly = toFriendlyCheckoutError("booking", "queue", queueErr);
+          setStatus(friendly.status);
+          setError(friendly.message);
         });
         return;
       }
-      setStatus("HOLD 실패");
-      setError(`${err.code ?? "ERROR"}: ${err.message ?? "hold 실패"}`);
+      const friendly = toFriendlyCheckoutError("booking", "hold", err);
+      setStatus(friendly.status);
+      setError(friendly.message);
     }
   }
 
@@ -348,13 +371,15 @@ export function CheckoutBookingPage() {
       if (err.code === "QUEUE_REQUIRED") {
         await handleConfirmQueueFlow().catch((queueError: unknown) => {
           const queueErr = toApiError(queueError);
-          setStatus("대기열 실패");
-          setError(`${queueErr.code ?? "ERROR"}: ${queueErr.message ?? "queue 처리 실패"}`);
+          const friendly = toFriendlyCheckoutError("booking", "queue", queueErr);
+          setStatus(friendly.status);
+          setError(friendly.message);
         });
         return;
       }
-      setStatus("CONFIRM 실패");
-      setError(`${err.code ?? "ERROR"}: ${err.message ?? "confirm 실패"}`);
+      const friendly = toFriendlyCheckoutError("booking", "confirm", err);
+      setStatus(friendly.status);
+      setError(friendly.message);
     }
   }
 

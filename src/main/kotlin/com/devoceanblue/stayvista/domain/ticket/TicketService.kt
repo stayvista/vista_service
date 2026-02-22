@@ -482,7 +482,8 @@ class TicketService(
             order.quantity,
         )
         if (moved != 1) {
-            throw DomainException(ErrorCode.INVENTORY_INVARIANT_VIOLATION, "Inventory hold is not sufficient")
+            meterRegistry.counter("ticket_confirm_inventory_conflict_total").increment()
+            throw DomainException(ErrorCode.TICKET_SOLD_OUT, "Ticket sold out during confirm")
         }
 
         jdbcTemplate.update(

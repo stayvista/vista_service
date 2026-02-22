@@ -284,7 +284,12 @@ class BookingService(
                 night.rooms,
             )
             if (affected != 1) {
-                throw DomainException(ErrorCode.INVENTORY_INVARIANT_VIOLATION, "Inventory hold is not sufficient")
+                meterRegistry.counter("booking_confirm_inventory_conflict_total").increment()
+                throw DomainException(
+                    ErrorCode.BOOKING_OVERBOOKED,
+                    "Room no longer available during confirm",
+                    details = mapOf("stay_date" to night.stay_date.toString()),
+                )
             }
         }
 

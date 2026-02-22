@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { apiGet, apiPost } from "../api/client";
+import { toFriendlyCheckoutError, type CheckoutApiError } from "./checkoutErrorMessage";
 
-type ApiError = { code?: string; message?: string };
 type QueueJoinData = { ticket: string; position: number; estimated_wait_seconds: number };
 type QueueStatusData = {
   state: "WAITING" | "ADMITTED" | "EXPIRED";
@@ -55,6 +55,27 @@ function toCountdownLabel(seconds: number | null): string {
 }
 
 function describeStatus(status: string, hasError: boolean): StatusDescriptor {
+  if (status.includes("재고 마감")) {
+    return {
+      title: "선택한 회차가 마감되었습니다",
+      description: "결제 직전 재고 재검증 과정에서 다른 고객이 먼저 결제를 완료했습니다. 다른 회차를 선택해 주세요.",
+      tone: "warning",
+    };
+  }
+  if (status.includes("보유 시간 만료")) {
+    return {
+      title: "결제 가능 시간이 만료되었습니다",
+      description: "좌석을 다시 확보한 뒤 결제를 진행해 주세요.",
+      tone: "warning",
+    };
+  }
+  if (status.includes("결제 승인 실패")) {
+    return {
+      title: "결제 승인이 실패했습니다",
+      description: "결제 수단 정보를 확인한 뒤 다시 시도해 주세요.",
+      tone: "danger",
+    };
+  }
   if (hasError || status.includes("실패")) {
     return {
       title: "결제를 완료하지 못했습니다",
@@ -191,8 +212,8 @@ export function CheckoutTicketPage() {
     };
   }, [productId]);
 
-  function toError(value: unknown): ApiError {
-    if (typeof value === "object" && value !== null) return value as ApiError;
+  function toError(value: unknown): CheckoutApiError {
+    if (typeof value === "object" && value !== null) return value as CheckoutApiError;
     return {};
   }
 
@@ -275,8 +296,9 @@ export function CheckoutTicketPage() {
 
       if (result.data.state === "EXPIRED") {
         resetQueue();
-        setStatus("대기열 만료");
-        setError("QUEUE_TOKEN_INVALID: 대기열 입장권이 만료되었습니다.");
+        const friendly = toFriendlyCheckoutError("ticket", "queue", { code: "QUEUE_TOKEN_INVALID" });
+        setStatus(friendly.status);
+        setError(friendly.message);
         return;
       }
       if (result.data.state === "ADMITTED" && result.data.admit_token) {
@@ -315,8 +337,9 @@ export function CheckoutTicketPage() {
 
       if (result.data.state === "EXPIRED") {
         resetQueue();
-        setStatus("대기열 만료");
-        setError("QUEUE_TOKEN_INVALID: 대기열 입장권이 만료되었습니다.");
+        const friendly = toFriendlyCheckoutError("ticket", "queue", { code: "QUEUE_TOKEN_INVALID" });
+        setStatus(friendly.status);
+        setError(friendly.message);
         return;
       }
       if (result.data.state === "ADMITTED" && result.data.admit_token) {
@@ -326,8 +349,16 @@ export function CheckoutTicketPage() {
           await attemptConfirm(result.data.admit_token);
         } catch (confirmError) {
           const err = toError(confirmError);
-          setStatus("CONFIRM 실패");
-          setError(`${err.code ?? "ERROR"}: ${err.message ?? "confirm 실패"}`);
+          const friendly = toFriendlyCheckoutError("ticket", "confirm", err);
+          const soldOut = new Set(["TICKET_SOLD_OUT", "ORDER_STATE_CONFLICT", "INVENTORY_INVARIANT_VIOLATION"]);
+          if (soldOut.has(err.code ?? "")) {
+            setStatus("매진");
+            setError(friendly.message);
+            void loadAlternativeEvents();
+          } else {
+            setStatus(friendly.status);
+            setError(friendly.message);
+          }
         }
       }
     };
@@ -357,16 +388,19 @@ export function CheckoutTicketPage() {
       if (err.code === "QUEUE_REQUIRED") {
         await handleQueue().catch((queueError: unknown) => {
           const queueErr = toError(queueError);
-          setError(`${queueErr.code ?? "ERROR"}: ${queueErr.message ?? "대기열 처리 실패"}`);
+          const friendly = toFriendlyCheckoutError("ticket", "queue", queueErr);
+          setStatus(friendly.status);
+          setError(friendly.message);
         });
         return;
       }
-      setError(`${err.code ?? "ERROR"}: ${err.message ?? "hold 실패"}`);
+      const friendly = toFriendlyCheckoutError("ticket", "hold", err);
+      setError(friendly.message);
       if (err.code === "TICKET_SOLD_OUT") {
         setStatus("매진");
         void loadAlternativeEvents();
       } else {
-        setStatus("HOLD 실패");
+        setStatus(friendly.status);
       }
     }
   }
@@ -382,13 +416,22 @@ export function CheckoutTicketPage() {
       if (err.code === "QUEUE_REQUIRED") {
         await handleConfirmQueue().catch((queueError: unknown) => {
           const queueErr = toError(queueError);
-          setStatus("대기열 실패");
-          setError(`${queueErr.code ?? "ERROR"}: ${queueErr.message ?? "대기열 처리 실패"}`);
+          const friendly = toFriendlyCheckoutError("ticket", "queue", queueErr);
+          setStatus(friendly.status);
+          setError(friendly.message);
         });
         return;
       }
-      setStatus("CONFIRM 실패");
-      setError(`${err.code ?? "ERROR"}: ${err.message ?? "confirm 실패"}`);
+      const friendly = toFriendlyCheckoutError("ticket", "confirm", err);
+      const soldOut = new Set(["TICKET_SOLD_OUT", "ORDER_STATE_CONFLICT", "INVENTORY_INVARIANT_VIOLATION"]);
+      if (soldOut.has(err.code ?? "")) {
+        setStatus("매진");
+        setError(friendly.message);
+        void loadAlternativeEvents();
+      } else {
+        setStatus(friendly.status);
+        setError(friendly.message);
+      }
     }
   }
 

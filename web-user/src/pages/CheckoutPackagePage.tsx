@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { apiGet, apiPost } from "../api/client";
+import { toFriendlyCheckoutError, type CheckoutApiError } from "./checkoutErrorMessage";
 
 type HoldResponse = {
   package_order_id: string;
@@ -28,11 +29,6 @@ type PackageDetail = {
     currency: string;
     amount_total: number;
   };
-};
-
-type ApiError = {
-  code?: string;
-  message?: string;
 };
 
 type QueueJoinData = { ticket: string; position: number; estimated_wait_seconds: number };
@@ -72,6 +68,27 @@ function toCountdownLabel(seconds: number | null): string {
 }
 
 function describeStatus(status: string, hasError: boolean): StatusDescriptor {
+  if (status.includes("재고 마감")) {
+    return {
+      title: "선택한 구성이 마감되었습니다",
+      description: "결제 직전 재고 재검증 중 다른 고객이 먼저 결제를 완료해 일부 구성 상품이 마감되었습니다.",
+      tone: "warning",
+    };
+  }
+  if (status.includes("보유 시간 만료")) {
+    return {
+      title: "보유 시간이 만료되었습니다",
+      description: "패키지 구성 상품을 다시 조회한 뒤 결제를 진행해 주세요.",
+      tone: "warning",
+    };
+  }
+  if (status.includes("결제 승인 실패")) {
+    return {
+      title: "결제 승인이 실패했습니다",
+      description: "결제 정보를 확인한 뒤 다시 시도해 주세요.",
+      tone: "danger",
+    };
+  }
   if (hasError || status.includes("실패")) {
     return {
       title: "패키지 결제를 완료하지 못했습니다",
@@ -193,7 +210,7 @@ export function CheckoutPackagePage() {
       })
       .catch((e: unknown) => {
         if (!mounted) return;
-        const err = e as ApiError;
+        const err = e as CheckoutApiError;
         setItem(null);
         setItemError(`${err.code ?? "ERROR"}: ${err.message ?? "패키지 정보 조회 실패"}`);
       });
@@ -207,8 +224,8 @@ export function CheckoutPackagePage() {
     return `package:${packageId ?? "unknown"}`;
   }
 
-  function toError(value: unknown): ApiError {
-    if (typeof value === "object" && value !== null) return value as ApiError;
+  function toError(value: unknown): CheckoutApiError {
+    if (typeof value === "object" && value !== null) return value as CheckoutApiError;
     return {};
   }
 
@@ -240,8 +257,9 @@ export function CheckoutPackagePage() {
 
       if (result.data.state === "EXPIRED") {
         resetQueue();
-        setStatus("대기열 만료");
-        setError("QUEUE_TOKEN_INVALID: 대기열 입장권이 만료되었습니다.");
+        const friendly = toFriendlyCheckoutError("package", "queue", { code: "QUEUE_TOKEN_INVALID" });
+        setStatus(friendly.status);
+        setError(friendly.message);
         return;
       }
       if (result.data.state === "ADMITTED" && result.data.admit_token) {
@@ -259,7 +277,7 @@ export function CheckoutPackagePage() {
   }
 
   async function attemptHold(queueToken?: string) {
-    if (!packageId) throw { code: "VALIDATION_ERROR", message: "package_id is required" } as ApiError;
+    if (!packageId) throw { code: "VALIDATION_ERROR", message: "package_id is required" } as CheckoutApiError;
     return apiPost<HoldResponse>(
       `/v1/packages/${packageId}/holds`,
       { check_in: checkIn, check_out: checkOut, rooms, ticket_quantity: ticketQuantity },
@@ -298,19 +316,21 @@ export function CheckoutPackagePage() {
           setStatus("HOLD 완료");
         }).catch((queueError: unknown) => {
           const queueErr = toError(queueError);
-          setStatus("대기열 실패");
-          setError(`${queueErr.code ?? "ERROR"}: ${queueErr.message ?? "queue 처리 실패"}`);
+          const friendly = toFriendlyCheckoutError("package", "queue", queueErr);
+          setStatus(friendly.status);
+          setError(friendly.message);
         });
         return;
       }
-      setStatus("HOLD 실패");
-      setError(`${err.code ?? "ERROR"}: ${err.message ?? "패키지 hold 실패"}`);
+      const friendly = toFriendlyCheckoutError("package", "hold", err);
+      setStatus(friendly.status);
+      setError(friendly.message);
     }
   }
 
   async function attemptConfirm(queueToken?: string) {
     if (!packageId || !packageOrderId) {
-      throw { code: "VALIDATION_ERROR", message: "package/order id is required" } as ApiError;
+      throw { code: "VALIDATION_ERROR", message: "package/order id is required" } as CheckoutApiError;
     }
     await apiPost(
       `/v1/packages/${packageId}/confirm`,
@@ -343,13 +363,15 @@ export function CheckoutPackagePage() {
           await attemptConfirm(admitToken);
         }).catch((queueError: unknown) => {
           const queueErr = toError(queueError);
-          setStatus("대기열 실패");
-          setError(`${queueErr.code ?? "ERROR"}: ${queueErr.message ?? "queue 처리 실패"}`);
+          const friendly = toFriendlyCheckoutError("package", "queue", queueErr);
+          setStatus(friendly.status);
+          setError(friendly.message);
         });
         return;
       }
-      setStatus("CONFIRM 실패");
-      setError(`${err.code ?? "ERROR"}: ${err.message ?? "패키지 confirm 실패"}`);
+      const friendly = toFriendlyCheckoutError("package", "confirm", err);
+      setStatus(friendly.status);
+      setError(friendly.message);
     }
   }
 
