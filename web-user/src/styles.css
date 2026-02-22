@@ -4188,6 +4188,10 @@ button:disabled {
   overflow: hidden;
 }
 
+.room-plan-row.is-sold-out {
+  background: #f7f9fc;
+}
+
 .room-plan-benefits {
   padding: 10px;
   border-right: 1px solid #dce6f6;
@@ -4294,12 +4298,55 @@ button:disabled {
   justify-content: center;
 }
 
+.room-plan-cta .inline-cta:disabled {
+  cursor: not-allowed;
+  opacity: 0.85;
+}
+
+.room-plan-cta .inline-cta.is-disabled {
+  border: 1px solid #d8e1ef;
+  background: #eff3f9;
+  color: #6f7f95;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
 .room-plan-cta em {
   font-style: normal;
-  color: #3e8650;
+  color: #3f6aa4;
   font-weight: 700;
   text-align: center;
   font-size: 0.82rem;
+}
+
+.room-plan-status.available {
+  color: #2d7b47;
+}
+
+.room-plan-status.low {
+  color: #a46512;
+}
+
+.room-plan-status.soldout {
+  color: #b13a3a;
+}
+
+.room-availability-label {
+  margin: 4px 0 0;
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.room-availability-label.available {
+  color: #2d7b47;
+}
+
+.room-availability-label.low {
+  color: #a46512;
+}
+
+.room-availability-label.soldout {
+  color: #b13a3a;
 }
 
 .review-overview-grid {

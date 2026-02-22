@@ -125,8 +125,8 @@ export function CheckoutBookingPage() {
   const [params] = useSearchParams();
   const navigate = useNavigate();
   const [status, setStatus] = useState("대기");
-  const [bookingId, setBookingId] = useState<string | null>(null);
-  const [expiresAt, setExpiresAt] = useState<string | null>(null);
+  const [bookingId, setBookingId] = useState<string | null>(() => params.get("booking_id"));
+  const [expiresAt, setExpiresAt] = useState<string | null>(() => params.get("expires_at"));
   const [remainingSeconds, setRemainingSeconds] = useState<number | null>(null);
   const [queueTicket, setQueueTicket] = useState<string | null>(null);
   const [queuePosition, setQueuePosition] = useState<number | null>(null);
@@ -226,10 +226,15 @@ export function CheckoutBookingPage() {
 
   useEffect(() => {
     if (autoPrepareRef.current) return;
+    if (bookingId) {
+      autoPrepareRef.current = true;
+      setStatus("예약 준비 완료");
+      return;
+    }
     if (holdBody.room_type_id <= 0) return;
     autoPrepareRef.current = true;
     void createHold();
-  }, [holdBody.room_type_id]);
+  }, [bookingId, holdBody.room_type_id]);
 
   function toApiError(value: unknown): CheckoutApiError {
     if (typeof value === "object" && value !== null) {
