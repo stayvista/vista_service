@@ -93,19 +93,34 @@ const CONCIERGE_DOCK_STATE_KEY = "stayvista.web_user.concierge.dock_state.v1";
 type TelemetryEventName =
   | "ai_widget_open"
   | "ai_widget_prompt_submit"
+  | "ai_widget_prompt_autopatch"
+  | "ai_widget_prompt_reuse_click"
   | "ai_widget_followup_click"
   | "ai_widget_clarify_click"
   | "ai_widget_clarify_action_click"
+  | "ai_widget_quick_fix_click"
   | "ai_widget_sort_hint_click"
   | "ai_widget_scope_hint_click"
   | "ai_widget_filter_apply"
   | "ai_widget_search_handoff"
-  | "ai_widget_view_results";
+  | "ai_widget_view_results"
+  | "ai_widget_answer_feedback"
+  | "ai_widget_answer_copy_click"
+  | "ai_widget_card_type_filter_click"
+  | "ai_widget_regenerate_click"
+  | "ai_widget_search_blocked"
+  | "ai_widget_slot_chip_click"
+  | "ai_widget_filter_bulk_apply"
+  | "ai_widget_generation_cancel";
+
+type CardTypeFilter = "ALL" | "PROPERTY" | "PACKAGE" | "TICKET" | "POI";
 
 type ConciergeDockState = {
   open: boolean;
   activeSourceTypes: string[];
   messageDraft: string;
+  lastPrompt: string;
+  answerFeedback: "positive" | "negative" | null;
   messages: ChatMessage[];
   answer: string;
   cards: ChatCard[];
@@ -152,6 +167,7 @@ const CITY_CODE_LABEL: Record<string, string> = {
   Jeju: "제주",
   Incheon: "인천",
 };
+const CITY_ALIAS_ENTRIES = Object.entries(CITY_CODE_ALIAS).sort((a, b) => b[0].length - a[0].length);
 
 const VALID_SOURCE_TYPES = new Set(["PROPERTY", "TICKET", "PACKAGE", "POI"]);
 const SOURCE_TYPE_LABELS: Record<string, string> = {
@@ -159,6 +175,14 @@ const SOURCE_TYPE_LABELS: Record<string, string> = {
   PACKAGE: "패키지",
   TICKET: "티켓",
   POI: "주변 추천",
+};
+const CARD_TYPE_FILTER_ORDER: readonly CardTypeFilter[] = ["ALL", "PROPERTY", "PACKAGE", "TICKET", "POI"];
+const CARD_TYPE_FILTER_LABELS: Record<CardTypeFilter, string> = {
+  ALL: "전체",
+  PROPERTY: "숙소",
+  PACKAGE: "패키지",
+  TICKET: "티켓",
+  POI: "명소",
 };
 const SORT_VALUE_LABELS: Record<string, string> = {
   best_match: "Best match",
@@ -176,12 +200,14 @@ const MISSING_SLOT_LABELS: Record<string, string> = {
   budget: "예산",
   preferences: "선호 옵션",
 };
+const SLOT_ORDER = ["city", "days", "companions", "budget", "preferences"] as const;
 
 export function ConciergeDock({ searchContext, onSearch }: Props) {
   const navigate = useNavigate();
   const restoredState = useMemo(() => loadConciergeDockState(), []);
   const threadRef = useRef<HTMLDivElement | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
   const [open, setOpen] = useState(restoredState.open);
   const [isCompactViewport, setIsCompactViewport] = useState(
     () => typeof window !== "undefined" && window.innerWidth <= 1080,
@@ -190,6 +216,8 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
     restoredState.activeSourceTypes.length > 0 ? restoredState.activeSourceTypes : [...SOURCE_TYPE_FILTERS.city],
   );
   const [message, setMessage] = useState(restoredState.messageDraft);
+  const [lastPrompt, setLastPrompt] = useState(restoredState.lastPrompt);
+  const [answerFeedback, setAnswerFeedback] = useState<"positive" | "negative" | null>(restoredState.answerFeedback);
   const [messages, setMessages] = useState<ChatMessage[]>(restoredState.messages);
   const [answer, setAnswer] = useState(restoredState.answer);
   const [streamingAnswer, setStreamingAnswer] = useState("");
@@ -212,6 +240,9 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
   const [selectedHandoffFilterKeys, setSelectedHandoffFilterKeys] = useState<string[]>(restoredState.selectedHandoffFilterKeys);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [copyDone, setCopyDone] = useState(false);
+  const [autopatchNotice, setAutopatchNotice] = useState("");
+  const [selectedCardType, setSelectedCardType] = useState<CardTypeFilter>("ALL");
 
   const canSubmit = useMemo(() => message.trim().length > 0 && !loading, [loading, message]);
   const cityLabel = (searchContext.placeLabel || searchContext.city || "서울").trim();
@@ -266,6 +297,118 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
     }
     return Array.from(options.values()).slice(0, 3);
   }, [handoffFilters, handoffSortHint]);
+  const slotChips = useMemo(() => {
+    const missing = new Set(handoffMissingSlots);
+    return SLOT_ORDER.map((slot) => ({
+      slot,
+      label: MISSING_SLOT_LABELS[slot] ?? slot,
+      missing: missing.has(slot),
+      prompt: slotClarifyPrompt(slot, searchContext),
+    }));
+  }, [handoffMissingSlots, searchContext]);
+  const quickFixSlots = useMemo(
+    () => slotChips.filter((slot) => slot.missing).slice(0, 3),
+    [slotChips],
+  );
+  const slotCompletionRate = useMemo(() => {
+    const total = SLOT_ORDER.length;
+    const missingCount = slotChips.filter((slot) => slot.missing).length;
+    return Math.round(((total - missingCount) / total) * 100);
+  }, [slotChips]);
+  const recentUserPrompts = useMemo(() => {
+    const unique = new Set<string>();
+    const collected: string[] = [];
+
+    const append = (value: string) => {
+      const trimmed = value.trim();
+      if (trimmed.length < 4 || unique.has(trimmed)) {
+        return;
+      }
+      unique.add(trimmed);
+      collected.push(trimmed);
+    };
+
+    if (lastPrompt.trim()) {
+      append(lastPrompt);
+    }
+    for (let idx = messages.length - 1; idx >= 0; idx -= 1) {
+      const item = messages[idx];
+      if (item.role !== "user") {
+        continue;
+      }
+      append(item.text);
+      if (collected.length >= 5) {
+        break;
+      }
+    }
+    return collected.slice(0, 5);
+  }, [lastPrompt, messages]);
+  const cardTypeCounts = useMemo(() => {
+    const counts: Record<CardTypeFilter, number> = {
+      ALL: cards.length,
+      PROPERTY: 0,
+      PACKAGE: 0,
+      TICKET: 0,
+      POI: 0,
+    };
+    cards.forEach((card) => {
+      const normalizedType = normalizeCardType(card.type);
+      if (normalizedType && normalizedType !== "ALL") {
+        counts[normalizedType] += 1;
+      }
+    });
+    return counts;
+  }, [cards]);
+  const availableCardTypes = useMemo(
+    () => CARD_TYPE_FILTER_ORDER.filter((type) => (type === "ALL" ? cards.length > 0 : cardTypeCounts[type] > 0)),
+    [cards.length, cardTypeCounts],
+  );
+  const visibleCards = useMemo(
+    () => (
+      selectedCardType === "ALL"
+        ? cards
+        : cards.filter((card) => normalizeCardType(card.type) === selectedCardType)
+    ),
+    [cards, selectedCardType],
+  );
+  const bulkSelectableFilterTokens = useMemo(() => {
+    const nonSortTokens = handoffFilters
+      .filter((item) => item.key !== "sort")
+      .map((item) => filterToken(item));
+    const sortFilters = handoffFilters.filter((item) => item.key === "sort");
+    if (sortFilters.length === 0) {
+      return nonSortTokens;
+    }
+
+    const selectedSortToken = selectedHandoffFilterKeys.find((item) => (
+      item.startsWith("sort:") && sortFilters.some((candidate) => filterToken(candidate) === item)
+    ));
+    if (selectedSortToken) {
+      return [...nonSortTokens, selectedSortToken];
+    }
+
+    if (handoffSortHint && ALLOWED_SORT_VALUES.has(handoffSortHint.value)) {
+      const hintedSort = sortFilters.find((item) => item.value === handoffSortHint.value);
+      if (hintedSort) {
+        return [...nonSortTokens, filterToken(hintedSort)];
+      }
+    }
+
+    return [...nonSortTokens, filterToken(sortFilters[0])];
+  }, [handoffFilters, handoffSortHint, selectedHandoffFilterKeys]);
+  const areAllHandoffFiltersSelected = useMemo(() => {
+    if (bulkSelectableFilterTokens.length === 0) {
+      return false;
+    }
+    const selected = new Set(selectedHandoffFilterKeys);
+    return bulkSelectableFilterTokens.every((token) => selected.has(token));
+  }, [bulkSelectableFilterTokens, selectedHandoffFilterKeys]);
+  const launchBlockedReason = useMemo(() => {
+    if (!handoffClarifyRequired || handoffMissingSlots.length === 0) {
+      return null;
+    }
+    return `검색 적용 전에 ${describeMissingSlots(handoffMissingSlots)} 정보를 먼저 알려주세요.`;
+  }, [handoffClarifyRequired, handoffMissingSlots]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -304,10 +447,49 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
   }, [open, messages, streamingAnswer, answer, loading, cards.length, followups.length]);
 
   useEffect(() => {
+    return () => {
+      abortRef.current?.abort();
+      abortRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!copyDone) {
+      return undefined;
+    }
+    const timer = window.setTimeout(() => {
+      setCopyDone(false);
+    }, 1800);
+    return () => window.clearTimeout(timer);
+  }, [copyDone]);
+
+  useEffect(() => {
+    if (!autopatchNotice) {
+      return undefined;
+    }
+    const timer = window.setTimeout(() => {
+      setAutopatchNotice("");
+    }, 2200);
+    return () => window.clearTimeout(timer);
+  }, [autopatchNotice]);
+
+  useEffect(() => {
+    if (selectedCardType === "ALL") {
+      return;
+    }
+    if (cardTypeCounts[selectedCardType] > 0) {
+      return;
+    }
+    setSelectedCardType("ALL");
+  }, [selectedCardType, cardTypeCounts]);
+
+  useEffect(() => {
     saveConciergeDockState({
       open,
       activeSourceTypes,
       messageDraft: message,
+      lastPrompt,
+      answerFeedback,
       messages: messages.slice(-20),
       answer,
       cards: cards.slice(0, 6),
@@ -332,6 +514,8 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
     open,
     activeSourceTypes,
     message,
+    lastPrompt,
+    answerFeedback,
     messages,
     answer,
     cards,
@@ -355,6 +539,8 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
 
   function resetConversation() {
     setMessage("");
+    setLastPrompt("");
+    setAnswerFeedback(null);
     setMessages([]);
     setAnswer("");
     setStreamingAnswer("");
@@ -378,6 +564,9 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
     setError(null);
     setLoading(false);
     setActiveSourceTypes([...SOURCE_TYPE_FILTERS.city]);
+    setCopyDone(false);
+    setAutopatchNotice("");
+    setSelectedCardType("ALL");
   }
 
   async function ask(
@@ -385,6 +574,9 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
     sourceTypes: readonly string[] = activeSourceTypes,
     searchContextOverride?: StaySearchInput,
   ) {
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
     const normalizedSourceTypes = normalizeSourceTypes(sourceTypes);
     setActiveSourceTypes(normalizedSourceTypes);
     setLoading(true);
@@ -408,6 +600,10 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
     setHandoffFilters([]);
     setSelectedHandoffFilterKeys([]);
     setMessages((prev) => [...prev, { role: "user", text: input }]);
+    setLastPrompt(input);
+    setAnswerFeedback(null);
+    setCopyDone(false);
+    setSelectedCardType("ALL");
 
     const payload = {
       message: input,
@@ -430,10 +626,10 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
         if (event === "done") {
           donePayload = data as ChatData;
         }
-      });
+      }, controller.signal);
 
       if (!donePayload) {
-        donePayload = await recommend(payload);
+        donePayload = await recommend(payload, controller.signal);
       }
 
       const finalAnswer = donePayload.assistant_text ?? donePayload.answer;
@@ -461,9 +657,16 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
       setMessages((prev) => [...prev, { role: "assistant", text: finalAnswer }]);
       setRouteLabel(String(donePayload.context_used?.route ?? "-"));
     } catch (e) {
-      const err = e as ApiError;
-      setError(`${err.code ?? "ERROR"}: ${err.message ?? "AI 추천 생성 실패"}`);
+      if (isAbortError(e)) {
+        setError("추천 생성을 중단했습니다. 조건을 보완해 다시 요청해 주세요.");
+      } else {
+        const err = e as ApiError;
+        setError(`${err.code ?? "ERROR"}: ${err.message ?? "AI 추천 생성 실패"}`);
+      }
     } finally {
+      if (abortRef.current === controller) {
+        abortRef.current = null;
+      }
       setLoading(false);
       setStreamingAnswer("");
     }
@@ -474,6 +677,8 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
       return;
     }
     const current = message.trim();
+    const inferredPatch = inferSearchPatchFromPrompt(current);
+    const hasAutoPatch = patchFieldCount(inferredPatch) > 0;
     const inferredSourceTypes = inferSourceTypesFromPrompt(current);
     const nextSourceTypes = inferredSourceTypes.length > 0 ? inferredSourceTypes : activeSourceTypes;
     if (inferredSourceTypes.length > 0) {
@@ -481,8 +686,18 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
     }
     setMessage("");
     const scope = sourceTypeScope(nextSourceTypes);
+    const patchedContext = hasAutoPatch ? applySearchPatch(searchContext, inferredPatch) : searchContext;
+    if (hasAutoPatch) {
+      setAutopatchNotice(`자동 반영: ${describeSearchPatch(inferredPatch)}`);
+      track("ai_widget_prompt_autopatch", "text_input", {
+        source_type_scope: scope,
+        auto_patch_count: patchFieldCount(inferredPatch),
+      });
+    } else {
+      setAutopatchNotice("");
+    }
     track("ai_widget_prompt_submit", "text_input", { source_type_scope: scope });
-    void ask(current, nextSourceTypes);
+    void ask(current, nextSourceTypes, patchedContext);
   }
 
   function submit(e: FormEvent) {
@@ -503,6 +718,19 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
   }
 
   function launchSearch() {
+    if (launchBlockedReason) {
+      setError(launchBlockedReason);
+      track("ai_widget_search_blocked", "search_cta", {
+        clarify_required: true,
+        missing_slot_count: handoffMissingSlots.length,
+        source_type_scope: sourceTypeScope(activeSourceTypes),
+      });
+      if (handoffClarifyQuestions.length > 0) {
+        void ask(handoffClarifyQuestions[0], activeSourceTypes);
+      }
+      return;
+    }
+
     if (selectedHandoffFilters.length > 0) {
       track("ai_widget_filter_apply", "search_cta");
     }
@@ -539,9 +767,63 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
     }
   }
 
+  function submitAnswerFeedback(feedback: "positive" | "negative") {
+    setAnswerFeedback(feedback);
+    track("ai_widget_answer_feedback", "feedback", {
+      feedback_value: feedback,
+      source_type_scope: sourceTypeScope(activeSourceTypes),
+    });
+  }
+
+  function regenerateAnswer() {
+    if (!lastPrompt || loading) {
+      return;
+    }
+    track("ai_widget_regenerate_click", "results_cta", {
+      source_type_scope: sourceTypeScope(activeSourceTypes),
+    });
+    void ask(lastPrompt, activeSourceTypes);
+  }
+
+  function cancelGeneration() {
+    if (!loading || !abortRef.current) {
+      return;
+    }
+    abortRef.current.abort();
+    abortRef.current = null;
+    track("ai_widget_generation_cancel", "results_cta", {
+      source_type_scope: sourceTypeScope(activeSourceTypes),
+    });
+  }
+
+  function selectAllHandoffFilters() {
+    if (bulkSelectableFilterTokens.length === 0) {
+      return;
+    }
+    setSelectedHandoffFilterKeys(bulkSelectableFilterTokens);
+    track("ai_widget_filter_bulk_apply", "filter_bulk", {
+      filter_count: bulkSelectableFilterTokens.length,
+      bulk_action: "select_all",
+      source_type_scope: sourceTypeScope(activeSourceTypes),
+    });
+  }
+
+  function clearAllHandoffFilters() {
+    if (selectedHandoffFilterKeys.length === 0) {
+      return;
+    }
+    setSelectedHandoffFilterKeys([]);
+    track("ai_widget_filter_bulk_apply", "filter_bulk", {
+      filter_count: 0,
+      bulk_action: "clear_all",
+      source_type_scope: sourceTypeScope(activeSourceTypes),
+    });
+  }
+
   function viewAllCards() {
     track("ai_widget_view_results", "results_cta");
-    const typeSet = new Set(cards.map((item) => item.type.toUpperCase()));
+    const targetCards = visibleCards.length > 0 ? visibleCards : cards;
+    const typeSet = new Set(targetCards.map((item) => item.type.toUpperCase()));
     if (typeSet.has("PROPERTY")) {
       launchSearch();
       return;
@@ -557,6 +839,19 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
     navigate("/nearby");
   }
 
+  function selectCardType(type: CardTypeFilter) {
+    if (selectedCardType === type) {
+      return;
+    }
+    setSelectedCardType(type);
+    const visibleCount = type === "ALL" ? cards.length : cardTypeCounts[type];
+    track("ai_widget_card_type_filter_click", "results_cta", {
+      target_source_type: type,
+      source_type_scope: sourceTypeScope(activeSourceTypes),
+      visible_card_count: visibleCount,
+    });
+  }
+
   function track(
     eventName: TelemetryEventName,
     source: string,
@@ -570,6 +865,11 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
       clarify_slot?: string;
       sort_value?: string;
       target_source_type?: string;
+      feedback_value?: "positive" | "negative";
+      bulk_action?: "select_all" | "clear_all";
+      auto_patch_count?: number;
+      reuse_rank?: number;
+      visible_card_count?: number;
     },
   ) {
     const payload = {
@@ -609,6 +909,60 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
     });
     track("ai_widget_sort_hint_click", "filter_chip", {
       sort_value: filter.value,
+      source_type_scope: sourceTypeScope(activeSourceTypes),
+    });
+  }
+
+  function askForSlot(slot: { slot: string; prompt: string }) {
+    track("ai_widget_slot_chip_click", "handoff_clarify", {
+      clarify_slot: slot.slot,
+      source_type_scope: sourceTypeScope(activeSourceTypes),
+    });
+    void ask(slot.prompt, activeSourceTypes);
+  }
+
+  function runClarifyAction(action: SearchHandoffClarifyAction, source: "handoff_clarify" | "quick_fix") {
+    const nextPatch = mergeSearchPatch(handoffSearchPatch, action.searchPatch ?? {});
+    const patchedContext = applySearchPatch(searchContext, nextPatch);
+    const sourceTypes = action.recommendedSourceTypes && action.recommendedSourceTypes.length > 0
+      ? action.recommendedSourceTypes
+      : activeSourceTypes;
+    setHandoffSearchPatch(nextPatch);
+    track(
+      source === "quick_fix" ? "ai_widget_quick_fix_click" : "ai_widget_clarify_action_click",
+      source,
+      {
+        clarify_slot: action.slot,
+        source_type_scope: sourceTypeScope(sourceTypes),
+      },
+    );
+    void ask(action.prompt, sourceTypes, patchedContext);
+  }
+
+  function runQuickFix(slot: { slot: string; prompt: string }) {
+    const mappedAction = handoffClarifyActions.find((action) => action.slot === slot.slot);
+    if (mappedAction) {
+      runClarifyAction(mappedAction, "quick_fix");
+      return;
+    }
+    track("ai_widget_quick_fix_click", "quick_fix", {
+      clarify_slot: slot.slot,
+      source_type_scope: sourceTypeScope(activeSourceTypes),
+    });
+    void ask(slot.prompt, activeSourceTypes);
+  }
+
+  async function copyAnswerSummary() {
+    if (!answer) {
+      return;
+    }
+    const copied = await copyText(answer);
+    if (!copied) {
+      setError("클립보드 복사에 실패했습니다. 브라우저 권한을 확인해 주세요.");
+      return;
+    }
+    setCopyDone(true);
+    track("ai_widget_answer_copy_click", "results_cta", {
       source_type_scope: sourceTypeScope(activeSourceTypes),
     });
   }
@@ -666,6 +1020,30 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
           <span>객실 {searchContext.guests.rooms} · 성인 {searchContext.guests.adults} · 아동 {searchContext.guests.children}</span>
         </div>
 
+        <section className="concierge-slot-check">
+          <div className="concierge-slot-head">
+            <p className="concierge-slot-title">예약 정보 체크리스트</p>
+            <p className="concierge-slot-rate">{slotCompletionRate}% 완료</p>
+          </div>
+          <div className="concierge-slot-bar">
+            <span style={{ width: `${slotCompletionRate}%` }} />
+          </div>
+          <div className="concierge-slot-chips">
+            {slotChips.map((slot) => (
+              <button
+                key={slot.slot}
+                type="button"
+                className={slot.missing ? "chip-btn slot-chip missing" : "chip-btn slot-chip done"}
+                disabled={loading}
+                onClick={() => askForSlot(slot)}
+                title={slot.missing ? `${slot.label} 정보 보완` : `${slot.label} 다시 조정`}
+              >
+                {slot.missing ? `보완: ${slot.label}` : `완료: ${slot.label}`}
+              </button>
+            ))}
+          </div>
+        </section>
+
         <div className="concierge-quick-prompts">
           {quickPrompts.map((item) => (
             <button
@@ -683,6 +1061,32 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
             </button>
           ))}
         </div>
+        {recentUserPrompts.length > 0 && (
+          <section className="concierge-history-prompts">
+            <p className="concierge-history-title">최근 요청 다시 쓰기</p>
+            <div className="concierge-history-list">
+              {recentUserPrompts.map((prompt, index) => (
+                <button
+                  key={`${prompt}-${index}`}
+                  type="button"
+                  className="chip-btn"
+                  disabled={loading}
+                  onClick={() => {
+                    setMessage(prompt);
+                    composerRef.current?.focus();
+                    track("ai_widget_prompt_reuse_click", "prompt_history", {
+                      source_type_scope: sourceTypeScope(activeSourceTypes),
+                      reuse_rank: index + 1,
+                    });
+                  }}
+                  title={prompt}
+                >
+                  {prompt.length > 24 ? `${prompt.slice(0, 24)}...` : prompt}
+                </button>
+              ))}
+            </div>
+          </section>
+        )}
 
         {handoffFilters.length > 0 && (
           <section className="concierge-handoff-panel">
@@ -707,6 +1111,24 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
               <p className="concierge-handoff-missing">
                 추가 확인 필요: {describeMissingSlots(handoffMissingSlots)}
               </p>
+            )}
+            {quickFixSlots.length > 0 && (
+              <div className="concierge-handoff-quickfix">
+                <p className="concierge-handoff-sort-title">빠른 보완</p>
+                <div className="concierge-handoff-sort-options">
+                  {quickFixSlots.map((slot) => (
+                    <button
+                      key={`quick-fix-${slot.slot}`}
+                      type="button"
+                      className="chip-btn"
+                      disabled={loading}
+                      onClick={() => runQuickFix(slot)}
+                    >
+                      {slot.label} 보완
+                    </button>
+                  ))}
+                </div>
+              </div>
             )}
             {describeSearchPatch(handoffSearchPatch) && (
               <p className="concierge-handoff-patch">
@@ -769,19 +1191,7 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
                     type="button"
                     className="chip-btn"
                     disabled={loading}
-                    onClick={() => {
-                      const nextPatch = mergeSearchPatch(handoffSearchPatch, action.searchPatch ?? {});
-                      const patchedContext = applySearchPatch(searchContext, nextPatch);
-                      const sourceTypes = action.recommendedSourceTypes && action.recommendedSourceTypes.length > 0
-                        ? action.recommendedSourceTypes
-                        : activeSourceTypes;
-                      setHandoffSearchPatch(nextPatch);
-                      track("ai_widget_clarify_action_click", "handoff_clarify", {
-                        clarify_slot: action.slot,
-                        source_type_scope: sourceTypeScope(sourceTypes),
-                      });
-                      void ask(action.prompt, sourceTypes, patchedContext);
-                    }}
+                    onClick={() => runClarifyAction(action, "handoff_clarify")}
                   >
                     {action.label}
                   </button>
@@ -815,6 +1225,24 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
                 </div>
               </div>
             )}
+            <div className="concierge-handoff-tools">
+              <button
+                type="button"
+                className="chip-btn"
+                disabled={loading || bulkSelectableFilterTokens.length === 0 || areAllHandoffFiltersSelected}
+                onClick={selectAllHandoffFilters}
+              >
+                필터 전체 선택
+              </button>
+              <button
+                type="button"
+                className="chip-btn"
+                disabled={loading || selectedHandoffFilterKeys.length === 0}
+                onClick={clearAllHandoffFilters}
+              >
+                필터 전체 해제
+              </button>
+            </div>
             <div className="concierge-handoff-filters">
               {handoffFilters.map((filter) => {
                 const token = filterToken(filter);
@@ -848,7 +1276,15 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
             placeholder="예) 서울 3박4일, 가족여행, 조식/주차 필수 숙소 추천해줘"
           />
           <p className="concierge-compose-hint">Enter 전송 · Shift+Enter 줄바꿈</p>
-          <button type="submit" disabled={!canSubmit}>{loading ? "생성 중..." : "추천 요청"}</button>
+          {autopatchNotice && <p className="concierge-autopatch-note">{autopatchNotice}</p>}
+          <div className="concierge-compose-actions">
+            <button type="submit" disabled={!canSubmit}>{loading ? "생성 중..." : "추천 요청"}</button>
+            {loading && (
+              <button type="button" className="chip-btn concierge-stop" onClick={cancelGeneration}>
+                생성 중단
+              </button>
+            )}
+          </div>
         </form>
 
         {error && <p className="notice warning">{error}</p>}
@@ -872,26 +1308,75 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
             </div>
           )}
           {!loading && answer && (
-            <p className="concierge-final-answer">
-              <strong>요약</strong>
-              <span>{answer}</span>
-            </p>
+            <>
+              <p className="concierge-final-answer">
+                <strong>요약</strong>
+                <span>{answer}</span>
+              </p>
+              <div className="concierge-feedback-row">
+                <button
+                  type="button"
+                  className={answerFeedback === "positive" ? "chip-btn active" : "chip-btn"}
+                  onClick={() => submitAnswerFeedback("positive")}
+                >
+                  👍 도움됐어요
+                </button>
+                <button
+                  type="button"
+                  className={answerFeedback === "negative" ? "chip-btn active" : "chip-btn"}
+                  onClick={() => submitAnswerFeedback("negative")}
+                >
+                  👎 아쉬워요
+                </button>
+                <button
+                  type="button"
+                  className="chip-btn"
+                  disabled={!lastPrompt || loading}
+                  onClick={regenerateAnswer}
+                >
+                  다시 추천
+                </button>
+                <button
+                  type="button"
+                  className={copyDone ? "chip-btn active" : "chip-btn"}
+                  disabled={!answer}
+                  onClick={copyAnswerSummary}
+                >
+                  {copyDone ? "요약 복사됨" : "요약 복사"}
+                </button>
+              </div>
+            </>
           )}
         </div>
 
         {cards.length > 0 && (
-          <ul className="concierge-card-list">
-            {cards.slice(0, 4).map((card, index) => (
-              <li key={`${card.type}-${card.id ?? index}`}>
-                <p className="eyebrow">{card.type}</p>
-                <h3>{card.title}</h3>
-                {card.why && <p>{card.why}</p>}
-                <div className="concierge-card-actions">
-                  {renderCardLink(card)}
-                </div>
-              </li>
-            ))}
-          </ul>
+          <section className="concierge-cards-panel">
+            <div className="concierge-card-filter-row">
+              {availableCardTypes.map((type) => (
+                <button
+                  key={`card-type-${type}`}
+                  type="button"
+                  className={selectedCardType === type ? "chip-btn active" : "chip-btn"}
+                  onClick={() => selectCardType(type)}
+                >
+                  {CARD_TYPE_FILTER_LABELS[type]} ({cardTypeCounts[type]})
+                </button>
+              ))}
+            </div>
+            <p className="concierge-card-filter-meta">표시 {visibleCards.length}개 / 전체 {cards.length}개</p>
+            <ul className="concierge-card-list">
+              {visibleCards.slice(0, 4).map((card, index) => (
+                <li key={`${card.type}-${card.id ?? index}`}>
+                  <p className="eyebrow">{card.type}</p>
+                  <h3>{card.title}</h3>
+                  {card.why && <p>{card.why}</p>}
+                  <div className="concierge-card-actions">
+                    {renderCardLink(card)}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </section>
         )}
 
         {followups.length > 0 && (
@@ -1105,6 +1590,73 @@ function describeSearchPatch(patch: SearchHandoffSearchPatch): string {
     parts.push(companionsText);
   }
   return parts.join(" · ");
+}
+
+function patchFieldCount(patch: SearchHandoffSearchPatch): number {
+  let count = 0;
+  if (patch.city) {
+    count += 1;
+  }
+  if (typeof patch.days === "number") {
+    count += 1;
+  }
+  if (patch.companions) {
+    count += 1;
+  }
+  return count;
+}
+
+function inferSearchPatchFromPrompt(message: string): SearchHandoffSearchPatch {
+  const normalized = message.trim().toLowerCase();
+  if (!normalized) {
+    return {};
+  }
+
+  const patch: SearchHandoffSearchPatch = {};
+
+  const matchedCityAlias = CITY_ALIAS_ENTRIES.find(([alias]) => normalized.includes(alias));
+  if (matchedCityAlias) {
+    const normalizedCity = normalizeCityCode(matchedCityAlias[0]);
+    if (normalizedCity) {
+      patch.city = normalizedCity;
+    }
+  }
+
+  const stayPattern = normalized.match(/(\d+)\s*박\s*(\d+)\s*일/);
+  if (stayPattern) {
+    const days = Number(stayPattern[2]);
+    if (Number.isFinite(days) && days >= 1 && days <= 30) {
+      patch.days = Math.trunc(days);
+    }
+  } else {
+    const nightsPattern = normalized.match(/(\d+)\s*박/);
+    if (nightsPattern) {
+      const nights = Number(nightsPattern[1]);
+      if (Number.isFinite(nights) && nights >= 1 && nights <= 29) {
+        patch.days = Math.trunc(nights) + 1;
+      }
+    } else {
+      const daysPattern = normalized.match(/(\d+)\s*일/);
+      if (daysPattern) {
+        const days = Number(daysPattern[1]);
+        if (Number.isFinite(days) && days >= 1 && days <= 30) {
+          patch.days = Math.trunc(days);
+        }
+      }
+    }
+  }
+
+  if (/(가족|아이|아동|부모님|키즈)/.test(normalized)) {
+    patch.companions = "FAMILY";
+  } else if (/(커플|연인|신혼|부부)/.test(normalized)) {
+    patch.companions = "COUPLE";
+  } else if (/(혼자|1인|나홀로|솔로)/.test(normalized)) {
+    patch.companions = "SOLO";
+  } else if (/(친구|우정|동행|단체)/.test(normalized)) {
+    patch.companions = "FRIENDS";
+  }
+
+  return patch;
 }
 
 function extractSearchHandoff(
@@ -1405,6 +1957,8 @@ function emptyDockState(): ConciergeDockState {
     open: false,
     activeSourceTypes: [...SOURCE_TYPE_FILTERS.city],
     messageDraft: "",
+    lastPrompt: "",
+    answerFeedback: null,
     messages: [],
     answer: "",
     cards: [],
@@ -1453,6 +2007,10 @@ function loadConciergeDockState(): ConciergeDockState {
       open: parsed.open === true,
       activeSourceTypes,
       messageDraft: typeof parsed.messageDraft === "string" ? parsed.messageDraft : "",
+      lastPrompt: typeof parsed.lastPrompt === "string" ? parsed.lastPrompt : "",
+      answerFeedback: parsed.answerFeedback === "positive" || parsed.answerFeedback === "negative"
+        ? parsed.answerFeedback
+        : null,
       messages,
       answer: typeof parsed.answer === "string" ? parsed.answer : "",
       cards: Array.isArray(parsed.cards) ? parsed.cards.slice(0, 6) : [],
@@ -1518,7 +2076,7 @@ function ensureConciergeSessionId(): string {
   return generated;
 }
 
-async function recommend(payload: Record<string, unknown>): Promise<ChatData> {
+async function recommend(payload: Record<string, unknown>, signal?: AbortSignal): Promise<ChatData> {
   const token = getAuthBearerToken();
   const response = await fetch(`${API_BASE}/v1/chat/recommend`, {
     method: "POST",
@@ -1526,6 +2084,7 @@ async function recommend(payload: Record<string, unknown>): Promise<ChatData> {
       "Content-Type": "application/json",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
+    signal,
     body: JSON.stringify(payload),
   });
   if (!response.ok) {
@@ -1538,6 +2097,7 @@ async function recommend(payload: Record<string, unknown>): Promise<ChatData> {
 async function streamRecommend(
   payload: Record<string, unknown>,
   onEvent: (event: string, data: Record<string, unknown>) => void,
+  signal?: AbortSignal,
 ) {
   const token = getAuthBearerToken();
   const response = await fetch(`${API_BASE}/v1/chat/recommend:stream`, {
@@ -1546,6 +2106,7 @@ async function streamRecommend(
       "Content-Type": "application/json",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
+    signal,
     body: JSON.stringify(payload),
   });
 
@@ -1617,6 +2178,11 @@ async function sendWidgetTelemetry(payload: {
   clarify_slot?: string;
   sort_value?: string;
   target_source_type?: string;
+  feedback_value?: "positive" | "negative";
+  bulk_action?: "select_all" | "clear_all";
+  auto_patch_count?: number;
+  reuse_rank?: number;
+  visible_card_count?: number;
 }) {
   const token = getAuthBearerToken();
   try {
@@ -1632,6 +2198,57 @@ async function sendWidgetTelemetry(payload: {
   } catch {
     // Telemetry must not break user flow.
   }
+}
+
+async function copyText(value: string): Promise<boolean> {
+  if (typeof navigator === "undefined") {
+    return false;
+  }
+
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(value);
+      return true;
+    }
+  } catch {
+    // Fallback below
+  }
+
+  if (typeof document === "undefined") {
+    return false;
+  }
+
+  try {
+    const textArea = document.createElement("textarea");
+    textArea.value = value;
+    textArea.setAttribute("readonly", "true");
+    textArea.style.position = "fixed";
+    textArea.style.top = "-1000px";
+    textArea.style.left = "-1000px";
+    document.body.appendChild(textArea);
+    textArea.select();
+    const copied = document.execCommand("copy");
+    document.body.removeChild(textArea);
+    return copied;
+  } catch {
+    return false;
+  }
+}
+
+function normalizeCardType(value: string | null | undefined): CardTypeFilter | null {
+  const normalized = value?.trim().toUpperCase().replace("-", "_") ?? "";
+  if (normalized === "PROPERTY" || normalized === "PACKAGE" || normalized === "TICKET" || normalized === "POI") {
+    return normalized;
+  }
+  return null;
+}
+
+function isAbortError(error: unknown): boolean {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+  const row = error as { name?: string };
+  return row.name === "AbortError";
 }
 
 function normalizeSourceTypes(sourceTypes: readonly string[]): string[] {
@@ -1668,6 +2285,24 @@ function describeMissingSlots(missingSlots: readonly string[]): string {
   return missingSlots
     .map((slot) => MISSING_SLOT_LABELS[slot] ?? slot)
     .join(" · ");
+}
+
+function slotClarifyPrompt(slot: string, searchContext: StaySearchInput): string {
+  const city = searchContext.placeLabel || searchContext.city || "서울";
+  switch (slot) {
+    case "city":
+      return "여행할 도시를 하나 정하고, 비슷한 대안 도시 2개도 알려줘.";
+    case "days":
+      return `${city} 여행 일정으로 1박/2박/3박 중 어떤 일정이 좋은지 추천해줘.`;
+    case "companions":
+      return `${city} 여행 동행을 혼자/커플/가족/친구 기준으로 비교해주고 최적 선택을 추천해줘.`;
+    case "budget":
+      return `${city} 기준 1박 예산을 10만원/20만원/30만원대로 나눠 추천해줘.`;
+    case "preferences":
+      return `${city} 숙소 추천에 중요한 옵션(조식, 주차, 취소정책, 수영장) 우선순위를 정리해줘.`;
+    default:
+      return `${city} 여행 조건을 더 구체적으로 정리해줘.`;
+  }
 }
 
 function inferSourceTypesFromPrompt(message: string): string[] {

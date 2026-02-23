@@ -212,6 +212,281 @@ class TelemetryControllerTest {
     }
 
     @Test
+    fun `ingest should accept source scope hint telemetry event`() {
+        val response = controller.ingest(
+            TelemetryEventRequest(
+                event_name = "ai_widget_scope_hint_click",
+                source = "filter_chip",
+                route = "TEMPLATE",
+                source_type_scope = "POI",
+            ),
+        )
+
+        assertTrue(response.data.accepted)
+        assertEquals("ai_widget_scope_hint_click", response.data.event_name)
+        assertEquals(1.0, meterRegistry.get("ai_widget_scope_hint_click_total").counter().count())
+    }
+
+    @Test
+    fun `ingest should accept slot chip click telemetry event`() {
+        val response = controller.ingest(
+            TelemetryEventRequest(
+                event_name = "ai_widget_slot_chip_click",
+                source = "handoff_clarify",
+                route = "CLARIFY",
+                clarify_slot = "preferences",
+            ),
+        )
+
+        assertTrue(response.data.accepted)
+        assertEquals("ai_widget_slot_chip_click", response.data.event_name)
+        assertEquals(1.0, meterRegistry.get("ai_widget_slot_chip_click_total").counter().count())
+    }
+
+    @Test
+    fun `ingest should accept quick fix click telemetry event`() {
+        val response = controller.ingest(
+            TelemetryEventRequest(
+                event_name = "ai_widget_quick_fix_click",
+                source = "quick_fix",
+                route = "CLARIFY",
+                source_type_scope = "PROPERTY",
+                clarify_slot = "budget",
+            ),
+        )
+
+        assertTrue(response.data.accepted)
+        assertEquals("ai_widget_quick_fix_click", response.data.event_name)
+        assertEquals(1.0, meterRegistry.get("ai_widget_quick_fix_click_total").counter().count())
+        assertEquals(
+            1.0,
+            meterRegistry.get("ai_widget_quick_fix_slot_total")
+                .tag("slot", "budget")
+                .counter()
+                .count(),
+        )
+        assertEquals(
+            1.0,
+            meterRegistry.get("ai_widget_quick_fix_scope_total")
+                .tag("scope", "PROPERTY")
+                .counter()
+                .count(),
+        )
+    }
+
+    @Test
+    fun `ingest should accept answer copy click telemetry event`() {
+        val response = controller.ingest(
+            TelemetryEventRequest(
+                event_name = "ai_widget_answer_copy_click",
+                source = "results_cta",
+                route = "LLM",
+                source_type_scope = "PROPERTY,POI",
+            ),
+        )
+
+        assertTrue(response.data.accepted)
+        assertEquals("ai_widget_answer_copy_click", response.data.event_name)
+        assertEquals(1.0, meterRegistry.get("ai_widget_answer_copy_click_total").counter().count())
+        assertEquals(
+            1.0,
+            meterRegistry.get("ai_widget_answer_copy_scope_total")
+                .tag("scope", "PROPERTY+POI")
+                .counter()
+                .count(),
+        )
+    }
+
+    @Test
+    fun `ingest should accept prompt autopatch telemetry event`() {
+        val response = controller.ingest(
+            TelemetryEventRequest(
+                event_name = "ai_widget_prompt_autopatch",
+                source = "text_input",
+                route = "LLM",
+                source_type_scope = "PROPERTY,POI",
+                auto_patch_count = 2,
+            ),
+        )
+
+        assertTrue(response.data.accepted)
+        assertEquals("ai_widget_prompt_autopatch", response.data.event_name)
+        assertEquals(1.0, meterRegistry.get("ai_widget_prompt_autopatch_total").counter().count())
+        assertEquals(
+            1.0,
+            meterRegistry.get("ai_widget_prompt_autopatch_count_total")
+                .tag("count", "2")
+                .counter()
+                .count(),
+        )
+        assertTrue(meterRegistry.get("ai_widget_prompt_autopatch_field_count").summary().count() >= 1)
+    }
+
+    @Test
+    fun `ingest should accept prompt reuse telemetry event`() {
+        val response = controller.ingest(
+            TelemetryEventRequest(
+                event_name = "ai_widget_prompt_reuse_click",
+                source = "prompt_history",
+                route = "LLM",
+                source_type_scope = "PROPERTY",
+                reuse_rank = 1,
+            ),
+        )
+
+        assertTrue(response.data.accepted)
+        assertEquals("ai_widget_prompt_reuse_click", response.data.event_name)
+        assertEquals(1.0, meterRegistry.get("ai_widget_prompt_reuse_click_total").counter().count())
+        assertEquals(
+            1.0,
+            meterRegistry.get("ai_widget_prompt_reuse_rank_total")
+                .tag("rank", "1")
+                .counter()
+                .count(),
+        )
+        assertEquals(
+            1.0,
+            meterRegistry.get("ai_widget_prompt_reuse_scope_total")
+                .tag("scope", "PROPERTY")
+                .counter()
+                .count(),
+        )
+    }
+
+    @Test
+    fun `ingest should accept card type filter telemetry event`() {
+        val response = controller.ingest(
+            TelemetryEventRequest(
+                event_name = "ai_widget_card_type_filter_click",
+                source = "results_cta",
+                route = "LLM",
+                source_type_scope = "PROPERTY,PACKAGE",
+                target_source_type = "PACKAGE",
+                visible_card_count = 3,
+            ),
+        )
+
+        assertTrue(response.data.accepted)
+        assertEquals("ai_widget_card_type_filter_click", response.data.event_name)
+        assertEquals(1.0, meterRegistry.get("ai_widget_card_type_filter_click_total").counter().count())
+        assertEquals(
+            1.0,
+            meterRegistry.get("ai_widget_card_type_filter_target_total")
+                .tag("target", "PACKAGE")
+                .counter()
+                .count(),
+        )
+        assertEquals(
+            1.0,
+            meterRegistry.get("ai_widget_card_type_filter_scope_total")
+                .tag("scope", "PROPERTY+PACKAGE")
+                .counter()
+                .count(),
+        )
+        assertTrue(meterRegistry.get("ai_widget_card_type_visible_count").summary().count() >= 1)
+    }
+
+    @Test
+    fun `ingest should accept filter bulk apply telemetry event`() {
+        val response = controller.ingest(
+            TelemetryEventRequest(
+                event_name = "ai_widget_filter_bulk_apply",
+                source = "filter_bulk",
+                route = "LLM",
+                source_type_scope = "PROPERTY",
+                filter_count = 6,
+                bulk_action = "select_all",
+            ),
+        )
+
+        assertTrue(response.data.accepted)
+        assertEquals("ai_widget_filter_bulk_apply", response.data.event_name)
+        assertEquals(1.0, meterRegistry.get("ai_widget_filter_bulk_apply_total").counter().count())
+        assertEquals(
+            1.0,
+            meterRegistry.get("ai_widget_filter_bulk_action_total")
+                .tag("action", "select_all")
+                .counter()
+                .count(),
+        )
+    }
+
+    @Test
+    fun `ingest should accept generation cancel telemetry event`() {
+        val response = controller.ingest(
+            TelemetryEventRequest(
+                event_name = "ai_widget_generation_cancel",
+                source = "results_cta",
+                route = "LLM",
+                source_type_scope = "PROPERTY,POI",
+            ),
+        )
+
+        assertTrue(response.data.accepted)
+        assertEquals("ai_widget_generation_cancel", response.data.event_name)
+        assertEquals(1.0, meterRegistry.get("ai_widget_generation_cancel_total").counter().count())
+        assertEquals(
+            1.0,
+            meterRegistry.get("ai_widget_generation_cancel_scope_total")
+                .tag("scope", "PROPERTY+POI")
+                .counter()
+                .count(),
+        )
+    }
+
+    @Test
+    fun `ingest should record answer feedback metric`() {
+        val response = controller.ingest(
+            TelemetryEventRequest(
+                event_name = "ai_widget_answer_feedback",
+                source = "feedback",
+                route = "LLM",
+                feedback_value = "positive",
+            ),
+        )
+
+        assertTrue(response.data.accepted)
+        assertEquals("ai_widget_answer_feedback", response.data.event_name)
+        assertEquals(
+            1.0,
+            meterRegistry.get("ai_widget_answer_feedback_total")
+                .tag("feedback", "positive")
+                .counter()
+                .count(),
+        )
+    }
+
+    @Test
+    fun `ingest should reject invalid feedback value`() {
+        val exception = assertThrows<DomainException> {
+            controller.ingest(
+                TelemetryEventRequest(
+                    event_name = "ai_widget_answer_feedback",
+                    source = "feedback",
+                    feedback_value = "neutral",
+                ),
+            )
+        }
+
+        assertEquals(ErrorCode.VALIDATION_ERROR, exception.errorCode)
+    }
+
+    @Test
+    fun `ingest should reject invalid bulk action`() {
+        val exception = assertThrows<DomainException> {
+            controller.ingest(
+                TelemetryEventRequest(
+                    event_name = "ai_widget_filter_bulk_apply",
+                    source = "filter_bulk",
+                    bulk_action = "toggle",
+                ),
+            )
+        }
+
+        assertEquals(ErrorCode.VALIDATION_ERROR, exception.errorCode)
+    }
+
+    @Test
     fun `ingest should reject invalid source type scope`() {
         val exception = assertThrows<DomainException> {
             controller.ingest(
@@ -249,6 +524,111 @@ class TelemetryControllerTest {
                     event_name = "ai_widget_clarify_action_click",
                     source = "handoff_clarify",
                     clarify_slot = "invalid_slot",
+                ),
+            )
+        }
+
+        assertEquals(ErrorCode.VALIDATION_ERROR, exception.errorCode)
+    }
+
+    @Test
+    fun `ingest should reject quick fix without clarify slot`() {
+        val exception = assertThrows<DomainException> {
+            controller.ingest(
+                TelemetryEventRequest(
+                    event_name = "ai_widget_quick_fix_click",
+                    source = "quick_fix",
+                ),
+            )
+        }
+
+        assertEquals(ErrorCode.VALIDATION_ERROR, exception.errorCode)
+    }
+
+    @Test
+    fun `ingest should reject prompt autopatch without auto patch count`() {
+        val exception = assertThrows<DomainException> {
+            controller.ingest(
+                TelemetryEventRequest(
+                    event_name = "ai_widget_prompt_autopatch",
+                    source = "text_input",
+                ),
+            )
+        }
+
+        assertEquals(ErrorCode.VALIDATION_ERROR, exception.errorCode)
+    }
+
+    @Test
+    fun `ingest should reject invalid auto patch count`() {
+        val exception = assertThrows<DomainException> {
+            controller.ingest(
+                TelemetryEventRequest(
+                    event_name = "ai_widget_prompt_autopatch",
+                    source = "text_input",
+                    auto_patch_count = 5,
+                ),
+            )
+        }
+
+        assertEquals(ErrorCode.VALIDATION_ERROR, exception.errorCode)
+    }
+
+    @Test
+    fun `ingest should reject invalid prompt reuse rank`() {
+        val exception = assertThrows<DomainException> {
+            controller.ingest(
+                TelemetryEventRequest(
+                    event_name = "ai_widget_prompt_reuse_click",
+                    source = "prompt_history",
+                    reuse_rank = 7,
+                ),
+            )
+        }
+
+        assertEquals(ErrorCode.VALIDATION_ERROR, exception.errorCode)
+    }
+
+    @Test
+    fun `ingest should reject card type filter without target source type`() {
+        val exception = assertThrows<DomainException> {
+            controller.ingest(
+                TelemetryEventRequest(
+                    event_name = "ai_widget_card_type_filter_click",
+                    source = "results_cta",
+                    visible_card_count = 2,
+                ),
+            )
+        }
+
+        assertEquals(ErrorCode.VALIDATION_ERROR, exception.errorCode)
+    }
+
+    @Test
+    fun `ingest should reject invalid card type filter target`() {
+        val exception = assertThrows<DomainException> {
+            controller.ingest(
+                TelemetryEventRequest(
+                    event_name = "ai_widget_card_type_filter_click",
+                    source = "results_cta",
+                    target_source_type = "UNKNOWN",
+                    visible_card_count = 2,
+                ),
+            )
+        }
+
+        assertEquals(ErrorCode.VALIDATION_ERROR, exception.errorCode)
+    }
+
+    @Test
+    fun `ingest should reject invalid card type filter visible card count`() {
+        val exception = assertThrows<DomainException> {
+            controller.ingest(
+                TelemetryEventRequest(
+                    event_name = "ai_widget_card_type_filter_click",
+                    source = "results_cta",
+                    target_source_type = "PROPERTY",
+                    visible_card_count = 22,
                 ),
             )
         }

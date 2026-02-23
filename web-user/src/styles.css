@@ -648,10 +648,91 @@ button:disabled {
   font-weight: 700;
 }
 
+.concierge-slot-check {
+  border: 1px solid #d4e2f5;
+  border-radius: 12px;
+  background: #ffffff;
+  padding: 10px;
+  display: grid;
+  gap: 8px;
+}
+
+.concierge-slot-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.concierge-slot-title {
+  margin: 0;
+  color: #204579;
+  font-size: 0.8rem;
+  font-weight: 800;
+}
+
+.concierge-slot-rate {
+  margin: 0;
+  color: #35609b;
+  font-size: 0.75rem;
+  font-weight: 800;
+}
+
+.concierge-slot-bar {
+  width: 100%;
+  height: 8px;
+  border-radius: 999px;
+  background: #e7eef9;
+  overflow: hidden;
+}
+
+.concierge-slot-bar span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #5f96ff 0%, #2b6cff 100%);
+}
+
+.concierge-slot-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.chip-btn.slot-chip.missing {
+  border-color: #e6c49b;
+  background: #fff6eb;
+  color: #8d5511;
+}
+
+.chip-btn.slot-chip.done {
+  border-color: #bcd2f2;
+  background: #edf4ff;
+  color: #2a4d86;
+}
+
 .concierge-quick-prompts {
   display: flex;
   flex-wrap: wrap;
   gap: 7px;
+}
+
+.concierge-history-prompts {
+  display: grid;
+  gap: 6px;
+}
+
+.concierge-history-title {
+  margin: 0;
+  color: #275489;
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
+.concierge-history-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 
 .concierge-handoff-panel {
@@ -777,6 +858,17 @@ button:disabled {
   gap: 6px;
 }
 
+.concierge-handoff-quickfix {
+  display: grid;
+  gap: 6px;
+}
+
+.concierge-handoff-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
 .concierge-handoff-filters {
   display: flex;
   flex-wrap: wrap;
@@ -795,6 +887,22 @@ button:disabled {
   gap: 8px;
 }
 
+.concierge-compose-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.concierge-compose-actions > button:first-child {
+  flex: 1 1 auto;
+}
+
+.concierge-stop {
+  border-color: #e7c7b0;
+  color: #9f4c18;
+  background: #fff4ec;
+}
+
 .concierge-dock-form textarea {
   resize: vertical;
   min-height: 92px;
@@ -805,6 +913,13 @@ button:disabled {
   margin: -2px 0 0;
   color: #607ba0;
   font-size: 0.73rem;
+  font-weight: 700;
+}
+
+.concierge-autopatch-note {
+  margin: -4px 0 0;
+  color: #1f5b9d;
+  font-size: 0.74rem;
   font-weight: 700;
 }
 
@@ -874,6 +989,30 @@ button:disabled {
 .concierge-final-answer span {
   color: #1b3356;
   font-size: 0.87rem;
+}
+
+.concierge-feedback-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.concierge-cards-panel {
+  display: grid;
+  gap: 8px;
+}
+
+.concierge-card-filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.concierge-card-filter-meta {
+  margin: 0;
+  color: #3f608c;
+  font-size: 0.76rem;
+  font-weight: 700;
 }
 
 .concierge-card-list {

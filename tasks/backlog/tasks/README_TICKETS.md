@@ -13,6 +13,15 @@
 - `U-0968` AI 프롬프트 기반 source scope 자동 전환 UX v1
 - `U-0969` AI 추천 정렬 힌트 UX v1
 - `U-0972` AI 위젯 세션 지속/리셋 UX v1
+- `U-0973` AI 위젯 답변 피드백/재생성 UX v1
+- `U-0974` AI 위젯 슬롯 체크리스트/원클릭 보완 UX v1
+- `U-0975` AI 위젯 응답 생성 중단 UX v1
+- `U-0976` AI 추천 필터 일괄 선택/해제 UX v1
+- `U-0977` AI 위젯 누락 슬롯 빠른 보완 액션 UX v1
+- `U-0978` AI 위젯 답변 요약 복사 UX v1
+- `U-0979` AI 프롬프트 자동 컨텍스트 보정 UX v1
+- `U-0980` AI 위젯 최근 요청 재사용 UX v1
+- `U-0981` AI 위젯 추천 카드 타입 필터 UX v1
 - `B-0960` Chat Context Enrichment v2 (search context aware)
 - `B-0961` AI Widget Telemetry Ingest API v2
 - `B-0962` Chat Search Handoff Advisor v3
@@ -26,6 +35,13 @@
 - `B-0970` Prompt source scope extractor v1
 - `B-0971` AI handoff sort recommendation policy v1
 - `B-0972` AI Widget Session Snapshot API v1
+- `B-0973` AI Widget Feedback Telemetry Extension v1
+- `B-0974` AI Widget Slot Completion Telemetry v1
+- `B-0975` AI Widget Bulk Filter & Cancel Telemetry Extension v1
+- `B-0976` AI Widget Quick Fix & Answer Copy Telemetry Extension v1
+- `B-0977` AI Widget Prompt Auto-Patch Telemetry Extension v1
+- `B-0978` AI Widget Prompt History Telemetry Extension v1
+- `B-0979` AI Widget Card Type Filter Telemetry Extension v1
 - `I-0960` AI 컨시어지 퍼널 관측성 v1
 - `I-0961` AI handoff 품질 지표 v1
 - `I-0962` AI handoff detail telemetry 대시보드 v1
@@ -37,5 +53,12 @@
 - `I-0968` AI source scope intent-match observability v1
 - `I-0969` AI sort hint observability v1
 - `I-0970` AI Widget UX 품질 지표 v1
+- `I-0971` AI Widget Feedback 품질 지표 v1
+- `I-0972` AI Widget Slot Completion 관측성 v1
+- `I-0973` AI Widget Generation Cancel/Bulk Filter 관측성 v1
+- `I-0974` AI Widget Quick Fix/Answer Copy 관측성 v1
+- `I-0975` AI Widget Prompt Auto-Patch 관측성 v1
+- `I-0976` AI Widget Prompt History 관측성 v1
+- `I-0977` AI Widget Card Type Filter 관측성 v1
 
 Agoda parity 09xx 묶음은 모두 `tasks/done`으로 이동되었습니다.
