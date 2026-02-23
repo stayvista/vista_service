@@ -412,6 +412,39 @@ class TelemetryControllerTest {
     }
 
     @Test
+    fun `ingest should accept card list toggle telemetry event`() {
+        val response = controller.ingest(
+            TelemetryEventRequest(
+                event_name = "ai_widget_card_list_toggle_click",
+                source = "results_cta",
+                route = "LLM",
+                source_type_scope = "PROPERTY",
+                card_list_state = "expanded",
+                visible_card_count = 6,
+            ),
+        )
+
+        assertTrue(response.data.accepted)
+        assertEquals("ai_widget_card_list_toggle_click", response.data.event_name)
+        assertEquals(1.0, meterRegistry.get("ai_widget_card_list_toggle_click_total").counter().count())
+        assertEquals(
+            1.0,
+            meterRegistry.get("ai_widget_card_list_state_total")
+                .tag("state", "expanded")
+                .counter()
+                .count(),
+        )
+        assertEquals(
+            1.0,
+            meterRegistry.get("ai_widget_card_list_scope_total")
+                .tag("scope", "PROPERTY")
+                .counter()
+                .count(),
+        )
+        assertTrue(meterRegistry.get("ai_widget_card_list_visible_count").summary().count() >= 1)
+    }
+
+    @Test
     fun `ingest should accept generation cancel telemetry event`() {
         val response = controller.ingest(
             TelemetryEventRequest(
@@ -629,6 +662,37 @@ class TelemetryControllerTest {
                     source = "results_cta",
                     target_source_type = "PROPERTY",
                     visible_card_count = 22,
+                ),
+            )
+        }
+
+        assertEquals(ErrorCode.VALIDATION_ERROR, exception.errorCode)
+    }
+
+    @Test
+    fun `ingest should reject card list toggle without state`() {
+        val exception = assertThrows<DomainException> {
+            controller.ingest(
+                TelemetryEventRequest(
+                    event_name = "ai_widget_card_list_toggle_click",
+                    source = "results_cta",
+                    visible_card_count = 5,
+                ),
+            )
+        }
+
+        assertEquals(ErrorCode.VALIDATION_ERROR, exception.errorCode)
+    }
+
+    @Test
+    fun `ingest should reject invalid card list toggle state`() {
+        val exception = assertThrows<DomainException> {
+            controller.ingest(
+                TelemetryEventRequest(
+                    event_name = "ai_widget_card_list_toggle_click",
+                    source = "results_cta",
+                    card_list_state = "opened",
+                    visible_card_count = 5,
                 ),
             )
         }

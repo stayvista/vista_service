@@ -121,6 +121,25 @@ class TelemetryController(
                 message = "visible_card_count is required for ai_widget_card_type_filter_click",
             )
         }
+        val cardListState = normalizeCardListState(request.card_list_state)
+        if (eventName == "ai_widget_card_list_toggle_click" && cardListState == "invalid") {
+            throw DomainException(
+                errorCode = ErrorCode.VALIDATION_ERROR,
+                message = "card_list_state must be expanded or collapsed for ai_widget_card_list_toggle_click",
+            )
+        }
+        if (eventName == "ai_widget_card_list_toggle_click" && cardListState == "none") {
+            throw DomainException(
+                errorCode = ErrorCode.VALIDATION_ERROR,
+                message = "card_list_state is required for ai_widget_card_list_toggle_click",
+            )
+        }
+        if (eventName == "ai_widget_card_list_toggle_click" && visibleCardCount == null) {
+            throw DomainException(
+                errorCode = ErrorCode.VALIDATION_ERROR,
+                message = "visible_card_count is required for ai_widget_card_list_toggle_click",
+            )
+        }
 
         meterRegistry.counter("${eventName}_total").increment()
         meterRegistry.counter(
@@ -151,6 +170,7 @@ class TelemetryController(
         recordPromptAutopatchMetrics(eventName, autoPatchCount)
         recordPromptReuseMetrics(eventName, reuseRank, sourceTypeScope)
         recordCardTypeFilterMetrics(eventName, targetSourceType, sourceTypeScope, visibleCardCount)
+        recordCardListToggleMetrics(eventName, cardListState, sourceTypeScope, visibleCardCount)
 
         return TelemetryEventResponse(
             accepted = true,
@@ -349,6 +369,30 @@ class TelemetryController(
         }
     }
 
+    private fun recordCardListToggleMetrics(
+        eventName: String,
+        cardListState: String,
+        sourceTypeScope: String,
+        visibleCardCount: Int?,
+    ) {
+        if (eventName != "ai_widget_card_list_toggle_click") {
+            return
+        }
+        meterRegistry.counter(
+            "ai_widget_card_list_state_total",
+            "state",
+            cardListState,
+        ).increment()
+        meterRegistry.counter(
+            "ai_widget_card_list_scope_total",
+            "scope",
+            sourceTypeScope,
+        ).increment()
+        if (visibleCardCount != null) {
+            meterRegistry.summary("ai_widget_card_list_visible_count").record(visibleCardCount.toDouble())
+        }
+    }
+
     private fun normalizeSource(source: String?): String {
         val normalized = source?.trim()?.lowercase().orEmpty()
         return if (normalized in ALLOWED_SOURCES) normalized else "unknown"
@@ -423,6 +467,14 @@ class TelemetryController(
         return if (normalized in ALLOWED_TARGET_SOURCE_TYPES) normalized else "invalid"
     }
 
+    private fun normalizeCardListState(rawCardListState: String?): String {
+        val normalized = rawCardListState?.trim()?.lowercase().orEmpty()
+        if (normalized.isBlank()) {
+            return "none"
+        }
+        return if (normalized in ALLOWED_CARD_LIST_STATES) normalized else "invalid"
+    }
+
     companion object {
         private val ALLOWED_EVENTS = setOf(
             "ai_widget_open",
@@ -441,6 +493,7 @@ class TelemetryController(
             "ai_widget_answer_feedback",
             "ai_widget_answer_copy_click",
             "ai_widget_card_type_filter_click",
+            "ai_widget_card_list_toggle_click",
             "ai_widget_regenerate_click",
             "ai_widget_search_blocked",
             "ai_widget_slot_chip_click",
@@ -511,6 +564,11 @@ class TelemetryController(
             "PACKAGE",
             "POI",
         )
+
+        private val ALLOWED_CARD_LIST_STATES = setOf(
+            "expanded",
+            "collapsed",
+        )
     }
 }
 
@@ -533,6 +591,7 @@ data class TelemetryEventRequest(
     val reuse_rank: Int? = null,
     val visible_card_count: Int? = null,
     val target_source_type: String? = null,
+    val card_list_state: String? = null,
 )
 
 data class TelemetryEventResponse(

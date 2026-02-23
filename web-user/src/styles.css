@@ -1015,6 +1015,10 @@ button:disabled {
   font-weight: 700;
 }
 
+.concierge-card-toggle {
+  justify-self: start;
+}
+
 .concierge-card-list {
   list-style: none;
   margin: 0;

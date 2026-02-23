@@ -107,6 +107,7 @@ type TelemetryEventName =
   | "ai_widget_answer_feedback"
   | "ai_widget_answer_copy_click"
   | "ai_widget_card_type_filter_click"
+  | "ai_widget_card_list_toggle_click"
   | "ai_widget_regenerate_click"
   | "ai_widget_search_blocked"
   | "ai_widget_slot_chip_click"
@@ -114,6 +115,7 @@ type TelemetryEventName =
   | "ai_widget_generation_cancel";
 
 type CardTypeFilter = "ALL" | "PROPERTY" | "PACKAGE" | "TICKET" | "POI";
+type CardListState = "expanded" | "collapsed";
 
 type ConciergeDockState = {
   open: boolean;
@@ -243,6 +245,7 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
   const [copyDone, setCopyDone] = useState(false);
   const [autopatchNotice, setAutopatchNotice] = useState("");
   const [selectedCardType, setSelectedCardType] = useState<CardTypeFilter>("ALL");
+  const [expandedCards, setExpandedCards] = useState(false);
 
   const canSubmit = useMemo(() => message.trim().length > 0 && !loading, [loading, message]);
   const cityLabel = (searchContext.placeLabel || searchContext.city || "서울").trim();
@@ -371,6 +374,10 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
     ),
     [cards, selectedCardType],
   );
+  const renderedCards = useMemo(
+    () => (expandedCards ? visibleCards : visibleCards.slice(0, 4)),
+    [expandedCards, visibleCards],
+  );
   const bulkSelectableFilterTokens = useMemo(() => {
     const nonSortTokens = handoffFilters
       .filter((item) => item.key !== "sort")
@@ -484,6 +491,12 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
   }, [selectedCardType, cardTypeCounts]);
 
   useEffect(() => {
+    if (expandedCards && visibleCards.length <= 4) {
+      setExpandedCards(false);
+    }
+  }, [expandedCards, visibleCards.length]);
+
+  useEffect(() => {
     saveConciergeDockState({
       open,
       activeSourceTypes,
@@ -567,6 +580,7 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
     setCopyDone(false);
     setAutopatchNotice("");
     setSelectedCardType("ALL");
+    setExpandedCards(false);
   }
 
   async function ask(
@@ -604,6 +618,7 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
     setAnswerFeedback(null);
     setCopyDone(false);
     setSelectedCardType("ALL");
+    setExpandedCards(false);
 
     const payload = {
       message: input,
@@ -844,11 +859,22 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
       return;
     }
     setSelectedCardType(type);
+    setExpandedCards(false);
     const visibleCount = type === "ALL" ? cards.length : cardTypeCounts[type];
     track("ai_widget_card_type_filter_click", "results_cta", {
       target_source_type: type,
       source_type_scope: sourceTypeScope(activeSourceTypes),
       visible_card_count: visibleCount,
+    });
+  }
+
+  function toggleCardList() {
+    const nextExpanded = !expandedCards;
+    setExpandedCards(nextExpanded);
+    track("ai_widget_card_list_toggle_click", "results_cta", {
+      card_list_state: nextExpanded ? "expanded" : "collapsed",
+      source_type_scope: sourceTypeScope(activeSourceTypes),
+      visible_card_count: nextExpanded ? visibleCards.length : Math.min(4, visibleCards.length),
     });
   }
 
@@ -870,6 +896,7 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
       auto_patch_count?: number;
       reuse_rank?: number;
       visible_card_count?: number;
+      card_list_state?: CardListState;
     },
   ) {
     const payload = {
@@ -1365,7 +1392,7 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
             </div>
             <p className="concierge-card-filter-meta">표시 {visibleCards.length}개 / 전체 {cards.length}개</p>
             <ul className="concierge-card-list">
-              {visibleCards.slice(0, 4).map((card, index) => (
+              {renderedCards.map((card, index) => (
                 <li key={`${card.type}-${card.id ?? index}`}>
                   <p className="eyebrow">{card.type}</p>
                   <h3>{card.title}</h3>
@@ -1376,6 +1403,11 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
                 </li>
               ))}
             </ul>
+            {visibleCards.length > 4 && (
+              <button type="button" className="chip-btn concierge-card-toggle" onClick={toggleCardList}>
+                {expandedCards ? "추천 카드 접기" : `추천 카드 더보기 (${visibleCards.length - 4})`}
+              </button>
+            )}
           </section>
         )}
 
@@ -2183,6 +2215,7 @@ async function sendWidgetTelemetry(payload: {
   auto_patch_count?: number;
   reuse_rank?: number;
   visible_card_count?: number;
+  card_list_state?: CardListState;
 }) {
   const token = getAuthBearerToken();
   try {

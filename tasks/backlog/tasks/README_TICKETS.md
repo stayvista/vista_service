@@ -22,6 +22,7 @@
 - `U-0979` AI 프롬프트 자동 컨텍스트 보정 UX v1
 - `U-0980` AI 위젯 최근 요청 재사용 UX v1
 - `U-0981` AI 위젯 추천 카드 타입 필터 UX v1
+- `U-0982` AI 위젯 추천 카드 더보기/접기 UX v1
 - `B-0960` Chat Context Enrichment v2 (search context aware)
 - `B-0961` AI Widget Telemetry Ingest API v2
 - `B-0962` Chat Search Handoff Advisor v3
@@ -42,6 +43,7 @@
 - `B-0977` AI Widget Prompt Auto-Patch Telemetry Extension v1
 - `B-0978` AI Widget Prompt History Telemetry Extension v1
 - `B-0979` AI Widget Card Type Filter Telemetry Extension v1
+- `B-0980` AI Widget Card List Toggle Telemetry Extension v1
 - `I-0960` AI 컨시어지 퍼널 관측성 v1
 - `I-0961` AI handoff 품질 지표 v1
 - `I-0962` AI handoff detail telemetry 대시보드 v1
@@ -60,5 +62,6 @@
 - `I-0975` AI Widget Prompt Auto-Patch 관측성 v1
 - `I-0976` AI Widget Prompt History 관측성 v1
 - `I-0977` AI Widget Card Type Filter 관측성 v1
+- `I-0978` AI Widget Card List Toggle 관측성 v1
 
 Agoda parity 09xx 묶음은 모두 `tasks/done`으로 이동되었습니다.
