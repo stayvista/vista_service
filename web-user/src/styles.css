@@ -23,6 +23,8 @@ html,
 body,
 #root {
   min-height: 100%;
+  width: 100%;
+  overflow-x: clip;
 }
 
 body {
@@ -34,6 +36,7 @@ body {
     linear-gradient(180deg, #f7faff 0%, var(--bg) 100%);
   font-family: "Manrope", "Noto Sans KR", sans-serif;
   line-height: 1.5;
+  overflow-x: hidden;
 }
 
 a {
@@ -101,6 +104,8 @@ button:disabled {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
+  width: 100%;
+  overflow-x: clip;
 }
 
 .site-header {
@@ -500,12 +505,444 @@ button:disabled {
   color: rgba(225, 237, 255, 0.9);
 }
 
+.home-hero-layout {
+  display: block;
+}
+
+.home-hero-layout .hero {
+  margin: 0;
+}
+
+.concierge-backdrop {
+  display: none;
+}
+
+.concierge-fab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  z-index: 112;
+  box-shadow: 0 14px 28px rgba(15, 94, 255, 0.34);
+  font-size: 1.18rem;
+  letter-spacing: 0.02em;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, filter 0.18s ease;
+}
+
+.concierge-fab.active {
+  transform: translateY(-1px) scale(0.98);
+  box-shadow: 0 10px 20px rgba(15, 94, 255, 0.3);
+}
+
+.concierge-fab-robot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+
+.concierge-dock {
+  display: grid;
+  border: 1px solid #d6e2f4;
+  border-radius: 24px;
+  background:
+    radial-gradient(circle at 0 0, rgba(164, 205, 255, 0.22) 0%, transparent 40%),
+    linear-gradient(170deg, #fbfdff 0%, #f3f8ff 100%);
+  box-shadow: var(--shadow-soft);
+  padding: 16px;
+  gap: 12px;
+  position: fixed;
+  right: 24px;
+  bottom: 92px;
+  width: min(360px, calc(100vw - 24px));
+  max-height: min(76vh, 760px);
+  z-index: 111;
+  overflow: auto;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translateY(18px) scale(0.92);
+  transform-origin: right bottom;
+  transition:
+    opacity 0.2s ease,
+    transform 0.22s cubic-bezier(0.22, 1, 0.36, 1),
+    visibility 0s linear 0.22s;
+}
+
+.concierge-dock.open {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transform: translateY(0) scale(1);
+  transition-delay: 0s;
+}
+
+.concierge-dock-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.concierge-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.concierge-kicker {
+  margin: 0;
+  font-size: 0.7rem;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  color: #5f7fad;
+  font-weight: 800;
+}
+
+.concierge-dock-head h2 {
+  margin: 4px 0 0;
+  font-size: 1.25rem;
+  letter-spacing: -0.02em;
+  color: #12284b;
+}
+
+.concierge-summary {
+  margin: 6px 0 0;
+  font-size: 0.86rem;
+  color: #5b7293;
+}
+
+.concierge-close {
+  display: inline-flex;
+}
+
+.concierge-reset {
+  color: #1f4f88;
+  border-color: #bdd0ec;
+  background: #f3f8ff;
+}
+
+.concierge-reset:hover {
+  transform: none;
+  background: #e8f1ff;
+  box-shadow: none;
+}
+
+.concierge-context {
+  border: 1px solid #d4e2f5;
+  border-radius: 12px;
+  padding: 10px;
+  background: #f7fbff;
+  display: grid;
+  gap: 3px;
+}
+
+.concierge-context span {
+  color: #274977;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.concierge-quick-prompts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.concierge-handoff-panel {
+  border: 1px solid #d3e2f6;
+  border-radius: 14px;
+  background: #f7fbff;
+  padding: 10px;
+  display: grid;
+  gap: 8px;
+}
+
+.concierge-handoff-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.concierge-handoff-title {
+  margin: 0;
+  color: #204579;
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.concierge-handoff-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.concierge-handoff-confidence,
+.concierge-handoff-profile {
+  border-radius: 999px;
+  padding: 4px 8px;
+  font-size: 0.7rem;
+  font-weight: 800;
+}
+
+.concierge-handoff-confidence {
+  border: 1px solid #9ec0f1;
+  color: #235594;
+  background: #eef5ff;
+}
+
+.concierge-handoff-profile {
+  border: 1px solid #9fd9bb;
+  color: #1f6b4b;
+  background: #eefbf3;
+}
+
+.concierge-handoff-summary {
+  margin: 0;
+  color: #4f6b90;
+  font-size: 0.8rem;
+  line-height: 1.45;
+}
+
+.concierge-handoff-patch {
+  margin: 0;
+  color: #1f4f88;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.concierge-handoff-missing {
+  margin: 0;
+  color: #7a4d12;
+  background: #fff5e8;
+  border: 1px solid #f3d9b4;
+  border-radius: 8px;
+  font-size: 0.76rem;
+  font-weight: 700;
+  padding: 6px 8px;
+}
+
+.concierge-handoff-rationale {
+  margin: 0;
+  padding-left: 16px;
+  display: grid;
+  gap: 3px;
+}
+
+.concierge-handoff-rationale li {
+  color: #516f95;
+  font-size: 0.76rem;
+  line-height: 1.35;
+}
+
+.concierge-handoff-sort {
+  display: grid;
+  gap: 6px;
+}
+
+.concierge-handoff-sort-title {
+  margin: 0;
+  color: #275489;
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
+.concierge-handoff-sort-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.concierge-handoff-clarify {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.concierge-handoff-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.concierge-handoff-source {
+  display: grid;
+  gap: 6px;
+}
+
+.concierge-handoff-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.concierge-handoff-count {
+  margin: 0;
+  color: #3e5e89;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.concierge-dock-form {
+  display: grid;
+  gap: 8px;
+}
+
+.concierge-dock-form textarea {
+  resize: vertical;
+  min-height: 92px;
+  max-height: 180px;
+}
+
+.concierge-compose-hint {
+  margin: -2px 0 0;
+  color: #607ba0;
+  font-size: 0.73rem;
+  font-weight: 700;
+}
+
+.concierge-dock-thread {
+  border: 1px solid #d6e3f6;
+  border-radius: 12px;
+  background: #fff;
+  padding: 10px;
+  display: grid;
+  gap: 8px;
+  max-height: 260px;
+  overflow: auto;
+}
+
+.concierge-thread-empty {
+  margin: 0;
+  color: #5b7395;
+  font-size: 0.84rem;
+}
+
+.dock-msg {
+  border: 1px solid #dbe6f7;
+  border-radius: 10px;
+  padding: 8px;
+  display: grid;
+  gap: 4px;
+  background: #f8fbff;
+}
+
+.dock-msg strong {
+  font-size: 0.78rem;
+  color: #4e6588;
+}
+
+.dock-msg p {
+  margin: 0;
+  font-size: 0.86rem;
+  color: #1f3458;
+  white-space: pre-line;
+}
+
+.dock-msg.user {
+  border-color: #c5d9ff;
+  background: #edf4ff;
+}
+
+.dock-msg.assistant {
+  border-color: #d6e3f4;
+  background: #f9fcff;
+}
+
+.concierge-final-answer {
+  margin: 0;
+  border: 1px solid #c9ddfa;
+  border-radius: 10px;
+  background: #eef5ff;
+  padding: 8px;
+  display: grid;
+  gap: 4px;
+}
+
+.concierge-final-answer strong {
+  color: #214a88;
+  font-size: 0.78rem;
+}
+
+.concierge-final-answer span {
+  color: #1b3356;
+  font-size: 0.87rem;
+}
+
+.concierge-card-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.concierge-card-list li {
+  border: 1px solid #d6e2f4;
+  border-radius: 12px;
+  background: #fff;
+  padding: 10px;
+  display: grid;
+  gap: 4px;
+}
+
+.concierge-card-list li h3 {
+  margin: 0;
+  font-size: 0.95rem;
+  color: #162f56;
+}
+
+.concierge-card-list li p {
+  margin: 0;
+  color: #546d90;
+  font-size: 0.84rem;
+}
+
+.concierge-card-actions {
+  margin-top: 3px;
+}
+
+.concierge-card-actions .inline-cta {
+  font-size: 0.8rem;
+  padding: 7px 10px;
+}
+
+.concierge-followups {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.concierge-cta-row {
+  display: grid;
+  gap: 7px;
+}
+
+.concierge-cta-row .chip-btn {
+  justify-content: center;
+}
+
+.concierge-route {
+  color: #637da0;
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
 .home-section {
   background: var(--surface);
   border: 1px solid var(--outline);
   border-radius: 22px;
   box-shadow: var(--shadow-soft);
   padding: 22px;
+  max-width: 100%;
+  overflow: hidden;
 }
 
 .section-head {
@@ -615,19 +1052,77 @@ button:disabled {
   font-size: 1.08rem;
 }
 
+.home-scroll-wrap {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  display: grid;
+  gap: 10px;
+}
+
 .home-scroll-list {
   list-style: none;
   margin: 0;
   padding: 0;
   display: flex;
   gap: 12px;
+  width: 100%;
+  max-width: 100%;
   overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
   scroll-snap-type: x mandatory;
 }
 
 .home-scroll-list > li {
   scroll-snap-align: start;
   flex: 0 0 auto;
+  min-width: 0;
+}
+
+.home-scroll-slider-wrap {
+  padding: 0 2px 2px;
+}
+
+.home-scroll-slider {
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  appearance: none;
+  background: transparent;
+}
+
+.home-scroll-slider::-webkit-slider-runnable-track {
+  height: 6px;
+  border-radius: 999px;
+  background: #d4e1f3;
+}
+
+.home-scroll-slider::-webkit-slider-thumb {
+  appearance: none;
+  width: 54px;
+  height: 12px;
+  border-radius: 999px;
+  margin-top: -3px;
+  background: linear-gradient(135deg, #1b63ff, #1549b5);
+  border: 0;
+}
+
+.home-scroll-slider::-moz-range-track {
+  height: 6px;
+  border-radius: 999px;
+  background: #d4e1f3;
+}
+
+.home-scroll-slider::-moz-range-thumb {
+  width: 54px;
+  height: 12px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #1b63ff, #1549b5);
+  border: 0;
 }
 
 .city-scroll-card {
@@ -2246,6 +2741,34 @@ button:disabled {
     grid-template-columns: 1fr;
   }
 
+  .concierge-fab {
+    right: 16px;
+    bottom: 18px;
+    width: 54px;
+    height: 54px;
+  }
+
+  .concierge-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    border: 0;
+    background: rgba(8, 20, 42, 0.42);
+    z-index: 110;
+  }
+
+  .concierge-dock {
+    right: 12px;
+    bottom: 84px;
+    width: min(360px, calc(100vw - 24px));
+    max-height: 74vh;
+    z-index: 111;
+  }
+
+  .concierge-close {
+    display: inline-flex;
+  }
+
   .checkout-grid {
     grid-template-columns: 1fr;
   }
@@ -2280,6 +2803,22 @@ button:disabled {
   .hero {
     padding: 18px;
     min-height: auto;
+  }
+
+  .concierge-fab {
+    right: 14px;
+    bottom: 14px;
+    width: 50px;
+    height: 50px;
+  }
+
+  .concierge-dock {
+    right: 8px;
+    bottom: 72px;
+    width: calc(100vw - 16px);
+    max-height: 78vh;
+    border-radius: 18px;
+    padding: 12px;
   }
 
   .premium-search {

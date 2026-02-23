@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { apiGet, apiPost } from "../api/client";
+import { getAuthUser } from "../auth/session";
 import { useLocale } from "../components/locale/LocaleContext";
 
 type PropertyCodeLabel = {
@@ -227,6 +228,12 @@ export function PropertyPage() {
   const adults = search.get("adults") ?? "2";
   const children = search.get("children") ?? "0";
   const rooms = search.get("rooms") ?? "1";
+  const requestedRooms = Math.max(1, Number(rooms) || 1);
+  const currentPathWithQuery = useMemo(() => {
+    const query = search.toString();
+    if (!id) return query ? `/?${query}` : "/";
+    return query ? `/properties/${id}?${query}` : `/properties/${id}`;
+  }, [id, search]);
   const destinationLabel = search.get("place_label") ?? property?.city ?? "서울";
   const stayNights = useMemo(() => {
     const start = new Date(`${checkIn}T00:00:00`);
@@ -235,26 +242,39 @@ export function PropertyPage() {
     return Math.max(1, Math.round((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)));
   }, [checkIn, checkOut]);
 
+  const roomTypeQuery = useMemo(() => {
+    const query = new URLSearchParams({
+      check_in: checkIn,
+      check_out: checkOut,
+      rooms: String(requestedRooms),
+    });
+    return query.toString();
+  }, [checkIn, checkOut, requestedRooms]);
+
+  const fetchRoomTypesSnapshot = useCallback(async () => {
+    if (!id) return [] as RoomType[];
+    const response = await apiGet<{ items: RoomType[] }>(
+      `/v1/properties/${id}/room-types?${roomTypeQuery}&_ts=${Date.now()}`,
+      { "Cache-Control": "no-cache", Pragma: "no-cache" },
+    );
+    return response.data.items ?? [];
+  }, [id, roomTypeQuery]);
+
   useEffect(() => {
     if (!id) return;
     let cancelled = false;
     setLoading(true);
     setError(null);
-    const roomTypeQuery = new URLSearchParams({
-      check_in: checkIn,
-      check_out: checkOut,
-      rooms: String(Math.max(1, Number(rooms) || 1)),
-    });
 
     Promise.all([
       apiGet<Property>(`/v1/properties/${id}`),
-      apiGet<{ items: RoomType[] }>(`/v1/properties/${id}/room-types?${roomTypeQuery.toString()}`),
+      fetchRoomTypesSnapshot(),
       apiGet<PropertyContentData>(`/v1/properties/${id}/content`),
     ])
       .then(([propertyRes, roomRes, contentRes]) => {
         if (cancelled) return;
         setProperty(propertyRes.data);
-        setRoomTypes(roomRes.data.items ?? []);
+        setRoomTypes(roomRes);
         setPropertyContent(contentRes.data);
       })
       .catch(() => {
@@ -270,7 +290,7 @@ export function PropertyPage() {
     return () => {
       cancelled = true;
     };
-  }, [checkIn, checkOut, id, rooms]);
+  }, [fetchRoomTypesSnapshot, id]);
 
   useEffect(() => {
     setActiveReviewTag("all");
@@ -417,15 +437,18 @@ export function PropertyPage() {
       const specs = content?.features?.length
         ? content.features
         : buildRoomSpecsFromType(room);
+      const hasAvailabilitySignal = room.is_available != null;
       const soldOut = room.is_available === false || ((room.available_rooms ?? 0) <= 0 && room.available_rooms != null);
       const lowStock = !soldOut && room.available_rooms != null && room.available_rooms <= 3;
-      const availability: RoomAvailability = soldOut
-        ? { tone: "soldout", label: "판매 완료", detail: "선택한 일정의 잔여 객실 없음" }
-        : lowStock
-          ? { tone: "low", label: "마감 임박", detail: `잔여 객실 ${room.available_rooms}개` }
-          : room.available_rooms != null
-            ? { tone: "available", label: "예약 가능", detail: `잔여 객실 ${room.available_rooms}개` }
-            : { tone: "available", label: "예약 가능", detail: "실시간 재고 연동" };
+      const availability: RoomAvailability = !hasAvailabilitySignal
+        ? { tone: "low", label: "재고 확인 필요", detail: "실시간 재고를 다시 조회해 주세요." }
+        : soldOut
+          ? { tone: "soldout", label: "판매 완료", detail: "선택한 일정의 잔여 객실 없음" }
+          : lowStock
+            ? { tone: "low", label: "마감 임박", detail: `잔여 객실 ${room.available_rooms}개` }
+            : room.available_rooms != null
+              ? { tone: "available", label: "예약 가능", detail: `잔여 객실 ${room.available_rooms}개` }
+              : { tone: "available", label: "예약 가능", detail: "실시간 재고 연동" };
 
       const plans: RoomPlan[] = (content?.plans ?? []).map((plan, planIndex) => {
         const listPriceKrw = Math.max(0, plan.list_price_krw);
@@ -450,7 +473,7 @@ export function PropertyPage() {
         room,
         score: Number((((property?.rating ?? 4.2) * 2)).toFixed(1)),
         availability,
-        isBookable: !soldOut,
+        isBookable: hasAvailabilitySignal && !soldOut,
         media,
         specs,
         plans,
@@ -608,23 +631,56 @@ export function PropertyPage() {
     return {};
   }
 
+  function isAuthError(value: { code?: string; message?: string }): boolean {
+    const code = (value.code ?? "").trim().toUpperCase();
+    const message = (value.message ?? "").trim().toLowerCase();
+    return (
+      code.includes("AUTH") ||
+      code.includes("UNAUTHORIZED") ||
+      message.includes("unauthorized") ||
+      message.includes("access token") ||
+      message.includes("로그인")
+    );
+  }
+
   async function handleBookNow(offer: RoomOffer, plan: RoomPlan) {
     if (!offer.isBookable || !property) return;
+    if (!getAuthUser()) {
+      navigate(`/login?next=${encodeURIComponent(currentPathWithQuery)}`);
+      return;
+    }
     setHoldErrorMessage(null);
     setHoldPendingPlanId(plan.planId);
     try {
+      try {
+        const latestRoomTypes = await fetchRoomTypesSnapshot();
+        if (latestRoomTypes.length > 0) {
+          setRoomTypes(latestRoomTypes);
+        }
+        const latestRoom = latestRoomTypes.find((room) => room.room_type_id === offer.room.room_type_id);
+        const latestAvailableRooms = latestRoom?.available_rooms;
+        const latestBookable = latestRoom?.is_available === true
+          && (latestAvailableRooms == null || latestAvailableRooms >= requestedRooms);
+        if (!latestBookable) {
+          setHoldErrorMessage("선택 시점에 재고가 마감되었습니다. 다른 객실/날짜로 다시 확인해 주세요.");
+          return;
+        }
+      } catch {
+        // 재검증 실패 시 hold 요청 결과를 최종 판정으로 사용한다.
+      }
+
       const payload = {
         room_type_id: offer.room.room_type_id,
         check_in: checkIn,
         check_out: checkOut,
-        rooms: Math.max(1, Number(rooms) || 1),
+        rooms: requestedRooms,
         guests: {
           adults: Math.max(1, Number(adults) || 1),
           children: Math.max(0, Number(children) || 0),
         },
         price: {
           currency: "KRW",
-          amount_total: Math.max(0, plan.salePriceKrw * stayNights * Math.max(1, Number(rooms) || 1)),
+          amount_total: Math.max(0, plan.salePriceKrw * stayNights * requestedRooms),
         },
       };
       const hold = await apiPost<{ booking_id: string; expires_at: string }>(
@@ -648,14 +704,32 @@ export function PropertyPage() {
       navigate(`/checkout/booking?${params.toString()}`);
     } catch (e) {
       const err = toApiError(e);
+      if (isAuthError(err)) {
+        setHoldErrorMessage("세션이 만료되어 다시 로그인이 필요합니다.");
+        navigate(`/login?next=${encodeURIComponent(currentPathWithQuery)}`);
+        return;
+      }
       const soldOutByCode = err.code === "BOOKING_OVERBOOKED";
       const soldOutByMessage = (err.message ?? "").toLowerCase().includes("inventory");
       if (soldOutByCode || soldOutByMessage) {
-        setRoomTypes((prev) => prev.map((room) => (
-          room.room_type_id === offer.room.room_type_id
-            ? { ...room, is_available: false, available_rooms: 0 }
-            : room
-        )));
+        try {
+          const latestRoomTypes = await fetchRoomTypesSnapshot();
+          if (latestRoomTypes.length > 0) {
+            setRoomTypes(latestRoomTypes);
+          } else {
+            setRoomTypes((prev) => prev.map((room) => (
+              room.room_type_id === offer.room.room_type_id
+                ? { ...room, is_available: false, available_rooms: 0 }
+                : room
+            )));
+          }
+        } catch {
+          setRoomTypes((prev) => prev.map((room) => (
+            room.room_type_id === offer.room.room_type_id
+              ? { ...room, is_available: false, available_rooms: 0 }
+              : room
+          )));
+        }
         setHoldErrorMessage("방금 다른 고객이 먼저 결제를 완료해 선택한 객실이 마감되었습니다. 다른 객실을 선택해 주세요.");
       } else {
         setHoldErrorMessage("예약 준비 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.");
@@ -962,13 +1036,15 @@ export function PropertyPage() {
                               </button>
                             ) : (
                               <button type="button" className="inline-cta is-disabled" disabled>
-                                판매 완료
+                                {offer.availability.tone === "soldout" ? "판매 완료" : "재고 확인 필요"}
                               </button>
                             )}
                             <em className={`room-plan-status ${offer.availability.tone}`}>
                               {offer.isBookable
                                 ? offer.availability.detail
-                                : "선택한 일정 판매 완료"}
+                                : offer.availability.tone === "soldout"
+                                  ? "선택한 일정 판매 완료"
+                                  : offer.availability.detail}
                             </em>
                           </div>
                         </article>

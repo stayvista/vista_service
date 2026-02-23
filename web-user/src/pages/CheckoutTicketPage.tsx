@@ -217,6 +217,23 @@ export function CheckoutTicketPage() {
     return {};
   }
 
+  function isAuthError(value: CheckoutApiError): boolean {
+    const code = (value.code ?? "").trim().toUpperCase();
+    const message = (value.message ?? "").trim().toLowerCase();
+    return (
+      code.includes("AUTH") ||
+      code.includes("UNAUTHORIZED") ||
+      message.includes("unauthorized") ||
+      message.includes("access token") ||
+      message.includes("로그인")
+    );
+  }
+
+  function moveToLogin() {
+    const next = `${window.location.pathname}${window.location.search}`;
+    navigate(`/login?next=${encodeURIComponent(next)}`);
+  }
+
   function resetQueue() {
     setQueueTicket(null);
     setQueuePosition(null);
@@ -304,10 +321,23 @@ export function CheckoutTicketPage() {
       if (result.data.state === "ADMITTED" && result.data.admit_token) {
         resetQueue();
         setStatus("입장 허용, HOLD 재시도");
-        const hold = await attemptHold(result.data.admit_token);
-        setOrderId(hold.data.order_id);
-        setExpiresAt(hold.data.expires_at);
-        setStatus("HOLD 완료");
+        try {
+          const hold = await attemptHold(result.data.admit_token);
+          setOrderId(hold.data.order_id);
+          setExpiresAt(hold.data.expires_at);
+          setStatus("HOLD 완료");
+        } catch (holdError) {
+          const err = toError(holdError);
+          if (isAuthError(err)) {
+            setStatus("로그인 필요");
+            setError("세션이 만료되어 다시 로그인해 주세요.");
+            moveToLogin();
+            return;
+          }
+          const friendly = toFriendlyCheckoutError("ticket", "hold", err);
+          setStatus(friendly.status);
+          setError(friendly.message);
+        }
       }
     };
 
@@ -349,6 +379,12 @@ export function CheckoutTicketPage() {
           await attemptConfirm(result.data.admit_token);
         } catch (confirmError) {
           const err = toError(confirmError);
+          if (isAuthError(err)) {
+            setStatus("로그인 필요");
+            setError("세션이 만료되어 다시 로그인해 주세요.");
+            moveToLogin();
+            return;
+          }
           const friendly = toFriendlyCheckoutError("ticket", "confirm", err);
           const soldOut = new Set(["TICKET_SOLD_OUT", "ORDER_STATE_CONFLICT", "INVENTORY_INVARIANT_VIOLATION"]);
           if (soldOut.has(err.code ?? "")) {
@@ -385,6 +421,12 @@ export function CheckoutTicketPage() {
       setStatus("HOLD 완료");
     } catch (e) {
       const err = toError(e);
+      if (isAuthError(err)) {
+        setStatus("로그인 필요");
+        setError("세션이 만료되어 다시 로그인해 주세요.");
+        moveToLogin();
+        return;
+      }
       if (err.code === "QUEUE_REQUIRED") {
         await handleQueue().catch((queueError: unknown) => {
           const queueErr = toError(queueError);
@@ -413,6 +455,12 @@ export function CheckoutTicketPage() {
       await attemptConfirm();
     } catch (e) {
       const err = toError(e);
+      if (isAuthError(err)) {
+        setStatus("로그인 필요");
+        setError("세션이 만료되어 다시 로그인해 주세요.");
+        moveToLogin();
+        return;
+      }
       if (err.code === "QUEUE_REQUIRED") {
         await handleConfirmQueue().catch((queueError: unknown) => {
           const queueErr = toError(queueError);

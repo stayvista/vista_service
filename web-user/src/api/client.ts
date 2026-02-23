@@ -83,8 +83,18 @@ async function handleError(response: Response): Promise<never> {
 async function parseError(response: Response): Promise<ApiErrorEnvelope["error"]> {
   try {
     const payload = (await response.json()) as ApiErrorEnvelope;
+    if (response.status === 401) {
+      return {
+        code: payload.error?.code || "AUTH_UNAUTHORIZED",
+        message: payload.error?.message || "로그인이 필요합니다.",
+        details: payload.error?.details,
+      };
+    }
     return payload.error;
   } catch {
+    if (response.status === 401) {
+      return { code: "AUTH_UNAUTHORIZED", message: "로그인이 필요합니다." };
+    }
     return { code: "INTERNAL", message: `HTTP ${response.status}` };
   }
 }

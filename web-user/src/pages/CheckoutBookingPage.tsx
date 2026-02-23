@@ -243,6 +243,23 @@ export function CheckoutBookingPage() {
     return {};
   }
 
+  function isAuthError(value: CheckoutApiError): boolean {
+    const code = (value.code ?? "").trim().toUpperCase();
+    const message = (value.message ?? "").trim().toLowerCase();
+    return (
+      code.includes("AUTH") ||
+      code.includes("UNAUTHORIZED") ||
+      message.includes("unauthorized") ||
+      message.includes("access token") ||
+      message.includes("로그인")
+    );
+  }
+
+  function moveToLogin() {
+    const next = `${window.location.pathname}${window.location.search}`;
+    navigate(`/login?next=${encodeURIComponent(next)}`);
+  }
+
   function toggleAgreeAll(next: boolean) {
     setAgreeAll(next);
     setAgreeTerms(next);
@@ -326,6 +343,12 @@ export function CheckoutBookingPage() {
           setStatus("예약 준비 완료");
         } catch (holdError) {
           const err = toApiError(holdError);
+          if (isAuthError(err)) {
+            setStatus("로그인 필요");
+            setError("세션이 만료되어 다시 로그인해 주세요.");
+            moveToLogin();
+            return;
+          }
           const friendly = toFriendlyCheckoutError("booking", "hold", err);
           setStatus(friendly.status);
           setError(friendly.message);
@@ -375,6 +398,12 @@ export function CheckoutBookingPage() {
           await attemptConfirm(statusResult.data.admit_token);
         } catch (confirmError) {
           const err = toApiError(confirmError);
+          if (isAuthError(err)) {
+            setStatus("로그인 필요");
+            setError("세션이 만료되어 다시 로그인해 주세요.");
+            moveToLogin();
+            return;
+          }
           const friendly = toFriendlyCheckoutError("booking", "confirm", err);
           setStatus(friendly.status);
           setError(friendly.message);
@@ -406,6 +435,12 @@ export function CheckoutBookingPage() {
       setStatus("예약 준비 완료");
     } catch (e) {
       const err = toApiError(e);
+      if (isAuthError(err)) {
+        setStatus("로그인 필요");
+        setError("세션이 만료되어 다시 로그인해 주세요.");
+        moveToLogin();
+        return;
+      }
       if (err.code === "QUEUE_REQUIRED") {
         await handleQueueFlow().catch((queueError: unknown) => {
           const queueErr = toApiError(queueError);
@@ -429,6 +464,12 @@ export function CheckoutBookingPage() {
       await attemptConfirm();
     } catch (e) {
       const err = toApiError(e);
+      if (isAuthError(err)) {
+        setStatus("로그인 필요");
+        setError("세션이 만료되어 다시 로그인해 주세요.");
+        moveToLogin();
+        return;
+      }
       if (err.code === "QUEUE_REQUIRED") {
         await handleConfirmQueueFlow().catch((queueError: unknown) => {
           const queueErr = toApiError(queueError);

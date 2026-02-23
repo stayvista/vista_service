@@ -32,6 +32,7 @@ class TrafficGuardFilter(
     @Value("\${stayvista.rate-limit.package-hold-per-minute:10}") private val packageHoldPerMinute: Int,
     @Value("\${stayvista.rate-limit.package-confirm-per-minute:5}") private val packageConfirmPerMinute: Int,
     @Value("\${stayvista.rate-limit.chat-per-minute:40}") private val chatPerMinute: Int,
+    @Value("\${stayvista.rate-limit.telemetry-per-minute:180}") private val telemetryPerMinute: Int,
     @Value("\${stayvista.rate-limit.bot-strict-per-minute:8}") private val botStrictPerMinute: Int,
     @Value("\${stayvista.queue.enabled:false}") private val queueEnabled: Boolean,
 ) : OncePerRequestFilter() {
@@ -164,6 +165,9 @@ class TrafficGuardFilter(
         }
         if (method == "POST" && (path == "/v1/chat/recommend" || path == "/v1/chat/recommend:stream")) {
             return RatePolicy("chat", chatPerMinute)
+        }
+        if (method == "POST" && path == "/v1/telemetry/events") {
+            return RatePolicy("telemetry", telemetryPerMinute)
         }
         if (method == "POST" && path == "/v1/ai/search/copilot") {
             return RatePolicy("chat", chatPerMinute)

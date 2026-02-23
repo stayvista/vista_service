@@ -89,6 +89,7 @@ stayvista:
     package-hold-per-minute: 10
     package-confirm-per-minute: 5
     chat-per-minute: 40
+    telemetry-per-minute: 180
     bot-strict-per-minute: 8
     nearby:
       enabled: ${POI_NEARBY_RATE_LIMIT_ENABLED:true}

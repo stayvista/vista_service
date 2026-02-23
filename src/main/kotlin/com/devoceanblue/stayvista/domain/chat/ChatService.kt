@@ -13,6 +13,7 @@ class StructuredRepairFailedException(cause: Throwable? = null) : RuntimeExcepti
 class ChatService(
     private val meterRegistry: MeterRegistry,
     private val routingPolicy: ChatRoutingPolicy,
+    private val searchHandoffAdvisor: ChatSearchHandoffAdvisor,
     private val safetyPolicy: ChatSafetyPolicy,
     private val chatCacheService: ChatCacheService,
     private val ragRetriever: LocalRagRetriever,
@@ -717,7 +718,8 @@ class ChatService(
         experiment: ChatExperimentAssignment,
         allowPlanner: Boolean = true,
     ): ChatRecommendData {
-        val rerankedCards = preferenceProfileService.rerank(profileKey, message, response.cards)
+        val profileSnapshot = preferenceProfileService.load(profileKey)
+        val rerankedCards = preferenceProfileService.rerank(profileSnapshot, message, response.cards)
         val rerankedSources = rerankedCards
             .flatMap { card -> if (card.source.isNotEmpty()) card.source else card.sources }
             .distinctBy { it.doc_id }
@@ -731,13 +733,24 @@ class ChatService(
         } else {
             emptyList()
         }
+        val searchHandoff = searchHandoffAdvisor.recommend(
+            message = message,
+            slots = slots,
+            retrievalHits = retrieval.hits,
+            profile = profileSnapshot,
+        )
+        val hasProfile = profileSnapshot.tagWeights.isNotEmpty() || profileSnapshot.categoryWeights.isNotEmpty()
 
         val enrichedContext = response.context_used + mapOf(
             "memory_state" to memory.state,
             "memory_turn_count" to memory.turnCount,
-            "pref_profile_applied" to (profileKey != "anon"),
+            "pref_profile_applied" to hasProfile,
             "experiment_bucket" to experiment.bucket,
             "experiment_prompt_version" to experiment.prompt_version,
+            "search_handoff_confidence" to searchHandoff.confidence,
+            "search_handoff_profile_applied" to searchHandoff.profile_applied,
+            "search_handoff_clarify_count" to searchHandoff.clarify_questions.size,
+            "search_handoff" to searchHandoff,
         ) + when {
             itinerary.isNotEmpty() -> mapOf(
                 "planner_mode" to "document_grounded",

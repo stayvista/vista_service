@@ -12,6 +12,7 @@ type Props = {
   initial: StaySearchInput;
   onSearch: (next: StaySearchInput) => void;
   mode?: "hero" | "compact";
+  onStateChange?: (next: StaySearchInput) => void;
 };
 
 const HERO_TABS: Array<{ id: HeroTab; label: string }> = [
@@ -20,7 +21,7 @@ const HERO_TABS: Array<{ id: HeroTab; label: string }> = [
   { id: "ticket", label: "티켓" },
 ];
 
-export function HeroSearchBox({ initial, onSearch, mode = "hero" }: Props) {
+export function HeroSearchBox({ initial, onSearch, mode = "hero", onStateChange }: Props) {
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<HeroTab>("stay");
   const [placeLabel, setPlaceLabel] = useState(initial.placeLabel);
@@ -48,14 +49,11 @@ export function HeroSearchBox({ initial, onSearch, mode = "hero" }: Props) {
     [mode],
   );
 
-  function handleStaySubmit(event?: FormEvent) {
-    event?.preventDefault();
-
+  const stayInput = useMemo<StaySearchInput>(() => {
     const normalizedLabel = placeLabel.normalize("NFC").trim();
     const resolvedPlaceId = placeId && placeId.trim() ? placeId : undefined;
     const resolvedCity = city?.trim() || inferCityFromPlaceId(resolvedPlaceId) || normalizedLabel || "Seoul";
-
-    onSearch({
+    return {
       placeId: resolvedPlaceId,
       placeLabel: normalizedLabel || resolvedCity,
       city: resolvedCity,
@@ -64,7 +62,16 @@ export function HeroSearchBox({ initial, onSearch, mode = "hero" }: Props) {
       checkOut,
       guests,
       currency: initial.currency,
-    });
+    };
+  }, [checkIn, checkOut, city, district, guests, initial.currency, placeId, placeLabel]);
+
+  useEffect(() => {
+    onStateChange?.(stayInput);
+  }, [onStateChange, stayInput]);
+
+  function handleStaySubmit(event?: FormEvent) {
+    event?.preventDefault();
+    onSearch(stayInput);
   }
 
   function handlePlaceSelect(row: PlaceSuggestion) {

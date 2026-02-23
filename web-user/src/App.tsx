@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { Link, NavLink, Route, Routes } from "react-router-dom";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Link, NavLink, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { HomePage } from "./pages/HomePage";
 import { SearchPage } from "./pages/SearchPage";
 import { PropertyPage } from "./pages/PropertyPage";
@@ -19,24 +19,88 @@ import { RequireAuth } from "./components/RequireAuth";
 import { clearAuthSession, getAuthUser, subscribeAuthChange } from "./auth/session";
 import { apiPost } from "./api/client";
 import { useLocale } from "./components/locale/LocaleContext";
+import { ConciergeDock, type SearchHandoffPayload } from "./components/chat/ConciergeDock";
+import { getStaySearchInput, setStaySearchParams } from "./components/search/searchState";
+import type { StaySearchInput } from "./components/search/searchTypes";
 
 const navItems = [
   { to: "/search", label: "숙소" },
   { to: "/tickets", label: "티켓" },
   { to: "/packages", label: "패키지" },
   { to: "/nearby", label: "주변 추천" },
-  { to: "/chat", label: "AI 컨시어지" },
 ];
 
 export function App() {
+  const navigate = useNavigate();
+  const location = useLocation();
   const [authUser, setAuthUser] = useState(() => getAuthUser());
   const { locale, loading: localeLoading, updateLocale } = useLocale();
+  const conciergeSearchContext = useMemo(() => {
+    const params = new URLSearchParams(location.search);
+    if (!params.has("currency")) {
+      params.set("currency", locale.currency);
+    }
+    if (!params.has("city") && !params.has("place_id")) {
+      params.set("city", "Seoul");
+      params.set("place_id", "city:Seoul");
+      params.set("place_label", "서울");
+    }
+    return getStaySearchInput(params, locale.currency);
+  }, [location.search, locale.currency]);
 
   useEffect(() => {
     return subscribeAuthChange(() => {
       setAuthUser(getAuthUser());
     });
   }, []);
+
+  useEffect(() => {
+    const syncAuthUser = () => setAuthUser(getAuthUser());
+    const timer = window.setInterval(syncAuthUser, 30_000);
+    window.addEventListener("focus", syncAuthUser);
+    window.addEventListener("visibilitychange", syncAuthUser);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", syncAuthUser);
+      window.removeEventListener("visibilitychange", syncAuthUser);
+    };
+  }, []);
+
+  const handleConciergeSearch = useCallback(
+    (next: StaySearchInput, handoff?: SearchHandoffPayload) => {
+      const params = setStaySearchParams(new URLSearchParams(), next);
+      const grouped = new Map<string, Set<string>>();
+      const singleValueKeys = new Set([
+        "min_price",
+        "max_price",
+        "min_rating",
+        "min_guest_rating",
+        "min_location_rating",
+        "max_distance_m",
+        "bedrooms",
+        "sort",
+      ]);
+
+      handoff?.filters.forEach((filter) => {
+        if (singleValueKeys.has(filter.key)) {
+          params.set(filter.key, filter.value);
+          return;
+        }
+        const bucket = grouped.get(filter.key) ?? new Set<string>();
+        bucket.add(filter.value);
+        grouped.set(filter.key, bucket);
+      });
+
+      grouped.forEach((values, key) => {
+        if (values.size > 0) {
+          params.set(key, Array.from(values).join(","));
+        }
+      });
+
+      navigate(`/search?${params.toString()}`);
+    },
+    [navigate],
+  );
 
   async function handleLogout() {
     try {
@@ -163,6 +227,7 @@ export function App() {
           <Route path="*" element={<HomePage />} />
         </Routes>
       </main>
+      <ConciergeDock searchContext={conciergeSearchContext} onSearch={handleConciergeSearch} />
     </div>
   );
 }

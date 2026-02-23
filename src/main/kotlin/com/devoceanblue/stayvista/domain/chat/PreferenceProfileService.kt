@@ -118,11 +118,15 @@ class PreferenceProfileService(
     }
 
     fun rerank(profileKey: String, query: String, cards: List<ChatCard>): List<ChatCard> {
+        val profile = load(profileKey)
+        return rerank(profile, query, cards)
+    }
+
+    fun rerank(profile: PreferenceProfileSnapshot, query: String, cards: List<ChatCard>): List<ChatCard> {
         if (cards.size <= 1) {
             return cards
         }
 
-        val profile = load(profileKey)
         if (profile.tagWeights.isEmpty() && profile.categoryWeights.isEmpty()) {
             return cards
         }

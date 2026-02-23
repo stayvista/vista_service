@@ -1,10 +1,11 @@
-import { CSSProperties, useEffect, useMemo, useState } from "react";
+import { type CSSProperties, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { apiGet, apiPost } from "../api/client";
 import { useLocale } from "../components/locale/LocaleContext";
 import { HeroSearchBox } from "../components/search/HeroSearchBox";
 import { getStaySearchInput, setStaySearchParams } from "../components/search/searchState";
 import { StaySearchInput } from "../components/search/searchTypes";
+import type { SearchHandoffPayload } from "../components/chat/ConciergeDock";
 import { getAuthUser } from "../auth/session";
 
 type FeaturedHotel = {
@@ -152,6 +153,11 @@ export function HomePage() {
       currency: locale.currency,
     };
   }, [locale.currency]);
+  const [heroSearchInput, setHeroSearchInput] = useState<StaySearchInput>(initialSearch);
+
+  useEffect(() => {
+    setHeroSearchInput(initialSearch);
+  }, [initialSearch]);
 
   useEffect(() => {
     setFeaturedLoading(true);
@@ -219,9 +225,20 @@ export function HomePage() {
     });
   }, [homeContent?.promotion_sections, locale.country]);
 
-  function onSearch(next: StaySearchInput) {
+  function onSearch(next: StaySearchInput, handoff?: SearchHandoffPayload) {
     const params = setStaySearchParams(new URLSearchParams(), next);
     const grouped = new Map<string, Set<string>>();
+    const singleValueKeys = new Set([
+      "min_price",
+      "max_price",
+      "min_rating",
+      "min_guest_rating",
+      "min_location_rating",
+      "max_distance_m",
+      "bedrooms",
+      "sort",
+    ]);
+
     selectedQuickFilters.forEach((label) => {
       const filter = homeContent?.quick_filters.find((item) => item.label === label);
       if (!filter) {
@@ -231,6 +248,17 @@ export function HomePage() {
       bucket.add(filter.filter_value);
       grouped.set(filter.filter_key, bucket);
     });
+
+    handoff?.filters.forEach((filter) => {
+      if (singleValueKeys.has(filter.key)) {
+        params.set(filter.key, filter.value);
+        return;
+      }
+      const bucket = grouped.get(filter.key) ?? new Set<string>();
+      bucket.add(filter.value);
+      grouped.set(filter.key, bucket);
+    });
+
     grouped.forEach((values, key) => {
       if (values.size > 0) {
         params.set(key, Array.from(values).join(","));
@@ -332,40 +360,47 @@ export function HomePage() {
 
   return (
     <>
-      <section className="hero" style={heroStyle}>
-        <div className="hero-content">
-          <p className="hero-eyebrow">{hero?.eyebrow_text ?? "STAYVISTA"}</p>
-          <h1>{hero?.title_text ?? "잊지못할 여행을 선물하세요"}</h1>
-          <p className="hero-summary">
-            {hero?.summary_text ?? "숙소, 티켓, 패키지 재고를 하나의 화면에서 실시간으로 확인하고 예약 하실수 있습니다."}
-          </p>
+      <section className="home-hero-layout">
+        <section className="hero" style={heroStyle}>
+          <div className="hero-content">
+            <p className="hero-eyebrow">{hero?.eyebrow_text ?? "STAYVISTA"}</p>
+            <h1>{hero?.title_text ?? "잊지못할 여행을 선물하세요"}</h1>
+            <p className="hero-summary">
+              {hero?.summary_text ?? "숙소, 티켓, 패키지 재고를 하나의 화면에서 실시간으로 확인하고 예약 하실수 있습니다."}
+            </p>
 
-          <HeroSearchBox initial={initialSearch} onSearch={onSearch} mode="hero" />
+            <HeroSearchBox
+              initial={initialSearch}
+              onSearch={onSearch}
+              mode="hero"
+              onStateChange={setHeroSearchInput}
+            />
 
-          <div className="quick-filters">
-            {quickFilters.map((filter) => (
-              <button
-                key={filter.label}
-                type="button"
-                className={selectedQuickFilters.includes(filter.label) ? "quick-chip active" : "quick-chip"}
-                aria-pressed={selectedQuickFilters.includes(filter.label)}
-                onClick={() => toggleQuickFilter(filter.label)}
-              >
-                {filter.label}
-              </button>
-            ))}
-          </div>
-          {hero?.metrics?.length ? (
-            <ul className="hero-metrics">
-              {hero.metrics.map((metric) => (
-                <li key={`${metric.metric_value}-${metric.metric_label}`}>
-                  <strong>{metric.metric_value}</strong>
-                  <span>{metric.metric_label}</span>
-                </li>
+            <div className="quick-filters">
+              {quickFilters.map((filter) => (
+                <button
+                  key={filter.label}
+                  type="button"
+                  className={selectedQuickFilters.includes(filter.label) ? "quick-chip active" : "quick-chip"}
+                  aria-pressed={selectedQuickFilters.includes(filter.label)}
+                  onClick={() => toggleQuickFilter(filter.label)}
+                >
+                  {filter.label}
+                </button>
               ))}
-            </ul>
-          ) : null}
-        </div>
+            </div>
+            {hero?.metrics?.length ? (
+              <ul className="hero-metrics">
+                {hero.metrics.map((metric) => (
+                  <li key={`${metric.metric_value}-${metric.metric_label}`}>
+                    <strong>{metric.metric_value}</strong>
+                    <span>{metric.metric_label}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
+        </section>
       </section>
 
       <section className="home-section">
@@ -408,7 +443,7 @@ export function HomePage() {
           <h2>대한민국 내 인기 여행지</h2>
         </div>
         {!domesticDestinations.length && <p className="notice info">도시 데이터 준비중입니다.</p>}
-        <ul className="home-scroll-list city-scroll-list">
+        <ScrollableList className="home-scroll-list city-scroll-list" ariaLabel="대한민국 내 인기 여행지">
           {domesticDestinations.map((card) => (
             <li key={`domestic-${card.city}`} className="city-scroll-card">
               <Link to={buildCitySearchHref(card)}>
@@ -425,7 +460,7 @@ export function HomePage() {
               </Link>
             </li>
           ))}
-        </ul>
+        </ScrollableList>
       </section>
 
       {(homeContent?.promotion_sections ?? []).map((section) => {
@@ -439,7 +474,10 @@ export function HomePage() {
             {campaigns.length === 0 ? (
               <p className="notice info">진행 중인 프로모션이 없습니다.</p>
             ) : (
-              <ul className="home-scroll-list promo-scroll-list">
+              <ScrollableList
+                className="home-scroll-list promo-scroll-list"
+                ariaLabel={`${section.title} 목록`}
+              >
                 {campaigns.map((campaign) => (
                   <li key={campaign.campaign_id} className="promo-scroll-card">
                     {campaign.image_url ? (
@@ -479,7 +517,7 @@ export function HomePage() {
                     </div>
                   </li>
                 ))}
-              </ul>
+              </ScrollableList>
             )}
           </section>
         );
@@ -496,7 +534,7 @@ export function HomePage() {
           <h2>대한민국 외 인기 여행지</h2>
         </div>
         {!globalDestinations.length && <p className="notice info">도시 데이터 준비중입니다.</p>}
-        <ul className="home-scroll-list city-scroll-list">
+        <ScrollableList className="home-scroll-list city-scroll-list" ariaLabel="대한민국 외 인기 여행지">
           {globalDestinations.map((card) => (
             <li key={`global-${card.city}`} className="city-scroll-card">
               <Link to={buildCitySearchHref(card)}>
@@ -513,9 +551,86 @@ export function HomePage() {
               </Link>
             </li>
           ))}
-        </ul>
+        </ScrollableList>
       </section>
     </>
+  );
+}
+
+type ScrollableListProps = {
+  className: string;
+  ariaLabel: string;
+  children: ReactNode;
+};
+
+function ScrollableList({ className, ariaLabel, children }: ScrollableListProps) {
+  const listRef = useRef<HTMLUListElement | null>(null);
+  const [maxScrollLeft, setMaxScrollLeft] = useState(0);
+  const [scrollLeft, setScrollLeft] = useState(0);
+
+  const syncScrollMetrics = useCallback(() => {
+    const list = listRef.current;
+    if (!list) {
+      return;
+    }
+    const nextMax = Math.max(0, list.scrollWidth - list.clientWidth);
+    setMaxScrollLeft(nextMax);
+    setScrollLeft(Math.min(nextMax, list.scrollLeft));
+  }, []);
+
+  useEffect(() => {
+    syncScrollMetrics();
+  }, [children, syncScrollMetrics]);
+
+  useEffect(() => {
+    const list = listRef.current;
+    if (!list) {
+      return undefined;
+    }
+    const onScroll = () => {
+      setScrollLeft(Math.min(Math.max(0, list.scrollLeft), Math.max(0, list.scrollWidth - list.clientWidth)));
+    };
+    const onResize = () => {
+      syncScrollMetrics();
+    };
+    list.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("resize", onResize);
+    return () => {
+      list.removeEventListener("scroll", onScroll);
+      window.removeEventListener("resize", onResize);
+    };
+  }, [syncScrollMetrics]);
+
+  const roundedMax = Math.max(0, Math.round(maxScrollLeft));
+  const roundedValue = Math.max(0, Math.min(roundedMax, Math.round(scrollLeft)));
+
+  return (
+    <div className="home-scroll-wrap">
+      <ul ref={listRef} className={className} aria-label={ariaLabel}>
+        {children}
+      </ul>
+      {roundedMax > 0 && (
+        <div className="home-scroll-slider-wrap">
+          <input
+            type="range"
+            className="home-scroll-slider"
+            min={0}
+            max={roundedMax}
+            value={roundedValue}
+            onChange={(event) => {
+              const next = Number(event.target.value);
+              const list = listRef.current;
+              if (!list) {
+                return;
+              }
+              list.scrollTo({ left: next, behavior: "smooth" });
+              setScrollLeft(next);
+            }}
+            aria-label={`${ariaLabel} 가로 스크롤`}
+          />
+        </div>
+      )}
+    </div>
   );
 }
 

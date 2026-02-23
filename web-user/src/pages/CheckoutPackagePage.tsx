@@ -229,6 +229,23 @@ export function CheckoutPackagePage() {
     return {};
   }
 
+  function isAuthError(value: CheckoutApiError): boolean {
+    const code = (value.code ?? "").trim().toUpperCase();
+    const message = (value.message ?? "").trim().toLowerCase();
+    return (
+      code.includes("AUTH") ||
+      code.includes("UNAUTHORIZED") ||
+      message.includes("unauthorized") ||
+      message.includes("access token") ||
+      message.includes("로그인")
+    );
+  }
+
+  function moveToLogin() {
+    const next = `${window.location.pathname}${window.location.search}`;
+    navigate(`/login?next=${encodeURIComponent(next)}`);
+  }
+
   function resetQueue() {
     setQueueTicket(null);
     setQueuePosition(null);
@@ -305,6 +322,12 @@ export function CheckoutPackagePage() {
       setStatus("HOLD 완료");
     } catch (e) {
       const err = toError(e);
+      if (isAuthError(err)) {
+        setStatus("로그인 필요");
+        setError("세션이 만료되어 다시 로그인해 주세요.");
+        moveToLogin();
+        return;
+      }
       if (err.code === "QUEUE_REQUIRED") {
         await runQueueFlow(async (admitToken) => {
           setStatus("입장 허용, HOLD 재시도");
@@ -357,6 +380,12 @@ export function CheckoutPackagePage() {
       await attemptConfirm();
     } catch (e) {
       const err = toError(e);
+      if (isAuthError(err)) {
+        setStatus("로그인 필요");
+        setError("세션이 만료되어 다시 로그인해 주세요.");
+        moveToLogin();
+        return;
+      }
       if (err.code === "QUEUE_REQUIRED") {
         await runQueueFlow(async (admitToken) => {
           setStatus("입장 허용, CONFIRM 재시도");

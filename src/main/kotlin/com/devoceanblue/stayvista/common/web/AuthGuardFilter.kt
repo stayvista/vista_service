@@ -97,6 +97,7 @@ class AuthGuardFilter(
         if (method == "GET" && path.startsWith("/v1/poi/")) return true
         if (method == "GET" && path == "/v1/promotions/campaigns") return true
         if (method == "POST" && path == "/v1/chat/recommend") return true
+        if (method == "POST" && path == "/v1/telemetry/events") return true
         if (path == "/v1/queue/join" || path == "/v1/queue/status") return true
         return false
     }

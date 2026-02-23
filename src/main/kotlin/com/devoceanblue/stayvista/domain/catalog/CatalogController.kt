@@ -83,9 +83,9 @@ class CatalogController(
     @GetMapping("/properties/{propertyId}/room-types")
     fun listRoomTypes(
         @PathVariable propertyId: Long,
-        @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) check_in: LocalDate?,
-        @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) check_out: LocalDate?,
-        @RequestParam(required = false, defaultValue = "1") @Min(1) rooms: Int,
+        @RequestParam(name = "check_in", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) check_in: LocalDate?,
+        @RequestParam(name = "check_out", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) check_out: LocalDate?,
+        @RequestParam(name = "rooms", required = false, defaultValue = "1") @Min(1) rooms: Int,
     ) = ApiResponses.ok(
         catalogService.listRoomTypes(
             propertyId = propertyId,

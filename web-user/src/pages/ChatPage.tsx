@@ -1,4 +1,4 @@
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, KeyboardEvent as ReactKeyboardEvent, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { apiPost } from "../api/client";
 import { getAuthBearerToken } from "../auth/session";
@@ -122,12 +122,24 @@ export function ChatPage() {
     }
   }
 
-  function onSubmit(e: FormEvent) {
-    e.preventDefault();
+  function submitPrompt() {
     if (!canSubmit) return;
     const current = message.trim();
     setMessage("");
     void ask(current);
+  }
+
+  function onSubmit(e: FormEvent) {
+    e.preventDefault();
+    submitPrompt();
+  }
+
+  function onComposerKeyDown(event: ReactKeyboardEvent<HTMLTextAreaElement>) {
+    if (event.key !== "Enter" || event.shiftKey) return;
+    const native = event.nativeEvent as globalThis.KeyboardEvent;
+    if (native.isComposing || native.keyCode === 229) return;
+    event.preventDefault();
+    submitPrompt();
   }
 
   function cardLink(card: Card): string | null {
@@ -288,7 +300,12 @@ export function ChatPage() {
         <form onSubmit={onSubmit} className="concierge-compose">
           <label className="field-group">
             여행 요청
-            <textarea value={message} onChange={(e) => setMessage(e.target.value)} rows={5} />
+            <textarea
+              value={message}
+              onChange={(e) => setMessage(e.target.value)}
+              onKeyDown={onComposerKeyDown}
+              rows={5}
+            />
           </label>
           <button type="submit" disabled={!canSubmit}>{loading ? "생성 중..." : "추천 요청"}</button>
         </form>

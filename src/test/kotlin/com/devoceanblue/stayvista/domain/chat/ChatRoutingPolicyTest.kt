@@ -191,6 +191,27 @@ class ChatRoutingPolicyTest {
     }
 
     @Test
+    fun `extractSlots should infer source type from message and override context scope`() {
+        val request = ChatRecommendRequest(
+            message = "서울 전시 티켓 추천해줘",
+            context = mapOf("source_types" to listOf("property", "package")),
+        )
+
+        val slots = routingPolicy.extractSlots(request)
+        assertEquals(setOf("TICKET"), slots.sourceTypes)
+    }
+
+    @Test
+    fun `extractSlots should infer multiple source types from message`() {
+        val request = ChatRecommendRequest(
+            message = "서울 숙소랑 티켓 패키지 같이 추천해줘",
+        )
+
+        val slots = routingPolicy.extractSlots(request)
+        assertEquals(setOf("PROPERTY", "PACKAGE", "TICKET"), slots.sourceTypes)
+    }
+
+    @Test
     fun `needsItinerary should detect itinerary intent from message`() {
         assertTrue(routingPolicy.needsItinerary("서울 2박3일 일정 동선 추천해줘"))
     }
@@ -205,5 +226,51 @@ class ChatRoutingPolicyTest {
     fun `extractSlots should classify attraction intent`() {
         val slots = routingPolicy.extractSlots(ChatRecommendRequest(message = "서울 관광 명소 추천해줘"))
         assertEquals("ATTRACTION", slots.intent)
+    }
+
+    @Test
+    fun `extractSlots should derive days from check in and check out context`() {
+        val request = ChatRecommendRequest(
+            message = "도시 추천해줘",
+            context = mapOf(
+                "city" to "Seoul",
+                "check_in" to "2026-03-01",
+                "check_out" to "2026-03-04",
+            ),
+        )
+
+        val slots = routingPolicy.extractSlots(request)
+        assertEquals(4, slots.days)
+    }
+
+    @Test
+    fun `extractSlots should infer companions from guest context`() {
+        val request = ChatRecommendRequest(
+            message = "추천해줘",
+            context = mapOf(
+                "city" to "Busan",
+                "guests" to mapOf("adults" to 2, "children" to 1),
+            ),
+        )
+
+        val slots = routingPolicy.extractSlots(request)
+        assertEquals("FAMILY", slots.companions)
+    }
+
+    @Test
+    fun `extractSlots should prioritize explicit message slot over context`() {
+        val request = ChatRecommendRequest(
+            message = "부산 2박3일 커플 여행 추천해줘",
+            context = mapOf(
+                "city" to "Seoul",
+                "days" to 5,
+                "companions" to "FAMILY",
+            ),
+        )
+
+        val slots = routingPolicy.extractSlots(request)
+        assertEquals("Busan", slots.city)
+        assertEquals(3, slots.days)
+        assertEquals("COUPLE", slots.companions)
     }
 }
