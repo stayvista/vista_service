@@ -997,6 +997,51 @@ button:disabled {
   gap: 6px;
 }
 
+.concierge-saved-panel {
+  border: 1px solid #d1def4;
+  border-radius: 12px;
+  background: #f7fbff;
+  padding: 10px;
+  display: grid;
+  gap: 8px;
+}
+
+.concierge-saved-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.concierge-saved-title {
+  margin: 0;
+  color: #1c365f;
+  font-size: 0.85rem;
+  font-weight: 800;
+}
+
+.concierge-saved-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.concierge-saved-list li {
+  border: 1px solid #d6e2f4;
+  border-radius: 10px;
+  background: #fff;
+  padding: 8px;
+  display: grid;
+  gap: 4px;
+}
+
+.concierge-saved-list strong {
+  color: #163058;
+  font-size: 0.86rem;
+}
+
 .concierge-cards-panel {
   display: grid;
   gap: 8px;
@@ -1050,6 +1095,10 @@ button:disabled {
 
 .concierge-card-actions {
   margin-top: 3px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
 }
 
 .concierge-card-actions .inline-cta {

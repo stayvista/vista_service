@@ -445,6 +445,47 @@ class TelemetryControllerTest {
     }
 
     @Test
+    fun `ingest should accept card save telemetry event`() {
+        val response = controller.ingest(
+            TelemetryEventRequest(
+                event_name = "ai_widget_card_save_click",
+                source = "results_cta",
+                route = "LLM",
+                source_type_scope = "PROPERTY,POI",
+                target_source_type = "PROPERTY",
+                card_save_state = "saved",
+                saved_card_count = 4,
+            ),
+        )
+
+        assertTrue(response.data.accepted)
+        assertEquals("ai_widget_card_save_click", response.data.event_name)
+        assertEquals(1.0, meterRegistry.get("ai_widget_card_save_click_total").counter().count())
+        assertEquals(
+            1.0,
+            meterRegistry.get("ai_widget_card_save_state_total")
+                .tag("state", "saved")
+                .counter()
+                .count(),
+        )
+        assertEquals(
+            1.0,
+            meterRegistry.get("ai_widget_card_save_source_type_total")
+                .tag("source_type", "PROPERTY")
+                .counter()
+                .count(),
+        )
+        assertEquals(
+            1.0,
+            meterRegistry.get("ai_widget_card_save_scope_total")
+                .tag("scope", "PROPERTY+POI")
+                .counter()
+                .count(),
+        )
+        assertTrue(meterRegistry.get("ai_widget_card_save_count").summary().count() >= 1)
+    }
+
+    @Test
     fun `ingest should accept generation cancel telemetry event`() {
         val response = controller.ingest(
             TelemetryEventRequest(
@@ -693,6 +734,39 @@ class TelemetryControllerTest {
                     source = "results_cta",
                     card_list_state = "opened",
                     visible_card_count = 5,
+                ),
+            )
+        }
+
+        assertEquals(ErrorCode.VALIDATION_ERROR, exception.errorCode)
+    }
+
+    @Test
+    fun `ingest should reject card save without state`() {
+        val exception = assertThrows<DomainException> {
+            controller.ingest(
+                TelemetryEventRequest(
+                    event_name = "ai_widget_card_save_click",
+                    source = "results_cta",
+                    target_source_type = "PROPERTY",
+                    saved_card_count = 1,
+                ),
+            )
+        }
+
+        assertEquals(ErrorCode.VALIDATION_ERROR, exception.errorCode)
+    }
+
+    @Test
+    fun `ingest should reject card save with all target source type`() {
+        val exception = assertThrows<DomainException> {
+            controller.ingest(
+                TelemetryEventRequest(
+                    event_name = "ai_widget_card_save_click",
+                    source = "results_cta",
+                    target_source_type = "ALL",
+                    card_save_state = "saved",
+                    saved_card_count = 1,
                 ),
             )
         }

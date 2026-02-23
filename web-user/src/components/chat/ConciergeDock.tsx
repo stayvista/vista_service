@@ -108,6 +108,7 @@ type TelemetryEventName =
   | "ai_widget_answer_copy_click"
   | "ai_widget_card_type_filter_click"
   | "ai_widget_card_list_toggle_click"
+  | "ai_widget_card_save_click"
   | "ai_widget_regenerate_click"
   | "ai_widget_search_blocked"
   | "ai_widget_slot_chip_click"
@@ -116,6 +117,7 @@ type TelemetryEventName =
 
 type CardTypeFilter = "ALL" | "PROPERTY" | "PACKAGE" | "TICKET" | "POI";
 type CardListState = "expanded" | "collapsed";
+type CardSaveState = "saved" | "unsaved";
 
 type ConciergeDockState = {
   open: boolean;
@@ -142,6 +144,7 @@ type ConciergeDockState = {
   handoffRecommendedSourceTypes: string[];
   handoffFilters: SearchHandoffFilter[];
   selectedHandoffFilterKeys: string[];
+  savedCards: ChatCard[];
 };
 
 const SOURCE_TYPE_FILTERS: Record<string, readonly string[]> = {
@@ -240,6 +243,7 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
   const [handoffRecommendedSourceTypes, setHandoffRecommendedSourceTypes] = useState<string[]>(restoredState.handoffRecommendedSourceTypes);
   const [handoffFilters, setHandoffFilters] = useState<SearchHandoffFilter[]>(restoredState.handoffFilters);
   const [selectedHandoffFilterKeys, setSelectedHandoffFilterKeys] = useState<string[]>(restoredState.selectedHandoffFilterKeys);
+  const [savedCards, setSavedCards] = useState<ChatCard[]>(restoredState.savedCards);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copyDone, setCopyDone] = useState(false);
@@ -373,6 +377,18 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
         : cards.filter((card) => normalizeCardType(card.type) === selectedCardType)
     ),
     [cards, selectedCardType],
+  );
+  const savedCardKeys = useMemo(
+    () => new Set(savedCards.map((card) => cardToken(card))),
+    [savedCards],
+  );
+  const visibleSavedCards = useMemo(
+    () => (
+      selectedCardType === "ALL"
+        ? savedCards
+        : savedCards.filter((card) => normalizeCardType(card.type) === selectedCardType)
+    ),
+    [savedCards, selectedCardType],
   );
   const renderedCards = useMemo(
     () => (expandedCards ? visibleCards : visibleCards.slice(0, 4)),
@@ -522,6 +538,7 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
       handoffRecommendedSourceTypes,
       handoffFilters: handoffFilters.slice(0, 8),
       selectedHandoffFilterKeys: selectedHandoffFilterKeys.slice(0, 8),
+      savedCards: savedCards.slice(0, 12),
     });
   }, [
     open,
@@ -548,6 +565,7 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
     handoffRecommendedSourceTypes,
     handoffFilters,
     selectedHandoffFilterKeys,
+    savedCards,
   ]);
 
   function resetConversation() {
@@ -878,6 +896,40 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
     });
   }
 
+  function toggleCardSave(card: ChatCard) {
+    const token = cardToken(card);
+    const sourceType = normalizeCardType(card.type);
+    if (!sourceType || sourceType === "ALL") {
+      return;
+    }
+    let saveState: CardSaveState = "saved";
+    let nextCount = 0;
+    setSavedCards((prev) => {
+      const exists = prev.some((item) => cardToken(item) === token);
+      if (exists) {
+        saveState = "unsaved";
+        const next = prev.filter((item) => cardToken(item) !== token);
+        nextCount = next.length;
+        return next;
+      }
+      saveState = "saved";
+      const deduped = prev.filter((item) => cardToken(item) !== token);
+      const next = [card, ...deduped].slice(0, 12);
+      nextCount = next.length;
+      return next;
+    });
+    track("ai_widget_card_save_click", "results_cta", {
+      source_type_scope: sourceTypeScope(activeSourceTypes),
+      target_source_type: sourceType,
+      card_save_state: saveState,
+      saved_card_count: nextCount,
+    });
+  }
+
+  function clearSavedCards() {
+    setSavedCards([]);
+  }
+
   function track(
     eventName: TelemetryEventName,
     source: string,
@@ -897,6 +949,8 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
       reuse_rank?: number;
       visible_card_count?: number;
       card_list_state?: CardListState;
+      card_save_state?: CardSaveState;
+      saved_card_count?: number;
     },
   ) {
     const payload = {
@@ -1376,6 +1430,33 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
           )}
         </div>
 
+        {savedCards.length > 0 && (
+          <section className="concierge-saved-panel">
+            <div className="concierge-saved-head">
+              <p className="concierge-saved-title">
+                저장한 추천 ({visibleSavedCards.length}/{savedCards.length})
+              </p>
+              <button type="button" className="chip-btn" onClick={clearSavedCards}>
+                저장 전체 해제
+              </button>
+            </div>
+            <ul className="concierge-saved-list">
+              {visibleSavedCards.slice(0, 8).map((card, index) => (
+                <li key={`saved-${cardToken(card)}-${index}`}>
+                  <p className="eyebrow">{card.type}</p>
+                  <strong>{card.title}</strong>
+                  <div className="concierge-card-actions">
+                    {renderCardLink(card)}
+                    <button type="button" className="chip-btn" onClick={() => toggleCardSave(card)}>
+                      저장 해제
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+
         {cards.length > 0 && (
           <section className="concierge-cards-panel">
             <div className="concierge-card-filter-row">
@@ -1398,6 +1479,13 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
                   <h3>{card.title}</h3>
                   {card.why && <p>{card.why}</p>}
                   <div className="concierge-card-actions">
+                    <button
+                      type="button"
+                      className={savedCardKeys.has(cardToken(card)) ? "chip-btn active" : "chip-btn"}
+                      onClick={() => toggleCardSave(card)}
+                    >
+                      {savedCardKeys.has(cardToken(card)) ? "저장됨" : "카드 저장"}
+                    </button>
                     {renderCardLink(card)}
                   </div>
                 </li>
@@ -2010,6 +2098,7 @@ function emptyDockState(): ConciergeDockState {
     handoffRecommendedSourceTypes: [],
     handoffFilters: [],
     selectedHandoffFilterKeys: [],
+    savedCards: [],
   };
 }
 
@@ -2034,6 +2123,12 @@ function loadConciergeDockState(): ConciergeDockState {
       && typeof (item as { text: unknown }).text === "string"
     );
     const messages = Array.isArray(parsed.messages) ? parsed.messages.filter(isMessage).slice(-20) : [];
+    const isCard = (item: unknown): item is ChatCard => (
+      !!item &&
+      typeof item === "object" &&
+      typeof (item as { type?: unknown }).type === "string" &&
+      typeof (item as { title?: unknown }).title === "string"
+    );
     return {
       ...defaults,
       open: parsed.open === true,
@@ -2078,6 +2173,7 @@ function loadConciergeDockState(): ConciergeDockState {
       selectedHandoffFilterKeys: Array.isArray(parsed.selectedHandoffFilterKeys)
         ? parsed.selectedHandoffFilterKeys.filter((item) => typeof item === "string").slice(0, 8)
         : [],
+      savedCards: Array.isArray(parsed.savedCards) ? parsed.savedCards.filter(isCard).slice(0, 12) : [],
     };
   } catch {
     return defaults;
@@ -2216,6 +2312,8 @@ async function sendWidgetTelemetry(payload: {
   reuse_rank?: number;
   visible_card_count?: number;
   card_list_state?: CardListState;
+  card_save_state?: CardSaveState;
+  saved_card_count?: number;
 }) {
   const token = getAuthBearerToken();
   try {
@@ -2274,6 +2372,12 @@ function normalizeCardType(value: string | null | undefined): CardTypeFilter | n
     return normalized;
   }
   return null;
+}
+
+function cardToken(card: ChatCard): string {
+  const normalizedType = normalizeCardType(card.type) ?? "UNKNOWN";
+  const normalizedId = `${card.id ?? card.property_id ?? card.product_id ?? card.package_id ?? card.title}`.trim();
+  return `${normalizedType}:${normalizedId}`;
 }
 
 function isAbortError(error: unknown): boolean {

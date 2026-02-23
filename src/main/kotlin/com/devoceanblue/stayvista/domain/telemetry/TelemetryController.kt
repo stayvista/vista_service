@@ -140,6 +140,38 @@ class TelemetryController(
                 message = "visible_card_count is required for ai_widget_card_list_toggle_click",
             )
         }
+        val cardSaveState = normalizeCardSaveState(request.card_save_state)
+        if (eventName == "ai_widget_card_save_click" && cardSaveState == "invalid") {
+            throw DomainException(
+                errorCode = ErrorCode.VALIDATION_ERROR,
+                message = "card_save_state must be saved or unsaved for ai_widget_card_save_click",
+            )
+        }
+        if (eventName == "ai_widget_card_save_click" && cardSaveState == "none") {
+            throw DomainException(
+                errorCode = ErrorCode.VALIDATION_ERROR,
+                message = "card_save_state is required for ai_widget_card_save_click",
+            )
+        }
+        if (eventName == "ai_widget_card_save_click" && (targetSourceType == "none" || targetSourceType == "ALL")) {
+            throw DomainException(
+                errorCode = ErrorCode.VALIDATION_ERROR,
+                message = "target_source_type must be PROPERTY/TICKET/PACKAGE/POI for ai_widget_card_save_click",
+            )
+        }
+        val savedCardCount = request.saved_card_count
+        if (savedCardCount != null && savedCardCount !in 0..20) {
+            throw DomainException(
+                errorCode = ErrorCode.VALIDATION_ERROR,
+                message = "saved_card_count must be between 0 and 20",
+            )
+        }
+        if (eventName == "ai_widget_card_save_click" && savedCardCount == null) {
+            throw DomainException(
+                errorCode = ErrorCode.VALIDATION_ERROR,
+                message = "saved_card_count is required for ai_widget_card_save_click",
+            )
+        }
 
         meterRegistry.counter("${eventName}_total").increment()
         meterRegistry.counter(
@@ -171,6 +203,7 @@ class TelemetryController(
         recordPromptReuseMetrics(eventName, reuseRank, sourceTypeScope)
         recordCardTypeFilterMetrics(eventName, targetSourceType, sourceTypeScope, visibleCardCount)
         recordCardListToggleMetrics(eventName, cardListState, sourceTypeScope, visibleCardCount)
+        recordCardSaveMetrics(eventName, cardSaveState, targetSourceType, sourceTypeScope, savedCardCount)
 
         return TelemetryEventResponse(
             accepted = true,
@@ -393,6 +426,36 @@ class TelemetryController(
         }
     }
 
+    private fun recordCardSaveMetrics(
+        eventName: String,
+        cardSaveState: String,
+        targetSourceType: String,
+        sourceTypeScope: String,
+        savedCardCount: Int?,
+    ) {
+        if (eventName != "ai_widget_card_save_click") {
+            return
+        }
+        meterRegistry.counter(
+            "ai_widget_card_save_state_total",
+            "state",
+            cardSaveState,
+        ).increment()
+        meterRegistry.counter(
+            "ai_widget_card_save_source_type_total",
+            "source_type",
+            targetSourceType,
+        ).increment()
+        meterRegistry.counter(
+            "ai_widget_card_save_scope_total",
+            "scope",
+            sourceTypeScope,
+        ).increment()
+        if (savedCardCount != null) {
+            meterRegistry.summary("ai_widget_card_save_count").record(savedCardCount.toDouble())
+        }
+    }
+
     private fun normalizeSource(source: String?): String {
         val normalized = source?.trim()?.lowercase().orEmpty()
         return if (normalized in ALLOWED_SOURCES) normalized else "unknown"
@@ -475,6 +538,14 @@ class TelemetryController(
         return if (normalized in ALLOWED_CARD_LIST_STATES) normalized else "invalid"
     }
 
+    private fun normalizeCardSaveState(rawCardSaveState: String?): String {
+        val normalized = rawCardSaveState?.trim()?.lowercase().orEmpty()
+        if (normalized.isBlank()) {
+            return "none"
+        }
+        return if (normalized in ALLOWED_CARD_SAVE_STATES) normalized else "invalid"
+    }
+
     companion object {
         private val ALLOWED_EVENTS = setOf(
             "ai_widget_open",
@@ -494,6 +565,7 @@ class TelemetryController(
             "ai_widget_answer_copy_click",
             "ai_widget_card_type_filter_click",
             "ai_widget_card_list_toggle_click",
+            "ai_widget_card_save_click",
             "ai_widget_regenerate_click",
             "ai_widget_search_blocked",
             "ai_widget_slot_chip_click",
@@ -569,6 +641,11 @@ class TelemetryController(
             "expanded",
             "collapsed",
         )
+
+        private val ALLOWED_CARD_SAVE_STATES = setOf(
+            "saved",
+            "unsaved",
+        )
     }
 }
 
@@ -592,6 +669,8 @@ data class TelemetryEventRequest(
     val visible_card_count: Int? = null,
     val target_source_type: String? = null,
     val card_list_state: String? = null,
+    val card_save_state: String? = null,
+    val saved_card_count: Int? = null,
 )
 
 data class TelemetryEventResponse(
