@@ -502,6 +502,10 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
     }
     return "추천 결과가 이전 검색 조건 기준입니다. 최신 조건으로 재추천 후 다시 진행해 주세요.";
   }, [shouldShowContextSync]);
+  const launchBlockState = useMemo(
+    () => resolveLaunchBlockedReason(),
+    [launchBlockedReason, contextDriftBlockedReason],
+  );
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -1029,6 +1033,25 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
       return;
     }
     navigate("/nearby");
+  }
+
+  function resolveBlockedSearch() {
+    const blockedReason = resolveLaunchBlockedReason();
+    if (!blockedReason) {
+      return;
+    }
+
+    if (blockedReason.reason === "context_drift") {
+      syncWithLatestContext("rerun_last_prompt");
+      return;
+    }
+
+    if (handoffClarifyQuestions.length > 0) {
+      track("ai_widget_clarify_click", "handoff_clarify", {
+        source_type_scope: sourceTypeScope(activeSourceTypes),
+      });
+      void ask(handoffClarifyQuestions[0], activeSourceTypes);
+    }
   }
 
   function selectCardType(type: CardTypeFilter) {
@@ -1896,8 +1919,18 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
           <button type="button" className="chip-btn" onClick={viewAllCards} disabled={cards.length === 0}>
             추천 결과 보기
           </button>
-          {contextDriftBlockedReason && (
-            <p className="concierge-cta-warning">{contextDriftBlockedReason}</p>
+          {launchBlockState && (
+            <p className="concierge-cta-warning">{launchBlockState.message}</p>
+          )}
+          {launchBlockState && (
+            <button
+              type="button"
+              className="chip-btn concierge-cta-fix"
+              onClick={resolveBlockedSearch}
+              disabled={loading}
+            >
+              {launchBlockState.reason === "context_drift" ? "최신 조건으로 재추천" : "누락 정보 보완"}
+            </button>
           )}
           <span className="concierge-route">route: {routeLabel}</span>
         </div>

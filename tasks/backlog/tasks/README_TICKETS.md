@@ -31,6 +31,7 @@
 - `U-0988` AI 위젯 현재 검색조건 원클릭 삽입 UX v1
 - `U-0989` AI 위젯 검색조건 변경 감지/재추천 동기화 UX v1
 - `U-0990` AI 위젯 재추천 전 검색 차단 UX v1
+- `U-0991` AI 위젯 검색 차단 복구 액션 UX v1
 - `B-0960` Chat Context Enrichment v2 (search context aware)
 - `B-0961` AI Widget Telemetry Ingest API v2
 - `B-0962` Chat Search Handoff Advisor v3

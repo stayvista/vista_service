@@ -1231,6 +1231,12 @@ button:disabled {
   justify-content: center;
 }
 
+.concierge-cta-fix {
+  border-color: #9db8f8;
+  color: #123f96;
+  background: #eff4ff;
+}
+
 .concierge-cta-warning {
   margin: 0;
   border: 1px solid #f3d9b4;
