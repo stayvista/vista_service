@@ -121,6 +121,13 @@ class TelemetryController(
                 message = "reuse_action is required for ai_widget_prompt_reuse_click",
             )
         }
+        val submitMethod = normalizeSubmitMethod(request.submit_method)
+        if (eventName == "ai_widget_prompt_submit" && submitMethod == "invalid") {
+            throw DomainException(
+                errorCode = ErrorCode.VALIDATION_ERROR,
+                message = "submit_method must be button, keyboard_enter, keyboard_shortcut, or history_submit for ai_widget_prompt_submit",
+            )
+        }
         val visibleCardCount = request.visible_card_count
         if (visibleCardCount != null && visibleCardCount !in 0..12) {
             throw DomainException(
@@ -225,6 +232,7 @@ class TelemetryController(
         recordQuickFixMetrics(eventName, clarifySlot, sourceTypeScope)
         recordAnswerCopyMetrics(eventName, sourceTypeScope)
         recordPromptAutopatchMetrics(eventName, autoPatchCount)
+        recordPromptSubmitMetrics(eventName, submitMethod, sourceTypeScope)
         recordPromptReuseMetrics(eventName, reuseRank, reuseAction, sourceTypeScope)
         recordCardTypeFilterMetrics(eventName, targetSourceType, sourceTypeScope, visibleCardCount)
         recordCardListToggleMetrics(eventName, cardListState, sourceTypeScope, visibleCardCount)
@@ -386,6 +394,24 @@ class TelemetryController(
             autoPatchCount.toString(),
         ).increment()
         meterRegistry.summary("ai_widget_prompt_autopatch_field_count").record(autoPatchCount.toDouble())
+    }
+
+    private fun recordPromptSubmitMetrics(eventName: String, submitMethod: String, sourceTypeScope: String) {
+        if (eventName != "ai_widget_prompt_submit") {
+            return
+        }
+        meterRegistry.counter(
+            "ai_widget_prompt_submit_method_total",
+            "method",
+            submitMethod,
+        ).increment()
+        meterRegistry.counter(
+            "ai_widget_prompt_submit_scope_total",
+            "method",
+            submitMethod,
+            "scope",
+            sourceTypeScope,
+        ).increment()
     }
 
     private fun recordPromptReuseMetrics(
@@ -616,6 +642,14 @@ class TelemetryController(
         return if (normalized in ALLOWED_REUSE_ACTIONS) normalized else "invalid"
     }
 
+    private fun normalizeSubmitMethod(rawSubmitMethod: String?): String {
+        val normalized = rawSubmitMethod?.trim()?.lowercase().orEmpty()
+        if (normalized.isBlank()) {
+            return "unknown"
+        }
+        return if (normalized in ALLOWED_SUBMIT_METHODS) normalized else "invalid"
+    }
+
     companion object {
         private val ALLOWED_EVENTS = setOf(
             "ai_widget_open",
@@ -724,6 +758,13 @@ class TelemetryController(
             "draft",
             "submit",
         )
+
+        private val ALLOWED_SUBMIT_METHODS = setOf(
+            "button",
+            "keyboard_enter",
+            "keyboard_shortcut",
+            "history_submit",
+        )
     }
 }
 
@@ -745,6 +786,7 @@ data class TelemetryEventRequest(
     val auto_patch_count: Int? = null,
     val reuse_rank: Int? = null,
     val reuse_action: String? = null,
+    val submit_method: String? = null,
     val visible_card_count: Int? = null,
     val target_source_type: String? = null,
     val card_list_state: String? = null,

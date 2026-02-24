@@ -120,6 +120,7 @@ type CardTypeFilter = "ALL" | "PROPERTY" | "PACKAGE" | "TICKET" | "POI";
 type CardListState = "expanded" | "collapsed";
 type CardSaveState = "saved" | "unsaved";
 type PromptReuseAction = "draft" | "submit";
+type PromptSubmitMethod = "button" | "keyboard_enter" | "keyboard_shortcut" | "history_submit";
 
 type ConciergeDockState = {
   open: boolean;
@@ -215,6 +216,7 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
   const threadRef = useRef<HTMLDivElement | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const pendingImeSubmitRef = useRef(false);
   const [open, setOpen] = useState(restoredState.open);
   const [isCompactViewport, setIsCompactViewport] = useState(
     () => typeof window !== "undefined" && window.innerWidth <= 1080,
@@ -707,11 +709,17 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
     }
   }
 
-  function submitPrompt() {
-    if (!canSubmit) {
+  function submitPrompt(options?: {
+    prompt?: string;
+    source?: "text_input" | "prompt_history";
+    method?: PromptSubmitMethod;
+  }) {
+    const source = options?.source ?? "text_input";
+    const method = options?.method ?? "button";
+    const current = (options?.prompt ?? message).trim();
+    if (current.length === 0 || loading) {
       return;
     }
-    const current = message.trim();
     const inferredPatch = inferSearchPatchFromPrompt(current);
     const hasAutoPatch = patchFieldCount(inferredPatch) > 0;
     const inferredSourceTypes = inferSourceTypesFromPrompt(current);
@@ -731,13 +739,16 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
     } else {
       setAutopatchNotice("");
     }
-    track("ai_widget_prompt_submit", "text_input", { source_type_scope: scope });
+    track("ai_widget_prompt_submit", source, {
+      source_type_scope: scope,
+      submit_method: method,
+    });
     void ask(current, nextSourceTypes, patchedContext);
   }
 
   function submit(e: FormEvent) {
     e.preventDefault();
-    submitPrompt();
+    submitPrompt({ source: "text_input", method: "button" });
   }
 
   function onComposerKeyDown(event: ReactKeyboardEvent<HTMLTextAreaElement>) {
@@ -746,10 +757,25 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
     }
     const native = event.nativeEvent as globalThis.KeyboardEvent;
     if (native.isComposing || native.keyCode === 229) {
+      pendingImeSubmitRef.current = true;
       return;
     }
+    pendingImeSubmitRef.current = false;
     event.preventDefault();
-    submitPrompt();
+    submitPrompt({
+      source: "text_input",
+      method: event.metaKey || event.ctrlKey ? "keyboard_shortcut" : "keyboard_enter",
+    });
+  }
+
+  function onComposerCompositionEnd() {
+    if (!pendingImeSubmitRef.current) {
+      return;
+    }
+    pendingImeSubmitRef.current = false;
+    setTimeout(() => {
+      submitPrompt({ source: "text_input", method: "keyboard_enter" });
+    }, 0);
   }
 
   function launchSearch() {
@@ -962,28 +988,11 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
       composerRef.current?.focus();
       return;
     }
-
-    const inferredPatch = inferSearchPatchFromPrompt(prompt);
-    const hasAutoPatch = patchFieldCount(inferredPatch) > 0;
-    const inferredSourceTypes = inferSourceTypesFromPrompt(prompt);
-    const nextSourceTypes = inferredSourceTypes.length > 0 ? inferredSourceTypes : activeSourceTypes;
-    if (inferredSourceTypes.length > 0) {
-      setActiveSourceTypes(nextSourceTypes);
-    }
-    setMessage("");
-    const scope = sourceTypeScope(nextSourceTypes);
-    const patchedContext = hasAutoPatch ? applySearchPatch(searchContext, inferredPatch) : searchContext;
-    if (hasAutoPatch) {
-      setAutopatchNotice(`자동 반영: ${describeSearchPatch(inferredPatch)}`);
-      track("ai_widget_prompt_autopatch", "prompt_history", {
-        source_type_scope: scope,
-        auto_patch_count: patchFieldCount(inferredPatch),
-      });
-    } else {
-      setAutopatchNotice("");
-    }
-    track("ai_widget_prompt_submit", "prompt_history", { source_type_scope: scope });
-    void ask(prompt, nextSourceTypes, patchedContext);
+    submitPrompt({
+      prompt,
+      source: "prompt_history",
+      method: "history_submit",
+    });
   }
 
   function track(
@@ -1004,6 +1013,7 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
       auto_patch_count?: number;
       reuse_rank?: number;
       reuse_action?: PromptReuseAction;
+      submit_method?: PromptSubmitMethod;
       visible_card_count?: number;
       card_list_state?: CardListState;
       card_save_state?: CardSaveState;
@@ -1412,6 +1422,7 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
             value={message}
             onChange={(event) => setMessage(event.target.value)}
             onKeyDown={onComposerKeyDown}
+            onCompositionEnd={onComposerCompositionEnd}
             rows={3}
             placeholder="예) 서울 3박4일, 가족여행, 조식/주차 필수 숙소 추천해줘"
           />
@@ -2397,6 +2408,7 @@ async function sendWidgetTelemetry(payload: {
   auto_patch_count?: number;
   reuse_rank?: number;
   reuse_action?: PromptReuseAction;
+  submit_method?: PromptSubmitMethod;
   visible_card_count?: number;
   card_list_state?: CardListState;
   card_save_state?: CardSaveState;

@@ -323,6 +323,38 @@ class TelemetryControllerTest {
     }
 
     @Test
+    fun `ingest should accept prompt submit telemetry with submit method`() {
+        val response = controller.ingest(
+            TelemetryEventRequest(
+                event_name = "ai_widget_prompt_submit",
+                source = "text_input",
+                route = "LLM",
+                source_type_scope = "PROPERTY,PACKAGE",
+                submit_method = "keyboard_enter",
+            ),
+        )
+
+        assertTrue(response.data.accepted)
+        assertEquals("ai_widget_prompt_submit", response.data.event_name)
+        assertEquals(1.0, meterRegistry.get("ai_widget_prompt_submit_total").counter().count())
+        assertEquals(
+            1.0,
+            meterRegistry.get("ai_widget_prompt_submit_method_total")
+                .tag("method", "keyboard_enter")
+                .counter()
+                .count(),
+        )
+        assertEquals(
+            1.0,
+            meterRegistry.get("ai_widget_prompt_submit_scope_total")
+                .tag("method", "keyboard_enter")
+                .tag("scope", "PROPERTY+PACKAGE")
+                .counter()
+                .count(),
+        )
+    }
+
+    @Test
     fun `ingest should accept prompt reuse telemetry event`() {
         val response = controller.ingest(
             TelemetryEventRequest(
@@ -614,6 +646,21 @@ class TelemetryControllerTest {
                     event_name = "ai_widget_prompt_submit",
                     source = "text_input",
                     source_type_scope = "PROPERTY,INVALID",
+                ),
+            )
+        }
+
+        assertEquals(ErrorCode.VALIDATION_ERROR, exception.errorCode)
+    }
+
+    @Test
+    fun `ingest should reject invalid prompt submit method`() {
+        val exception = assertThrows<DomainException> {
+            controller.ingest(
+                TelemetryEventRequest(
+                    event_name = "ai_widget_prompt_submit",
+                    source = "text_input",
+                    submit_method = "enter",
                 ),
             )
         }
