@@ -94,6 +94,7 @@ type TelemetryEventName =
   | "ai_widget_open"
   | "ai_widget_prompt_submit"
   | "ai_widget_prompt_autopatch"
+  | "ai_widget_context_insert_click"
   | "ai_widget_prompt_reuse_click"
   | "ai_widget_followup_click"
   | "ai_widget_clarify_click"
@@ -123,6 +124,7 @@ type CardSaveState = "saved" | "unsaved";
 type PromptReuseAction = "draft" | "submit";
 type PromptSubmitMethod = "button" | "keyboard_enter" | "keyboard_shortcut" | "history_submit";
 type ErrorRecoveryAction = "retry" | "restore_draft" | "reset_scope" | "dismiss";
+type ContextInsertField = "city" | "dates" | "guests" | "budget" | "scope";
 
 type ConciergeDockState = {
   open: boolean;
@@ -295,6 +297,41 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
     () => selectedHandoffFilters.find((item) => item.key === "sort")?.value ?? null,
     [selectedHandoffFilters],
   );
+  const budgetHintLabel = useMemo(() => deriveBudgetHint(selectedHandoffFilters), [selectedHandoffFilters]);
+  const contextInsertChips = useMemo(() => [
+    {
+      field: "city" as ContextInsertField,
+      label: "도시",
+      preview: cityLabel,
+      snippet: `도시: ${cityLabel}`,
+    },
+    {
+      field: "dates" as ContextInsertField,
+      label: "일정",
+      preview: `${searchContext.checkIn} ~ ${searchContext.checkOut} (${nights}박)`,
+      snippet: `일정: ${searchContext.checkIn} ~ ${searchContext.checkOut} (${nights}박)`,
+    },
+    {
+      field: "guests" as ContextInsertField,
+      label: "인원",
+      preview: `객실 ${searchContext.guests.rooms} · 성인 ${searchContext.guests.adults} · 아동 ${searchContext.guests.children}`,
+      snippet: `인원: 객실 ${searchContext.guests.rooms}, 성인 ${searchContext.guests.adults}, 아동 ${searchContext.guests.children}`,
+    },
+    {
+      field: "budget" as ContextInsertField,
+      label: "예산",
+      preview: budgetHintLabel,
+      snippet: budgetHintLabel === "미정"
+        ? "예산: 아직 미정이야. 적당한 1박 예산대부터 추천해줘."
+        : `예산: ${budgetHintLabel}`,
+    },
+    {
+      field: "scope" as ContextInsertField,
+      label: "추천 범위",
+      preview: sourceTypeScopeLabel(activeSourceTypes),
+      snippet: `추천 범위: ${sourceTypeScopeLabel(activeSourceTypes)}`,
+    },
+  ], [activeSourceTypes, budgetHintLabel, cityLabel, nights, searchContext.checkIn, searchContext.checkOut, searchContext.guests.adults, searchContext.guests.children, searchContext.guests.rooms]);
   const sortHintCandidates = useMemo<SearchHandoffFilter[]>(() => {
     const options = new Map<string, SearchHandoffFilter>();
     handoffFilters
@@ -1040,6 +1077,30 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
     });
   }
 
+  function insertContextSnippet(field: ContextInsertField, snippet: string) {
+    setMessage((prev) => {
+      const normalized = prev.trimEnd();
+      if (normalized.includes(snippet)) {
+        return prev;
+      }
+      return normalized.length > 0 ? `${normalized}\n${snippet}` : snippet;
+    });
+    setError(null);
+    requestAnimationFrame(() => {
+      const composer = composerRef.current;
+      if (!composer) {
+        return;
+      }
+      composer.focus();
+      const caret = composer.value.length;
+      composer.setSelectionRange(caret, caret);
+    });
+    track("ai_widget_context_insert_click", "text_input", {
+      context_field: field,
+      source_type_scope: sourceTypeScope(activeSourceTypes),
+    });
+  }
+
   function track(
     eventName: TelemetryEventName,
     source: string,
@@ -1064,6 +1125,7 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
       card_list_state?: CardListState;
       card_save_state?: CardSaveState;
       saved_card_count?: number;
+      context_field?: ContextInsertField;
     },
   ) {
     const payload = {
@@ -1463,6 +1525,24 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
         )}
 
         <form className="concierge-dock-form" onSubmit={submit}>
+          <div className="concierge-context-insert">
+            <p className="concierge-context-insert-title">현재 조건 빠르게 넣기</p>
+            <div className="concierge-context-insert-chips">
+              {contextInsertChips.map((chip) => (
+                <button
+                  key={chip.field}
+                  type="button"
+                  className="chip-btn concierge-context-chip"
+                  disabled={loading}
+                  onClick={() => insertContextSnippet(chip.field, chip.snippet)}
+                  title={`${chip.label}: ${chip.preview}`}
+                >
+                  <span>{chip.label}</span>
+                  <small>{chip.preview}</small>
+                </button>
+              ))}
+            </div>
+          </div>
           <textarea
             ref={composerRef}
             value={message}
@@ -2496,6 +2576,7 @@ async function sendWidgetTelemetry(payload: {
   card_list_state?: CardListState;
   card_save_state?: CardSaveState;
   saved_card_count?: number;
+  context_field?: ContextInsertField;
 }) {
   const token = getAuthBearerToken();
   try {
@@ -2598,6 +2679,18 @@ function sourceTypeScopeLabel(sourceTypes: readonly string[]): string {
   return normalizeSourceTypes(sourceTypes)
     .map((item) => SOURCE_TYPE_LABELS[item] ?? item)
     .join(" + ");
+}
+
+function deriveBudgetHint(filters: readonly SearchHandoffFilter[]): string {
+  const candidate = filters.find((filter) => {
+    const key = filter.key.trim().toLowerCase();
+    return key.includes("price") || key.includes("budget") || key.includes("fare") || key.includes("amount");
+  });
+  if (!candidate) {
+    return "미정";
+  }
+  const normalized = candidate.label.replace(/\s+/g, " ").trim();
+  return normalized.length > 0 ? normalized : "미정";
 }
 
 function describeMissingSlots(missingSlots: readonly string[]): string {

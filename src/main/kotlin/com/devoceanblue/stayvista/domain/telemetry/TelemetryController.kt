@@ -141,6 +141,19 @@ class TelemetryController(
                 message = "recovery_action is required for ai_widget_error_recovery_click",
             )
         }
+        val contextField = normalizeContextField(request.context_field)
+        if (eventName == "ai_widget_context_insert_click" && contextField == "invalid") {
+            throw DomainException(
+                errorCode = ErrorCode.VALIDATION_ERROR,
+                message = "context_field must be one of city/dates/guests/budget/scope for ai_widget_context_insert_click",
+            )
+        }
+        if (eventName == "ai_widget_context_insert_click" && contextField == "none") {
+            throw DomainException(
+                errorCode = ErrorCode.VALIDATION_ERROR,
+                message = "context_field is required for ai_widget_context_insert_click",
+            )
+        }
         val visibleCardCount = request.visible_card_count
         if (visibleCardCount != null && visibleCardCount !in 0..12) {
             throw DomainException(
@@ -248,6 +261,7 @@ class TelemetryController(
         recordPromptSubmitMetrics(eventName, submitMethod, sourceTypeScope)
         recordPromptReuseMetrics(eventName, reuseRank, reuseAction, sourceTypeScope)
         recordErrorRecoveryMetrics(eventName, recoveryAction, sourceTypeScope)
+        recordContextInsertMetrics(eventName, contextField, sourceTypeScope)
         recordCardTypeFilterMetrics(eventName, targetSourceType, sourceTypeScope, visibleCardCount)
         recordCardListToggleMetrics(eventName, cardListState, sourceTypeScope, visibleCardCount)
         recordCardSaveMetrics(eventName, cardSaveState, targetSourceType, sourceTypeScope, savedCardCount)
@@ -476,6 +490,28 @@ class TelemetryController(
         ).increment()
     }
 
+    private fun recordContextInsertMetrics(
+        eventName: String,
+        contextField: String,
+        sourceTypeScope: String,
+    ) {
+        if (eventName != "ai_widget_context_insert_click" || contextField == "none") {
+            return
+        }
+        meterRegistry.counter(
+            "ai_widget_context_insert_field_total",
+            "field",
+            contextField,
+        ).increment()
+        meterRegistry.counter(
+            "ai_widget_context_insert_scope_total",
+            "field",
+            contextField,
+            "scope",
+            sourceTypeScope,
+        ).increment()
+    }
+
     private fun recordCardTypeFilterMetrics(
         eventName: String,
         targetSourceType: String,
@@ -694,11 +730,20 @@ class TelemetryController(
         return if (normalized in ALLOWED_RECOVERY_ACTIONS) normalized else "invalid"
     }
 
+    private fun normalizeContextField(rawContextField: String?): String {
+        val normalized = rawContextField?.trim()?.lowercase().orEmpty()
+        if (normalized.isBlank()) {
+            return "none"
+        }
+        return if (normalized in ALLOWED_CONTEXT_FIELDS) normalized else "invalid"
+    }
+
     companion object {
         private val ALLOWED_EVENTS = setOf(
             "ai_widget_open",
             "ai_widget_prompt_submit",
             "ai_widget_prompt_autopatch",
+            "ai_widget_context_insert_click",
             "ai_widget_prompt_reuse_click",
             "ai_widget_followup_click",
             "ai_widget_clarify_click",
@@ -818,6 +863,14 @@ class TelemetryController(
             "reset_scope",
             "dismiss",
         )
+
+        private val ALLOWED_CONTEXT_FIELDS = setOf(
+            "city",
+            "dates",
+            "guests",
+            "budget",
+            "scope",
+        )
     }
 }
 
@@ -841,6 +894,7 @@ data class TelemetryEventRequest(
     val reuse_action: String? = null,
     val submit_method: String? = null,
     val recovery_action: String? = null,
+    val context_field: String? = null,
     val visible_card_count: Int? = null,
     val target_source_type: String? = null,
     val card_list_state: String? = null,
