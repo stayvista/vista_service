@@ -10,7 +10,6 @@ import com.devoceanblue.stayvista.domain.payment.PaymentAuthorizationRequest
 import com.devoceanblue.stayvista.domain.payment.PaymentGateway
 import io.micrometer.core.instrument.MeterRegistry
 import java.sql.Date
-import java.sql.PreparedStatement
 import java.sql.Timestamp
 import java.time.Clock
 import java.time.Instant
@@ -144,6 +143,63 @@ class BookingService(
             throw DomainException(ErrorCode.NOT_FOUND, "Room type is not available")
         }
 
+        releaseExpiredHoldsForWindow(
+            roomTypeId = request.room_type_id,
+            checkIn = request.check_in,
+            checkOut = request.check_out,
+        )
+
+        val reusable = findReusableHold(
+            userId = userId,
+            roomTypeId = request.room_type_id,
+            checkIn = request.check_in,
+            checkOut = request.check_out,
+            rooms = request.rooms,
+        )
+        if (reusable != null) {
+            val refreshedExpiresAt = Instant.now(clock).plusSeconds(holdTtlMinutes * 60)
+            jdbcTemplate.update(
+                """
+                UPDATE booking
+                SET expires_at = ?,
+                    currency = ?,
+                    total_amount = ?,
+                    updated_at = NOW(3)
+                WHERE id = ?
+                """.trimIndent(),
+                Timestamp.from(refreshedExpiresAt),
+                request.price.currency,
+                request.price.amount_total,
+                reusable.id,
+            )
+            val heldNights = jdbcTemplate.query(
+                """
+                SELECT stay_date, rooms
+                FROM booking_night
+                WHERE booking_id = ?
+                ORDER BY stay_date
+                """.trimIndent(),
+                { rs, _ ->
+                    BookingNight(
+                        stay_date = rs.getDate("stay_date").toLocalDate(),
+                        rooms = rs.getInt("rooms"),
+                    )
+                },
+                reusable.id,
+            )
+            meterRegistry.counter("booking_hold_reused_total").increment()
+            return BookingHoldData(
+                booking_id = toBookingId(reusable.id),
+                status = "HOLD",
+                expires_at = refreshedExpiresAt.toString(),
+                hold = BookingHoldPayload(
+                    room_type_id = request.room_type_id,
+                    nights = heldNights,
+                ),
+                price_snapshot = request.price,
+            )
+        }
+
         nights.forEach { stayDate ->
             val affected = jdbcTemplate.update(
                 """
@@ -176,7 +232,7 @@ class BookingService(
                 INSERT INTO booking(user_id, property_id, room_type_id, check_in, check_out, rooms, status, expires_at, currency, total_amount, idempotency_key)
                 VALUES (?, ?, ?, ?, ?, ?, 'HOLD', ?, ?, ?, ?)
                 """.trimIndent(),
-                PreparedStatement.RETURN_GENERATED_KEYS,
+                arrayOf("id"),
             )
             ps.setLong(1, userId)
             ps.setLong(2, room.propertyId)
@@ -190,7 +246,7 @@ class BookingService(
             ps.setString(10, idempotencyKey)
             ps
         }, keyHolder)
-        val bookingId = keyHolder.key?.toLong() ?: throw DomainException(ErrorCode.INTERNAL, "Failed to create booking")
+        val bookingId = resolveGeneratedBookingId(keyHolder)
 
         nights.forEach { stayDate ->
             jdbcTemplate.update(
@@ -214,6 +270,62 @@ class BookingService(
             ),
             price_snapshot = request.price,
         )
+    }
+
+    private fun releaseExpiredHoldsForWindow(roomTypeId: Long, checkIn: LocalDate, checkOut: LocalDate) {
+        val expiredBookingIds = jdbcTemplate.query(
+            """
+            SELECT DISTINCT b.id
+            FROM booking b
+            JOIN booking_night bn ON bn.booking_id = b.id
+            WHERE b.status = 'HOLD'
+              AND b.room_type_id = ?
+              AND b.expires_at < NOW(3)
+              AND bn.stay_date >= ?
+              AND bn.stay_date < ?
+            ORDER BY b.id
+            LIMIT 100
+            """.trimIndent(),
+            { rs, _ -> rs.getLong("id") },
+            roomTypeId,
+            Date.valueOf(checkIn),
+            Date.valueOf(checkOut),
+        )
+        expiredBookingIds.forEach { expireHoldTx(it) }
+        if (expiredBookingIds.isNotEmpty()) {
+            meterRegistry.counter("booking_hold_expired_released_total").increment(expiredBookingIds.size.toDouble())
+        }
+    }
+
+    private fun findReusableHold(
+        userId: Long,
+        roomTypeId: Long,
+        checkIn: LocalDate,
+        checkOut: LocalDate,
+        rooms: Int,
+    ): ReusableHoldRow? {
+        return jdbcTemplate.query(
+            """
+            SELECT id
+            FROM booking
+            WHERE user_id = ?
+              AND room_type_id = ?
+              AND check_in = ?
+              AND check_out = ?
+              AND rooms = ?
+              AND status = 'HOLD'
+              AND expires_at > NOW(3)
+            ORDER BY expires_at DESC, id DESC
+            LIMIT 1
+            FOR UPDATE
+            """.trimIndent(),
+            { rs, _ -> ReusableHoldRow(id = rs.getLong("id")) },
+            userId,
+            roomTypeId,
+            Date.valueOf(checkIn),
+            Date.valueOf(checkOut),
+            rooms,
+        ).firstOrNull()
     }
 
     private fun confirmTx(userId: Long, bookingId: Long, request: BookingConfirmRequest): BookingConfirmData {
@@ -495,6 +607,28 @@ class BookingService(
         )
     }
 
+    private fun resolveGeneratedBookingId(keyHolder: GeneratedKeyHolder): Long {
+        keyHolder.key?.toLong()?.let { return it }
+
+        val fromSingle = keyHolder.keys?.entries
+            ?.firstOrNull { it.key.equals("id", ignoreCase = true) }
+            ?.value
+        if (fromSingle is Number) {
+            return fromSingle.toLong()
+        }
+
+        val fromRows = keyHolder.keyList
+            .asSequence()
+            .flatMap { it.entries.asSequence() }
+            .firstOrNull { it.key.equals("id", ignoreCase = true) }
+            ?.value
+        if (fromRows is Number) {
+            return fromRows.toLong()
+        }
+
+        throw DomainException(ErrorCode.INTERNAL, "Failed to create booking")
+    }
+
     private fun parseBookingId(rawBookingId: String): Long {
         return rawBookingId.removePrefix("bkg_").toLongOrNull()
             ?: throw DomainException(ErrorCode.VALIDATION_ERROR, "Invalid booking_id format")
@@ -584,4 +718,8 @@ private data class BookingCancelRow(
     val id: Long,
     val roomTypeId: Long,
     val status: String,
+)
+
+private data class ReusableHoldRow(
+    val id: Long,
 )

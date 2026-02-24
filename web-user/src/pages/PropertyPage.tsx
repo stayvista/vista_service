@@ -449,7 +449,7 @@ export function PropertyPage() {
             ? { tone: "low", label: "마감 임박", detail: `잔여 객실 ${room.available_rooms}개` }
             : room.available_rooms != null
               ? { tone: "available", label: "예약 가능", detail: `잔여 객실 ${room.available_rooms}개` }
-              : { tone: "available", label: "예약 가능", detail: "실시간 재고 연동" };
+              : { tone: "low", label: "재고 확인 필요", detail: "잔여 객실을 다시 확인해 주세요." };
 
       const plans: RoomPlan[] = (content?.plans ?? []).map((plan, planIndex) => {
         const listPriceKrw = Math.max(0, plan.list_price_krw);
@@ -474,13 +474,15 @@ export function PropertyPage() {
         room,
         score: Number((((property?.rating ?? 4.2) * 2)).toFixed(1)),
         availability,
-        isBookable: hasAvailabilitySignal && !soldOut,
+        isBookable: hasAvailabilitySignal
+          && room.is_available === true
+          && (room.available_rooms == null || room.available_rooms >= requestedRooms),
         media,
         specs,
         plans,
       };
     });
-  }, [children, fxRate, locale.currency, property?.rating, property?.thumbnail_url, roomContentByType, roomTypes]);
+  }, [children, fxRate, locale.currency, property?.rating, property?.thumbnail_url, requestedRooms, roomContentByType, roomTypes]);
 
   const roomOffers = useMemo<RoomOffer[]>(() => {
     return allRoomOffers;

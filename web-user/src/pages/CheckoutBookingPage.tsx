@@ -55,7 +55,7 @@ function describeStatus(status: string, hasError: boolean): StatusDescriptor {
   if (status.includes("재고 마감")) {
     return {
       title: "선택한 객실/요금이 마감되었습니다",
-      description: "결제 직전 재고 재검증 과정에서 다른 고객이 먼저 결제를 완료했습니다. 다른 객실 또는 날짜로 다시 진행해 주세요.",
+      description: "선택하신 객실이 방금 마감되었습니다. 다른 객실 또는 날짜로 다시 진행해 주세요.",
       tone: "warning",
     };
   }
@@ -689,9 +689,6 @@ export function CheckoutBookingPage() {
           >
             {primaryCtaLabel}
           </button>
-          <p className="checkout-note">
-            결제 직전 재고와 요금을 다시 확인합니다. 다른 고객이 먼저 결제를 완료하면 해당 요금은 마감될 수 있습니다.
-          </p>
         </div>
 
         <aside className="checkout-booking-side">
