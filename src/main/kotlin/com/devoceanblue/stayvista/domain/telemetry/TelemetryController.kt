@@ -108,6 +108,19 @@ class TelemetryController(
                 message = "reuse_rank must be between 1 and 5 for ai_widget_prompt_reuse_click",
             )
         }
+        val reuseAction = normalizeReuseAction(request.reuse_action)
+        if (eventName == "ai_widget_prompt_reuse_click" && reuseAction == "invalid") {
+            throw DomainException(
+                errorCode = ErrorCode.VALIDATION_ERROR,
+                message = "reuse_action must be draft or submit for ai_widget_prompt_reuse_click",
+            )
+        }
+        if (eventName == "ai_widget_prompt_reuse_click" && reuseAction == "none") {
+            throw DomainException(
+                errorCode = ErrorCode.VALIDATION_ERROR,
+                message = "reuse_action is required for ai_widget_prompt_reuse_click",
+            )
+        }
         val visibleCardCount = request.visible_card_count
         if (visibleCardCount != null && visibleCardCount !in 0..12) {
             throw DomainException(
@@ -212,7 +225,7 @@ class TelemetryController(
         recordQuickFixMetrics(eventName, clarifySlot, sourceTypeScope)
         recordAnswerCopyMetrics(eventName, sourceTypeScope)
         recordPromptAutopatchMetrics(eventName, autoPatchCount)
-        recordPromptReuseMetrics(eventName, reuseRank, sourceTypeScope)
+        recordPromptReuseMetrics(eventName, reuseRank, reuseAction, sourceTypeScope)
         recordCardTypeFilterMetrics(eventName, targetSourceType, sourceTypeScope, visibleCardCount)
         recordCardListToggleMetrics(eventName, cardListState, sourceTypeScope, visibleCardCount)
         recordCardSaveMetrics(eventName, cardSaveState, targetSourceType, sourceTypeScope, savedCardCount)
@@ -375,14 +388,24 @@ class TelemetryController(
         meterRegistry.summary("ai_widget_prompt_autopatch_field_count").record(autoPatchCount.toDouble())
     }
 
-    private fun recordPromptReuseMetrics(eventName: String, reuseRank: Int?, sourceTypeScope: String) {
-        if (eventName != "ai_widget_prompt_reuse_click" || reuseRank == null) {
+    private fun recordPromptReuseMetrics(
+        eventName: String,
+        reuseRank: Int?,
+        reuseAction: String,
+        sourceTypeScope: String,
+    ) {
+        if (eventName != "ai_widget_prompt_reuse_click" || reuseRank == null || reuseAction == "none") {
             return
         }
         meterRegistry.counter(
             "ai_widget_prompt_reuse_rank_total",
             "rank",
             reuseRank.toString(),
+        ).increment()
+        meterRegistry.counter(
+            "ai_widget_prompt_reuse_action_total",
+            "action",
+            reuseAction,
         ).increment()
         meterRegistry.counter(
             "ai_widget_prompt_reuse_scope_total",
@@ -585,6 +608,14 @@ class TelemetryController(
         return if (normalized in ALLOWED_CARD_SAVE_STATES) normalized else "invalid"
     }
 
+    private fun normalizeReuseAction(rawReuseAction: String?): String {
+        val normalized = rawReuseAction?.trim()?.lowercase().orEmpty()
+        if (normalized.isBlank()) {
+            return "none"
+        }
+        return if (normalized in ALLOWED_REUSE_ACTIONS) normalized else "invalid"
+    }
+
     companion object {
         private val ALLOWED_EVENTS = setOf(
             "ai_widget_open",
@@ -688,6 +719,11 @@ class TelemetryController(
             "saved",
             "unsaved",
         )
+
+        private val ALLOWED_REUSE_ACTIONS = setOf(
+            "draft",
+            "submit",
+        )
     }
 }
 
@@ -708,6 +744,7 @@ data class TelemetryEventRequest(
     val bulk_action: String? = null,
     val auto_patch_count: Int? = null,
     val reuse_rank: Int? = null,
+    val reuse_action: String? = null,
     val visible_card_count: Int? = null,
     val target_source_type: String? = null,
     val card_list_state: String? = null,

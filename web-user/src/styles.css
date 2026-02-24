@@ -735,6 +735,23 @@ button:disabled {
   gap: 6px;
 }
 
+.concierge-history-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.concierge-history-chip {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.concierge-history-run {
+  padding-inline: 10px;
+}
+
 .concierge-handoff-panel {
   border: 1px solid #d3e2f6;
   border-radius: 14px;

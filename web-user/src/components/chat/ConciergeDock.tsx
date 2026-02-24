@@ -119,6 +119,7 @@ type TelemetryEventName =
 type CardTypeFilter = "ALL" | "PROPERTY" | "PACKAGE" | "TICKET" | "POI";
 type CardListState = "expanded" | "collapsed";
 type CardSaveState = "saved" | "unsaved";
+type PromptReuseAction = "draft" | "submit";
 
 type ConciergeDockState = {
   open: boolean;
@@ -949,6 +950,42 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
     void ask(prompt, nextSourceTypes);
   }
 
+  function reusePromptFromHistory(prompt: string, rank: number, action: PromptReuseAction) {
+    track("ai_widget_prompt_reuse_click", "prompt_history", {
+      source_type_scope: sourceTypeScope(activeSourceTypes),
+      reuse_rank: rank,
+      reuse_action: action,
+    });
+
+    if (action === "draft") {
+      setMessage(prompt);
+      composerRef.current?.focus();
+      return;
+    }
+
+    const inferredPatch = inferSearchPatchFromPrompt(prompt);
+    const hasAutoPatch = patchFieldCount(inferredPatch) > 0;
+    const inferredSourceTypes = inferSourceTypesFromPrompt(prompt);
+    const nextSourceTypes = inferredSourceTypes.length > 0 ? inferredSourceTypes : activeSourceTypes;
+    if (inferredSourceTypes.length > 0) {
+      setActiveSourceTypes(nextSourceTypes);
+    }
+    setMessage("");
+    const scope = sourceTypeScope(nextSourceTypes);
+    const patchedContext = hasAutoPatch ? applySearchPatch(searchContext, inferredPatch) : searchContext;
+    if (hasAutoPatch) {
+      setAutopatchNotice(`자동 반영: ${describeSearchPatch(inferredPatch)}`);
+      track("ai_widget_prompt_autopatch", "prompt_history", {
+        source_type_scope: scope,
+        auto_patch_count: patchFieldCount(inferredPatch),
+      });
+    } else {
+      setAutopatchNotice("");
+    }
+    track("ai_widget_prompt_submit", "prompt_history", { source_type_scope: scope });
+    void ask(prompt, nextSourceTypes, patchedContext);
+  }
+
   function track(
     eventName: TelemetryEventName,
     source: string,
@@ -966,6 +1003,7 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
       bulk_action?: "select_all" | "clear_all";
       auto_patch_count?: number;
       reuse_rank?: number;
+      reuse_action?: PromptReuseAction;
       visible_card_count?: number;
       card_list_state?: CardListState;
       card_save_state?: CardSaveState;
@@ -1166,23 +1204,25 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
             <p className="concierge-history-title">최근 요청 다시 쓰기</p>
             <div className="concierge-history-list">
               {recentUserPrompts.map((prompt, index) => (
-                <button
-                  key={`${prompt}-${index}`}
-                  type="button"
-                  className="chip-btn"
-                  disabled={loading}
-                  onClick={() => {
-                    setMessage(prompt);
-                    composerRef.current?.focus();
-                    track("ai_widget_prompt_reuse_click", "prompt_history", {
-                      source_type_scope: sourceTypeScope(activeSourceTypes),
-                      reuse_rank: index + 1,
-                    });
-                  }}
-                  title={prompt}
-                >
-                  {prompt.length > 24 ? `${prompt.slice(0, 24)}...` : prompt}
-                </button>
+                <div key={`${prompt}-${index}`} className="concierge-history-item">
+                  <button
+                    type="button"
+                    className="chip-btn concierge-history-chip"
+                    disabled={loading}
+                    onClick={() => reusePromptFromHistory(prompt, index + 1, "draft")}
+                    title={prompt}
+                  >
+                    {prompt.length > 24 ? `${prompt.slice(0, 24)}...` : prompt}
+                  </button>
+                  <button
+                    type="button"
+                    className="chip-btn concierge-history-run"
+                    disabled={loading}
+                    onClick={() => reusePromptFromHistory(prompt, index + 1, "submit")}
+                  >
+                    실행
+                  </button>
+                </div>
               ))}
             </div>
           </section>
@@ -2356,6 +2396,7 @@ async function sendWidgetTelemetry(payload: {
   bulk_action?: "select_all" | "clear_all";
   auto_patch_count?: number;
   reuse_rank?: number;
+  reuse_action?: PromptReuseAction;
   visible_card_count?: number;
   card_list_state?: CardListState;
   card_save_state?: CardSaveState;

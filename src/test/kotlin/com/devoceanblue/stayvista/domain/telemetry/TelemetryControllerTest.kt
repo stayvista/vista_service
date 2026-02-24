@@ -331,6 +331,7 @@ class TelemetryControllerTest {
                 route = "LLM",
                 source_type_scope = "PROPERTY",
                 reuse_rank = 1,
+                reuse_action = "submit",
             ),
         )
 
@@ -341,6 +342,13 @@ class TelemetryControllerTest {
             1.0,
             meterRegistry.get("ai_widget_prompt_reuse_rank_total")
                 .tag("rank", "1")
+                .counter()
+                .count(),
+        )
+        assertEquals(
+            1.0,
+            meterRegistry.get("ai_widget_prompt_reuse_action_total")
+                .tag("action", "submit")
                 .counter()
                 .count(),
         )
@@ -694,6 +702,38 @@ class TelemetryControllerTest {
                     event_name = "ai_widget_prompt_reuse_click",
                     source = "prompt_history",
                     reuse_rank = 7,
+                    reuse_action = "draft",
+                ),
+            )
+        }
+
+        assertEquals(ErrorCode.VALIDATION_ERROR, exception.errorCode)
+    }
+
+    @Test
+    fun `ingest should reject prompt reuse without action`() {
+        val exception = assertThrows<DomainException> {
+            controller.ingest(
+                TelemetryEventRequest(
+                    event_name = "ai_widget_prompt_reuse_click",
+                    source = "prompt_history",
+                    reuse_rank = 1,
+                ),
+            )
+        }
+
+        assertEquals(ErrorCode.VALIDATION_ERROR, exception.errorCode)
+    }
+
+    @Test
+    fun `ingest should reject invalid prompt reuse action`() {
+        val exception = assertThrows<DomainException> {
+            controller.ingest(
+                TelemetryEventRequest(
+                    event_name = "ai_widget_prompt_reuse_click",
+                    source = "prompt_history",
+                    reuse_rank = 1,
+                    reuse_action = "rerun",
                 ),
             )
         }
