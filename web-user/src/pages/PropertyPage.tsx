@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { apiGet, apiPost } from "../api/client";
 import { getAuthUser } from "../auth/session";
+import { verifyServerSession } from "../auth/serverSession";
 import { useLocale } from "../components/locale/LocaleContext";
 
 type PropertyCodeLabel = {
@@ -646,6 +647,12 @@ export function PropertyPage() {
   async function handleBookNow(offer: RoomOffer, plan: RoomPlan) {
     if (!offer.isBookable || !property) return;
     if (!getAuthUser()) {
+      navigate(`/login?next=${encodeURIComponent(currentPathWithQuery)}`);
+      return;
+    }
+    const sessionState = await verifyServerSession();
+    if (sessionState === "unauthorized") {
+      setHoldErrorMessage("세션이 만료되어 다시 로그인해 주세요.");
       navigate(`/login?next=${encodeURIComponent(currentPathWithQuery)}`);
       return;
     }

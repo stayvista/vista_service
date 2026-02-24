@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { apiGet, apiPost } from "../api/client";
+import { verifyServerSession } from "../auth/serverSession";
 import { toFriendlyCheckoutError, type CheckoutApiError } from "./checkoutErrorMessage";
 
 type HoldResponse = {
@@ -246,6 +247,17 @@ export function CheckoutPackagePage() {
     navigate(`/login?next=${encodeURIComponent(next)}`);
   }
 
+  async function ensureServerSession(): Promise<boolean> {
+    const state = await verifyServerSession();
+    if (state === "unauthorized") {
+      setStatus("로그인 필요");
+      setError("세션이 만료되어 다시 로그인해 주세요.");
+      moveToLogin();
+      return false;
+    }
+    return true;
+  }
+
   function resetQueue() {
     setQueueTicket(null);
     setQueuePosition(null);
@@ -306,6 +318,9 @@ export function CheckoutPackagePage() {
   }
 
   async function hold() {
+    if (!(await ensureServerSession())) {
+      return;
+    }
     resetQueue();
     setError(null);
     setPackageOrderId(null);
@@ -374,6 +389,9 @@ export function CheckoutPackagePage() {
 
   async function confirm() {
     if (!packageOrderId || remainingSeconds === 0) return;
+    if (!(await ensureServerSession())) {
+      return;
+    }
     setError(null);
     setStatus("CONFIRM 진행 중");
     try {

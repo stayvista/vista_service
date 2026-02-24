@@ -11,6 +11,7 @@ import jakarta.servlet.http.HttpServletResponse
 import jakarta.servlet.http.HttpServletRequestWrapper
 import java.util.Collections
 import java.util.Enumeration
+import io.micrometer.core.instrument.MeterRegistry
 import org.springframework.core.Ordered
 import org.springframework.core.annotation.Order
 import org.springframework.stereotype.Component
@@ -22,6 +23,7 @@ import tools.jackson.databind.ObjectMapper
 class AuthGuardFilter(
     private val objectMapper: ObjectMapper,
     private val redisSessionService: RedisSessionService,
+    private val meterRegistry: MeterRegistry,
 ) : OncePerRequestFilter() {
     override fun doFilterInternal(
         request: HttpServletRequest,
@@ -57,6 +59,13 @@ class AuthGuardFilter(
 
         if (requiresUserAuth(method, path)) {
             val principal = resolvePrincipal(request) ?: run {
+                meterRegistry.counter(
+                    "auth_guard_reject_total",
+                    "reason",
+                    "missing_or_invalid_token",
+                    "path_group",
+                    pathGroup(path),
+                ).increment()
                 writeError(response, ErrorCode.UNAUTHORIZED, "Session access token is required")
                 return
             }
@@ -115,6 +124,16 @@ class AuthGuardFilter(
     private fun resolvePrincipal(request: HttpServletRequest): AuthPrincipal? {
         val token = redisSessionService.extractBearerToken(request.getHeader("Authorization")) ?: return null
         return redisSessionService.resolvePrincipal(token)
+    }
+
+    private fun pathGroup(path: String): String {
+        return when {
+            path.startsWith("/v1/bookings/") -> "bookings"
+            path.startsWith("/v1/me/") -> "me"
+            path.startsWith("/v1/tickets/orders/") -> "ticket_orders"
+            path.startsWith("/v1/packages/") -> "packages"
+            else -> "other"
+        }
     }
 
     private fun writeError(response: HttpServletResponse, errorCode: ErrorCode, message: String) {

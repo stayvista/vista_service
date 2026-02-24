@@ -22,6 +22,7 @@ import { useLocale } from "./components/locale/LocaleContext";
 import { ConciergeDock, type SearchHandoffPayload } from "./components/chat/ConciergeDock";
 import { getStaySearchInput, setStaySearchParams } from "./components/search/searchState";
 import type { StaySearchInput } from "./components/search/searchTypes";
+import { verifyServerSession } from "./auth/serverSession";
 
 const navItems = [
   { to: "/search", label: "숙소" },
@@ -65,6 +66,33 @@ export function App() {
       window.removeEventListener("visibilitychange", syncAuthUser);
     };
   }, []);
+
+  useEffect(() => {
+    if (!authUser) return;
+    let cancelled = false;
+    const runProbe = async () => {
+      const state = await verifyServerSession();
+      if (cancelled) return;
+      if (state === "unauthorized") {
+        setAuthUser(getAuthUser());
+      }
+    };
+    const onFocus = () => {
+      void runProbe();
+    };
+
+    void runProbe();
+    const timer = window.setInterval(() => {
+      void runProbe();
+    }, 60_000);
+    window.addEventListener("focus", onFocus);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+      window.removeEventListener("focus", onFocus);
+    };
+  }, [authUser?.userId]);
 
   const handleConciergeSearch = useCallback(
     (next: StaySearchInput, handoff?: SearchHandoffPayload) => {

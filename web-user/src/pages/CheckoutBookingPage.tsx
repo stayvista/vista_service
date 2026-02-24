@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { apiGet, apiPost } from "../api/client";
+import { verifyServerSession } from "../auth/serverSession";
 import { toFriendlyCheckoutError, type CheckoutApiError } from "./checkoutErrorMessage";
 
 type QueueJoinData = {
@@ -260,6 +261,17 @@ export function CheckoutBookingPage() {
     navigate(`/login?next=${encodeURIComponent(next)}`);
   }
 
+  async function ensureServerSession(): Promise<boolean> {
+    const state = await verifyServerSession();
+    if (state === "unauthorized") {
+      setStatus("로그인 필요");
+      setError("세션이 만료되어 다시 로그인해 주세요.");
+      moveToLogin();
+      return false;
+    }
+    return true;
+  }
+
   function toggleAgreeAll(next: boolean) {
     setAgreeAll(next);
     setAgreeTerms(next);
@@ -423,6 +435,9 @@ export function CheckoutBookingPage() {
   }
 
   async function createHold() {
+    if (!(await ensureServerSession())) {
+      return;
+    }
     resetQueueState();
     setError(null);
     setBookingId(null);
@@ -458,6 +473,9 @@ export function CheckoutBookingPage() {
 
   async function confirm() {
     if (!bookingId || remainingSeconds === 0) return;
+    if (!(await ensureServerSession())) {
+      return;
+    }
     setError(null);
     setStatus("결제 처리 중");
     try {
