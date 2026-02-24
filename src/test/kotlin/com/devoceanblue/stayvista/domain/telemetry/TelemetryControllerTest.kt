@@ -416,6 +416,67 @@ class TelemetryControllerTest {
     }
 
     @Test
+    fun `ingest should accept context sync telemetry event`() {
+        val response = controller.ingest(
+            TelemetryEventRequest(
+                event_name = "ai_widget_context_sync_click",
+                source = "context_sync",
+                route = "LLM",
+                source_type_scope = "PROPERTY,PACKAGE",
+                sync_mode = "rerun_last_prompt",
+            ),
+        )
+
+        assertTrue(response.data.accepted)
+        assertEquals("ai_widget_context_sync_click", response.data.event_name)
+        assertEquals(1.0, meterRegistry.get("ai_widget_context_sync_click_total").counter().count())
+        assertEquals(
+            1.0,
+            meterRegistry.get("ai_widget_context_sync_mode_total")
+                .tag("mode", "rerun_last_prompt")
+                .counter()
+                .count(),
+        )
+        assertEquals(
+            1.0,
+            meterRegistry.get("ai_widget_context_sync_scope_total")
+                .tag("mode", "rerun_last_prompt")
+                .tag("scope", "PROPERTY+PACKAGE")
+                .counter()
+                .count(),
+        )
+    }
+
+    @Test
+    fun `ingest should reject context sync without sync mode`() {
+        val exception = assertThrows<DomainException> {
+            controller.ingest(
+                TelemetryEventRequest(
+                    event_name = "ai_widget_context_sync_click",
+                    source = "context_sync",
+                ),
+            )
+        }
+
+        assertEquals(ErrorCode.VALIDATION_ERROR, exception.errorCode)
+    }
+
+    @Test
+    fun `ingest should reject invalid context sync mode`() {
+        val exception = assertThrows<DomainException> {
+            controller.ingest(
+                TelemetryEventRequest(
+                    event_name = "ai_widget_context_sync_click",
+                    source = "context_sync",
+                    sync_mode = "auto_refresh",
+                ),
+            )
+        }
+
+        assertEquals(ErrorCode.VALIDATION_ERROR, exception.errorCode)
+    }
+
+    @Test
     fun `ingest should accept prompt reuse telemetry event`() {
         val response = controller.ingest(
             TelemetryEventRequest(

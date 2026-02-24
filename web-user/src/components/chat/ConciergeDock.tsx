@@ -77,6 +77,15 @@ type ChatMessage = {
   text: string;
 };
 
+type ContextSnapshot = {
+  city: string;
+  checkIn: string;
+  checkOut: string;
+  rooms: number;
+  adults: number;
+  children: number;
+};
+
 type ApiError = {
   code?: string;
   message?: string;
@@ -95,6 +104,7 @@ type TelemetryEventName =
   | "ai_widget_prompt_submit"
   | "ai_widget_prompt_autopatch"
   | "ai_widget_context_insert_click"
+  | "ai_widget_context_sync_click"
   | "ai_widget_prompt_reuse_click"
   | "ai_widget_followup_click"
   | "ai_widget_clarify_click"
@@ -125,6 +135,7 @@ type PromptReuseAction = "draft" | "submit";
 type PromptSubmitMethod = "button" | "keyboard_enter" | "keyboard_shortcut" | "history_submit";
 type ErrorRecoveryAction = "retry" | "restore_draft" | "reset_scope" | "dismiss";
 type ContextInsertField = "city" | "dates" | "guests" | "budget" | "scope";
+type ContextSyncMode = "rerun_last_prompt" | "context_only";
 
 type ConciergeDockState = {
   open: boolean;
@@ -152,6 +163,7 @@ type ConciergeDockState = {
   handoffFilters: SearchHandoffFilter[];
   selectedHandoffFilterKeys: string[];
   savedCards: ChatCard[];
+  lastContextSnapshot: ContextSnapshot | null;
 };
 
 const SOURCE_TYPE_FILTERS: Record<string, readonly string[]> = {
@@ -252,6 +264,7 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
   const [handoffFilters, setHandoffFilters] = useState<SearchHandoffFilter[]>(restoredState.handoffFilters);
   const [selectedHandoffFilterKeys, setSelectedHandoffFilterKeys] = useState<string[]>(restoredState.selectedHandoffFilterKeys);
   const [savedCards, setSavedCards] = useState<ChatCard[]>(restoredState.savedCards);
+  const [lastContextSnapshot, setLastContextSnapshot] = useState<ContextSnapshot | null>(restoredState.lastContextSnapshot);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copyDone, setCopyDone] = useState(false);
@@ -261,6 +274,7 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
 
   const canSubmit = useMemo(() => message.trim().length > 0 && !loading, [loading, message]);
   const cityLabel = (searchContext.placeLabel || searchContext.city || "서울").trim();
+  const currentContextSnapshot = useMemo(() => buildContextSnapshot(searchContext), [searchContext]);
   const nights = useMemo(() => getNightCount(searchContext.checkIn, searchContext.checkOut), [searchContext.checkIn, searchContext.checkOut]);
   const quickPrompts = useMemo(() => [
     {
@@ -475,6 +489,12 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
     }
     return `검색 적용 전에 ${describeMissingSlots(handoffMissingSlots)} 정보를 먼저 알려주세요.`;
   }, [handoffClarifyRequired, handoffMissingSlots]);
+  const contextDiffLabels = useMemo(
+    () => describeContextDiff(lastContextSnapshot, currentContextSnapshot),
+    [currentContextSnapshot, lastContextSnapshot],
+  );
+  const contextChanged = contextDiffLabels.length > 0;
+  const shouldShowContextSync = contextChanged && (messages.length > 0 || !!answer || !!lastPrompt);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -582,6 +602,7 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
       handoffFilters: handoffFilters.slice(0, 8),
       selectedHandoffFilterKeys: selectedHandoffFilterKeys.slice(0, 8),
       savedCards: savedCards.slice(0, 12),
+      lastContextSnapshot,
     });
   }, [
     open,
@@ -609,6 +630,7 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
     handoffFilters,
     selectedHandoffFilterKeys,
     savedCards,
+    lastContextSnapshot,
   ]);
 
   function resetConversation() {
@@ -642,6 +664,7 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
     setAutopatchNotice("");
     setSelectedCardType("ALL");
     setExpandedCards(false);
+    setLastContextSnapshot(null);
   }
 
   async function ask(
@@ -653,7 +676,9 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
     const controller = new AbortController();
     abortRef.current = controller;
     const normalizedSourceTypes = normalizeSourceTypes(sourceTypes);
+    const contextForRequest = searchContextOverride ?? searchContext;
     setActiveSourceTypes(normalizedSourceTypes);
+    setLastContextSnapshot(buildContextSnapshot(contextForRequest));
     setLoading(true);
     setError(null);
     setAnswer("");
@@ -683,7 +708,7 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
 
     const payload = {
       message: input,
-      context: buildChatContext(searchContextOverride ?? searchContext, normalizedSourceTypes),
+      context: buildChatContext(contextForRequest, normalizedSourceTypes),
     };
 
     try {
@@ -1101,6 +1126,42 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
     });
   }
 
+  function syncWithLatestContext(mode: ContextSyncMode) {
+    const summary = formatContextSnapshot(currentContextSnapshot);
+    track("ai_widget_context_sync_click", "context_sync", {
+      sync_mode: mode,
+      source_type_scope: sourceTypeScope(activeSourceTypes),
+    });
+
+    if (mode === "context_only") {
+      setMessage((prev) => {
+        const normalized = prev.trimEnd();
+        const snippet = `최신 조건: ${summary}`;
+        if (normalized.includes(snippet)) {
+          return prev;
+        }
+        return normalized.length > 0 ? `${normalized}\n${snippet}` : snippet;
+      });
+      setError(null);
+      requestAnimationFrame(() => {
+        const composer = composerRef.current;
+        if (!composer) {
+          return;
+        }
+        composer.focus();
+        const caret = composer.value.length;
+        composer.setSelectionRange(caret, caret);
+      });
+      return;
+    }
+
+    const basePrompt = lastPrompt.trim() || `현재 조건 기준으로 추천해줘`;
+    const syncPrompt = basePrompt.includes("최신 조건:")
+      ? basePrompt.replace(/최신 조건:.*/g, `최신 조건: ${summary}`)
+      : `${basePrompt}\n최신 조건: ${summary}`;
+    void ask(syncPrompt, activeSourceTypes, searchContext);
+  }
+
   function track(
     eventName: TelemetryEventName,
     source: string,
@@ -1126,6 +1187,7 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
       card_save_state?: CardSaveState;
       saved_card_count?: number;
       context_field?: ContextInsertField;
+      sync_mode?: ContextSyncMode;
     },
   ) {
     const payload = {
@@ -1275,6 +1337,38 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
           <span>{searchContext.checkIn} ~ {searchContext.checkOut}</span>
           <span>객실 {searchContext.guests.rooms} · 성인 {searchContext.guests.adults} · 아동 {searchContext.guests.children}</span>
         </div>
+        {shouldShowContextSync && lastContextSnapshot && (
+          <section className="concierge-context-sync">
+            <p className="concierge-context-sync-title">검색 조건이 변경됐습니다</p>
+            <p className="concierge-context-sync-desc">
+              변경 항목: {contextDiffLabels.join(" · ")}
+            </p>
+            <p className="concierge-context-sync-detail">
+              이전: {formatContextSnapshot(lastContextSnapshot)}
+            </p>
+            <p className="concierge-context-sync-detail">
+              현재: {formatContextSnapshot(currentContextSnapshot)}
+            </p>
+            <div className="concierge-context-sync-actions">
+              <button
+                type="button"
+                className="chip-btn"
+                disabled={loading}
+                onClick={() => syncWithLatestContext("rerun_last_prompt")}
+              >
+                최신 조건으로 재추천
+              </button>
+              <button
+                type="button"
+                className="chip-btn"
+                disabled={loading}
+                onClick={() => syncWithLatestContext("context_only")}
+              >
+                최신 조건만 입력
+              </button>
+            </div>
+          </section>
+        )}
 
         <section className="concierge-slot-check">
           <div className="concierge-slot-head">
@@ -2321,6 +2415,39 @@ function companionsByGuests(searchContext: StaySearchInput): string {
   return "FRIENDS";
 }
 
+function buildContextSnapshot(searchContext: StaySearchInput): ContextSnapshot {
+  const normalizedCity = normalizeCityCode(searchContext.city ?? searchContext.placeLabel ?? "");
+  return {
+    city: normalizedCity ? cityLabelFromCode(normalizedCity) : (searchContext.placeLabel || searchContext.city || "서울"),
+    checkIn: searchContext.checkIn,
+    checkOut: searchContext.checkOut,
+    rooms: searchContext.guests.rooms,
+    adults: searchContext.guests.adults,
+    children: searchContext.guests.children,
+  };
+}
+
+function formatContextSnapshot(snapshot: ContextSnapshot): string {
+  return `${snapshot.city} · ${snapshot.checkIn}~${snapshot.checkOut} · 객실 ${snapshot.rooms} · 성인 ${snapshot.adults} · 아동 ${snapshot.children}`;
+}
+
+function describeContextDiff(previous: ContextSnapshot | null, current: ContextSnapshot): string[] {
+  if (!previous) {
+    return [];
+  }
+  const changed: string[] = [];
+  if (previous.city.trim().toLowerCase() !== current.city.trim().toLowerCase()) {
+    changed.push("도시");
+  }
+  if (previous.checkIn !== current.checkIn || previous.checkOut !== current.checkOut) {
+    changed.push("일정");
+  }
+  if (previous.rooms !== current.rooms || previous.adults !== current.adults || previous.children !== current.children) {
+    changed.push("인원");
+  }
+  return changed;
+}
+
 function getNightCount(checkIn: string, checkOut: string): number {
   const start = new Date(`${checkIn}T00:00:00Z`).getTime();
   const end = new Date(`${checkOut}T00:00:00Z`).getTime();
@@ -2358,6 +2485,7 @@ function emptyDockState(): ConciergeDockState {
     handoffFilters: [],
     selectedHandoffFilterKeys: [],
     savedCards: [],
+    lastContextSnapshot: null,
   };
 }
 
@@ -2433,10 +2561,36 @@ function loadConciergeDockState(): ConciergeDockState {
         ? parsed.selectedHandoffFilterKeys.filter((item) => typeof item === "string").slice(0, 8)
         : [],
       savedCards: Array.isArray(parsed.savedCards) ? parsed.savedCards.filter(isCard).slice(0, 12) : [],
+      lastContextSnapshot: parseContextSnapshot(parsed.lastContextSnapshot),
     };
   } catch {
     return defaults;
   }
+}
+
+function parseContextSnapshot(value: unknown): ContextSnapshot | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+  const row = value as Record<string, unknown>;
+  if (
+    typeof row.city !== "string"
+    || typeof row.checkIn !== "string"
+    || typeof row.checkOut !== "string"
+    || typeof row.rooms !== "number"
+    || typeof row.adults !== "number"
+    || typeof row.children !== "number"
+  ) {
+    return null;
+  }
+  return {
+    city: row.city,
+    checkIn: row.checkIn,
+    checkOut: row.checkOut,
+    rooms: row.rooms,
+    adults: row.adults,
+    children: row.children,
+  };
 }
 
 function saveConciergeDockState(state: ConciergeDockState): void {
@@ -2577,6 +2731,7 @@ async function sendWidgetTelemetry(payload: {
   card_save_state?: CardSaveState;
   saved_card_count?: number;
   context_field?: ContextInsertField;
+  sync_mode?: ContextSyncMode;
 }) {
   const token = getAuthBearerToken();
   try {

@@ -154,6 +154,19 @@ class TelemetryController(
                 message = "context_field is required for ai_widget_context_insert_click",
             )
         }
+        val syncMode = normalizeSyncMode(request.sync_mode)
+        if (eventName == "ai_widget_context_sync_click" && syncMode == "invalid") {
+            throw DomainException(
+                errorCode = ErrorCode.VALIDATION_ERROR,
+                message = "sync_mode must be rerun_last_prompt or context_only for ai_widget_context_sync_click",
+            )
+        }
+        if (eventName == "ai_widget_context_sync_click" && syncMode == "none") {
+            throw DomainException(
+                errorCode = ErrorCode.VALIDATION_ERROR,
+                message = "sync_mode is required for ai_widget_context_sync_click",
+            )
+        }
         val visibleCardCount = request.visible_card_count
         if (visibleCardCount != null && visibleCardCount !in 0..12) {
             throw DomainException(
@@ -262,6 +275,7 @@ class TelemetryController(
         recordPromptReuseMetrics(eventName, reuseRank, reuseAction, sourceTypeScope)
         recordErrorRecoveryMetrics(eventName, recoveryAction, sourceTypeScope)
         recordContextInsertMetrics(eventName, contextField, sourceTypeScope)
+        recordContextSyncMetrics(eventName, syncMode, sourceTypeScope)
         recordCardTypeFilterMetrics(eventName, targetSourceType, sourceTypeScope, visibleCardCount)
         recordCardListToggleMetrics(eventName, cardListState, sourceTypeScope, visibleCardCount)
         recordCardSaveMetrics(eventName, cardSaveState, targetSourceType, sourceTypeScope, savedCardCount)
@@ -512,6 +526,28 @@ class TelemetryController(
         ).increment()
     }
 
+    private fun recordContextSyncMetrics(
+        eventName: String,
+        syncMode: String,
+        sourceTypeScope: String,
+    ) {
+        if (eventName != "ai_widget_context_sync_click" || syncMode == "none") {
+            return
+        }
+        meterRegistry.counter(
+            "ai_widget_context_sync_mode_total",
+            "mode",
+            syncMode,
+        ).increment()
+        meterRegistry.counter(
+            "ai_widget_context_sync_scope_total",
+            "mode",
+            syncMode,
+            "scope",
+            sourceTypeScope,
+        ).increment()
+    }
+
     private fun recordCardTypeFilterMetrics(
         eventName: String,
         targetSourceType: String,
@@ -738,12 +774,21 @@ class TelemetryController(
         return if (normalized in ALLOWED_CONTEXT_FIELDS) normalized else "invalid"
     }
 
+    private fun normalizeSyncMode(rawSyncMode: String?): String {
+        val normalized = rawSyncMode?.trim()?.lowercase().orEmpty()
+        if (normalized.isBlank()) {
+            return "none"
+        }
+        return if (normalized in ALLOWED_SYNC_MODES) normalized else "invalid"
+    }
+
     companion object {
         private val ALLOWED_EVENTS = setOf(
             "ai_widget_open",
             "ai_widget_prompt_submit",
             "ai_widget_prompt_autopatch",
             "ai_widget_context_insert_click",
+            "ai_widget_context_sync_click",
             "ai_widget_prompt_reuse_click",
             "ai_widget_followup_click",
             "ai_widget_clarify_click",
@@ -785,6 +830,7 @@ class TelemetryController(
             "results_card",
             "saved_card",
             "error_panel",
+            "context_sync",
         )
 
         private val ALLOWED_SOURCE_TYPES = setOf(
@@ -871,6 +917,11 @@ class TelemetryController(
             "budget",
             "scope",
         )
+
+        private val ALLOWED_SYNC_MODES = setOf(
+            "rerun_last_prompt",
+            "context_only",
+        )
     }
 }
 
@@ -895,6 +946,7 @@ data class TelemetryEventRequest(
     val submit_method: String? = null,
     val recovery_action: String? = null,
     val context_field: String? = null,
+    val sync_mode: String? = null,
     val visible_card_count: Int? = null,
     val target_source_type: String? = null,
     val card_list_state: String? = null,
