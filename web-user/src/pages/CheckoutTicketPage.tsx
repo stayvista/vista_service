@@ -59,7 +59,7 @@ function describeStatus(status: string, hasError: boolean): StatusDescriptor {
   if (status.includes("재고 마감")) {
     return {
       title: "선택한 회차가 마감되었습니다",
-      description: "결제 직전 재고 재검증 과정에서 다른 고객이 먼저 결제를 완료했습니다. 다른 회차를 선택해 주세요.",
+      description: "다른 고객이 먼저 결제를 완료해 선택한 회차가 마감되었습니다. 다른 회차를 선택해 주세요.",
       tone: "warning",
     };
   }

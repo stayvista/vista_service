@@ -57,7 +57,7 @@ export function toFriendlyCheckoutError(
   if (stage === "confirm" && (SOLD_OUT_CODES.has(code) || soldOutByMessage)) {
     return {
       status: "재고 마감",
-      message: `결제 직전 재고 재검증 중 다른 고객이 먼저 결제를 완료했습니다. 선택하신 ${flowItemLabel(flow)}은(는) 현재 마감되어 다른 옵션을 선택해 주세요.`,
+      message: `다른 고객이 먼저 결제를 완료해 선택하신 ${flowItemLabel(flow)}은(는) 현재 마감되었습니다. 다른 옵션을 선택해 주세요.`,
     };
   }
 

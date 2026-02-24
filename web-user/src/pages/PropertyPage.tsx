@@ -264,6 +264,56 @@ export function PropertyPage() {
   useEffect(() => {
     if (!id) return;
     let cancelled = false;
+
+    const refreshRoomTypes = async () => {
+      try {
+        const latestRoomTypes = await fetchRoomTypesSnapshot();
+        if (cancelled || latestRoomTypes.length === 0) return;
+        setRoomTypes((prev) => {
+          const sameAvailability =
+            prev.length === latestRoomTypes.length &&
+            prev.every((room, index) => {
+              const next = latestRoomTypes[index];
+              return (
+                room.room_type_id === next.room_type_id &&
+                room.is_available === next.is_available &&
+                room.available_rooms === next.available_rooms
+              );
+            });
+          return sameAvailability ? prev : latestRoomTypes;
+        });
+      } catch {
+        // 주기 동기화 실패는 다음 주기에서 재시도한다.
+      }
+    };
+
+    const pollId = window.setInterval(() => {
+      void refreshRoomTypes();
+    }, 15000);
+
+    const handleFocus = () => {
+      void refreshRoomTypes();
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        void refreshRoomTypes();
+      }
+    };
+
+    window.addEventListener("focus", handleFocus);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(pollId);
+      window.removeEventListener("focus", handleFocus);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [fetchRoomTypesSnapshot, id]);
+
+  useEffect(() => {
+    if (!id) return;
+    let cancelled = false;
     setLoading(true);
     setError(null);
 

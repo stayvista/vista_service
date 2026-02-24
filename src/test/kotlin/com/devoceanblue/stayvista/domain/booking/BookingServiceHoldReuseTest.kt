@@ -1,11 +1,14 @@
 package com.devoceanblue.stayvista.domain.booking
 
+import com.devoceanblue.stayvista.common.api.DomainException
+import com.devoceanblue.stayvista.common.api.ErrorCode
 import java.sql.Timestamp
 import java.time.Instant
 import java.time.LocalDate
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotEquals
+import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
@@ -231,6 +234,53 @@ class BookingServiceHoldReuseTest {
                 Int::class.java,
             ),
         )
+    }
+
+    @Test
+    fun `reused hold should confirm once and prevent second hold when inventory is fully sold`() {
+        val request = holdRequest()
+        val first = bookingService.createHold(1001L, "hold-reuse-confirm-1", request)
+        val reused = bookingService.createHold(1001L, "hold-reuse-confirm-2", request)
+        assertEquals(first.booking_id, reused.booking_id)
+
+        val confirmed = bookingService.confirm(
+            userId = 1001L,
+            rawBookingId = first.booking_id,
+            idempotencyKey = "confirm-reuse-confirm-1",
+            request = BookingConfirmRequest(
+                payment_method = "CARD",
+                payment_token = "ok-token",
+            ),
+        )
+        assertEquals("BOOKED", confirmed.status)
+
+        assertEquals(
+            0,
+            jdbcTemplate.queryForObject(
+                "SELECT hold FROM inventory_night WHERE room_type_id = 90001 AND stay_date = DATE '2026-03-02'",
+                Int::class.java,
+            ),
+        )
+        assertEquals(
+            1,
+            jdbcTemplate.queryForObject(
+                "SELECT sold FROM inventory_night WHERE room_type_id = 90001 AND stay_date = DATE '2026-03-02'",
+                Int::class.java,
+            ),
+        )
+        assertEquals(
+            "CONFIRMED",
+            jdbcTemplate.queryForObject(
+                "SELECT status FROM booking WHERE id = ?",
+                String::class.java,
+                first.booking_id.removePrefix("bkg_").toLong(),
+            ),
+        )
+
+        val overbooked = assertThrows(DomainException::class.java) {
+            bookingService.createHold(1001L, "hold-reuse-confirm-3", request)
+        }
+        assertEquals(ErrorCode.BOOKING_OVERBOOKED, overbooked.errorCode)
     }
 
     private fun holdRequest(): BookingHoldRequest {

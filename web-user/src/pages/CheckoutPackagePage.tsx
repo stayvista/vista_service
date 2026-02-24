@@ -72,7 +72,7 @@ function describeStatus(status: string, hasError: boolean): StatusDescriptor {
   if (status.includes("재고 마감")) {
     return {
       title: "선택한 구성이 마감되었습니다",
-      description: "결제 직전 재고 재검증 중 다른 고객이 먼저 결제를 완료해 일부 구성 상품이 마감되었습니다.",
+      description: "다른 고객이 먼저 결제를 완료해 선택한 구성 일부가 마감되었습니다.",
       tone: "warning",
     };
   }
