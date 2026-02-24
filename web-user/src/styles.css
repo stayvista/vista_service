@@ -1231,6 +1231,18 @@ button:disabled {
   justify-content: center;
 }
 
+.concierge-cta-warning {
+  margin: 0;
+  border: 1px solid #f3d9b4;
+  border-radius: 10px;
+  background: #fff7ec;
+  color: #8a5410;
+  font-size: 0.74rem;
+  font-weight: 700;
+  line-height: 1.35;
+  padding: 7px 9px;
+}
+
 .concierge-route {
   color: #637da0;
   font-size: 0.76rem;

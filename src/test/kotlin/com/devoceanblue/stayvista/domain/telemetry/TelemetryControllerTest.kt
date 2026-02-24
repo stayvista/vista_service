@@ -477,6 +477,69 @@ class TelemetryControllerTest {
     }
 
     @Test
+    fun `ingest should accept search blocked telemetry event`() {
+        val response = controller.ingest(
+            TelemetryEventRequest(
+                event_name = "ai_widget_search_blocked",
+                source = "search_cta",
+                route = "CLARIFY",
+                source_type_scope = "PROPERTY,POI",
+                clarify_required = false,
+                missing_slot_count = 0,
+                block_reason = "context_drift",
+            ),
+        )
+
+        assertTrue(response.data.accepted)
+        assertEquals("ai_widget_search_blocked", response.data.event_name)
+        assertEquals(1.0, meterRegistry.get("ai_widget_search_blocked_total").counter().count())
+        assertEquals(
+            1.0,
+            meterRegistry.get("ai_widget_search_block_reason_total")
+                .tag("reason", "context_drift")
+                .counter()
+                .count(),
+        )
+        assertEquals(
+            1.0,
+            meterRegistry.get("ai_widget_search_block_scope_total")
+                .tag("reason", "context_drift")
+                .tag("scope", "PROPERTY+POI")
+                .counter()
+                .count(),
+        )
+    }
+
+    @Test
+    fun `ingest should reject search blocked without block reason`() {
+        val exception = assertThrows<DomainException> {
+            controller.ingest(
+                TelemetryEventRequest(
+                    event_name = "ai_widget_search_blocked",
+                    source = "search_cta",
+                ),
+            )
+        }
+
+        assertEquals(ErrorCode.VALIDATION_ERROR, exception.errorCode)
+    }
+
+    @Test
+    fun `ingest should reject invalid search blocked reason`() {
+        val exception = assertThrows<DomainException> {
+            controller.ingest(
+                TelemetryEventRequest(
+                    event_name = "ai_widget_search_blocked",
+                    source = "search_cta",
+                    block_reason = "unknown",
+                ),
+            )
+        }
+
+        assertEquals(ErrorCode.VALIDATION_ERROR, exception.errorCode)
+    }
+
+    @Test
     fun `ingest should accept prompt reuse telemetry event`() {
         val response = controller.ingest(
             TelemetryEventRequest(

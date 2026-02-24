@@ -167,6 +167,19 @@ class TelemetryController(
                 message = "sync_mode is required for ai_widget_context_sync_click",
             )
         }
+        val blockReason = normalizeBlockReason(request.block_reason)
+        if (eventName == "ai_widget_search_blocked" && blockReason == "invalid") {
+            throw DomainException(
+                errorCode = ErrorCode.VALIDATION_ERROR,
+                message = "block_reason must be missing_slots or context_drift for ai_widget_search_blocked",
+            )
+        }
+        if (eventName == "ai_widget_search_blocked" && blockReason == "none") {
+            throw DomainException(
+                errorCode = ErrorCode.VALIDATION_ERROR,
+                message = "block_reason is required for ai_widget_search_blocked",
+            )
+        }
         val visibleCardCount = request.visible_card_count
         if (visibleCardCount != null && visibleCardCount !in 0..12) {
             throw DomainException(
@@ -276,6 +289,7 @@ class TelemetryController(
         recordErrorRecoveryMetrics(eventName, recoveryAction, sourceTypeScope)
         recordContextInsertMetrics(eventName, contextField, sourceTypeScope)
         recordContextSyncMetrics(eventName, syncMode, sourceTypeScope)
+        recordSearchBlockedMetrics(eventName, blockReason, sourceTypeScope)
         recordCardTypeFilterMetrics(eventName, targetSourceType, sourceTypeScope, visibleCardCount)
         recordCardListToggleMetrics(eventName, cardListState, sourceTypeScope, visibleCardCount)
         recordCardSaveMetrics(eventName, cardSaveState, targetSourceType, sourceTypeScope, savedCardCount)
@@ -548,6 +562,28 @@ class TelemetryController(
         ).increment()
     }
 
+    private fun recordSearchBlockedMetrics(
+        eventName: String,
+        blockReason: String,
+        sourceTypeScope: String,
+    ) {
+        if (eventName != "ai_widget_search_blocked" || blockReason == "none") {
+            return
+        }
+        meterRegistry.counter(
+            "ai_widget_search_block_reason_total",
+            "reason",
+            blockReason,
+        ).increment()
+        meterRegistry.counter(
+            "ai_widget_search_block_scope_total",
+            "reason",
+            blockReason,
+            "scope",
+            sourceTypeScope,
+        ).increment()
+    }
+
     private fun recordCardTypeFilterMetrics(
         eventName: String,
         targetSourceType: String,
@@ -782,6 +818,14 @@ class TelemetryController(
         return if (normalized in ALLOWED_SYNC_MODES) normalized else "invalid"
     }
 
+    private fun normalizeBlockReason(rawBlockReason: String?): String {
+        val normalized = rawBlockReason?.trim()?.lowercase().orEmpty()
+        if (normalized.isBlank()) {
+            return "none"
+        }
+        return if (normalized in ALLOWED_BLOCK_REASONS) normalized else "invalid"
+    }
+
     companion object {
         private val ALLOWED_EVENTS = setOf(
             "ai_widget_open",
@@ -922,6 +966,11 @@ class TelemetryController(
             "rerun_last_prompt",
             "context_only",
         )
+
+        private val ALLOWED_BLOCK_REASONS = setOf(
+            "missing_slots",
+            "context_drift",
+        )
     }
 }
 
@@ -952,6 +1001,7 @@ data class TelemetryEventRequest(
     val card_list_state: String? = null,
     val card_save_state: String? = null,
     val saved_card_count: Int? = null,
+    val block_reason: String? = null,
 )
 
 data class TelemetryEventResponse(

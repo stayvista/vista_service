@@ -136,6 +136,7 @@ type PromptSubmitMethod = "button" | "keyboard_enter" | "keyboard_shortcut" | "h
 type ErrorRecoveryAction = "retry" | "restore_draft" | "reset_scope" | "dismiss";
 type ContextInsertField = "city" | "dates" | "guests" | "budget" | "scope";
 type ContextSyncMode = "rerun_last_prompt" | "context_only";
+type SearchBlockedReason = "missing_slots" | "context_drift";
 
 type ConciergeDockState = {
   open: boolean;
@@ -495,6 +496,12 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
   );
   const contextChanged = contextDiffLabels.length > 0;
   const shouldShowContextSync = contextChanged && (messages.length > 0 || !!answer || !!lastPrompt);
+  const contextDriftBlockedReason = useMemo(() => {
+    if (!shouldShowContextSync) {
+      return null;
+    }
+    return "추천 결과가 이전 검색 조건 기준입니다. 최신 조건으로 재추천 후 다시 진행해 주세요.";
+  }, [shouldShowContextSync]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -843,14 +850,16 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
   }
 
   function launchSearch() {
-    if (launchBlockedReason) {
-      setError(launchBlockedReason);
+    const blockedReason = resolveLaunchBlockedReason();
+    if (blockedReason) {
+      setError(blockedReason.message);
       track("ai_widget_search_blocked", "search_cta", {
-        clarify_required: true,
-        missing_slot_count: handoffMissingSlots.length,
+        clarify_required: blockedReason.reason === "missing_slots",
+        missing_slot_count: blockedReason.reason === "missing_slots" ? handoffMissingSlots.length : 0,
         source_type_scope: sourceTypeScope(activeSourceTypes),
+        block_reason: blockedReason.reason,
       });
-      if (handoffClarifyQuestions.length > 0) {
+      if (blockedReason.reason === "missing_slots" && handoffClarifyQuestions.length > 0) {
         void ask(handoffClarifyQuestions[0], activeSourceTypes);
       }
       return;
@@ -989,6 +998,21 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
   }
 
   function viewAllCards() {
+    const blockedReason = resolveLaunchBlockedReason();
+    if (blockedReason) {
+      setError(blockedReason.message);
+      track("ai_widget_search_blocked", "results_cta", {
+        clarify_required: blockedReason.reason === "missing_slots",
+        missing_slot_count: blockedReason.reason === "missing_slots" ? handoffMissingSlots.length : 0,
+        source_type_scope: sourceTypeScope(activeSourceTypes),
+        block_reason: blockedReason.reason,
+      });
+      if (blockedReason.reason === "missing_slots" && handoffClarifyQuestions.length > 0) {
+        void ask(handoffClarifyQuestions[0], activeSourceTypes);
+      }
+      return;
+    }
+
     track("ai_widget_view_results", "results_cta");
     const targetCards = visibleCards.length > 0 ? visibleCards : cards;
     const typeSet = new Set(targetCards.map((item) => item.type.toUpperCase()));
@@ -1188,6 +1212,7 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
       saved_card_count?: number;
       context_field?: ContextInsertField;
       sync_mode?: ContextSyncMode;
+      block_reason?: SearchBlockedReason;
     },
   ) {
     const payload = {
@@ -1237,6 +1262,16 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
       source_type_scope: sourceTypeScope(activeSourceTypes),
     });
     void ask(slot.prompt, activeSourceTypes);
+  }
+
+  function resolveLaunchBlockedReason(): { reason: SearchBlockedReason; message: string } | null {
+    if (launchBlockedReason) {
+      return { reason: "missing_slots", message: launchBlockedReason };
+    }
+    if (contextDriftBlockedReason) {
+      return { reason: "context_drift", message: contextDriftBlockedReason };
+    }
+    return null;
   }
 
   function runClarifyAction(action: SearchHandoffClarifyAction, source: "handoff_clarify" | "quick_fix") {
@@ -1861,6 +1896,9 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
           <button type="button" className="chip-btn" onClick={viewAllCards} disabled={cards.length === 0}>
             추천 결과 보기
           </button>
+          {contextDriftBlockedReason && (
+            <p className="concierge-cta-warning">{contextDriftBlockedReason}</p>
+          )}
           <span className="concierge-route">route: {routeLabel}</span>
         </div>
       </aside>
@@ -2732,6 +2770,7 @@ async function sendWidgetTelemetry(payload: {
   saved_card_count?: number;
   context_field?: ContextInsertField;
   sync_mode?: ContextSyncMode;
+  block_reason?: SearchBlockedReason;
 }) {
   const token = getAuthBearerToken();
   try {
