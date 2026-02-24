@@ -172,6 +172,18 @@ class TelemetryController(
                 message = "saved_card_count is required for ai_widget_card_save_click",
             )
         }
+        if (eventName == "ai_widget_card_followup_click" && targetSourceType == "invalid") {
+            throw DomainException(
+                errorCode = ErrorCode.VALIDATION_ERROR,
+                message = "target_source_type must be one of PROPERTY/TICKET/PACKAGE/POI for ai_widget_card_followup_click",
+            )
+        }
+        if (eventName == "ai_widget_card_followup_click" && (targetSourceType == "none" || targetSourceType == "ALL")) {
+            throw DomainException(
+                errorCode = ErrorCode.VALIDATION_ERROR,
+                message = "target_source_type is required for ai_widget_card_followup_click",
+            )
+        }
 
         meterRegistry.counter("${eventName}_total").increment()
         meterRegistry.counter(
@@ -204,6 +216,7 @@ class TelemetryController(
         recordCardTypeFilterMetrics(eventName, targetSourceType, sourceTypeScope, visibleCardCount)
         recordCardListToggleMetrics(eventName, cardListState, sourceTypeScope, visibleCardCount)
         recordCardSaveMetrics(eventName, cardSaveState, targetSourceType, sourceTypeScope, savedCardCount)
+        recordCardFollowupMetrics(eventName, targetSourceType, sourceTypeScope, source)
 
         return TelemetryEventResponse(
             accepted = true,
@@ -456,6 +469,32 @@ class TelemetryController(
         }
     }
 
+    private fun recordCardFollowupMetrics(
+        eventName: String,
+        targetSourceType: String,
+        sourceTypeScope: String,
+        source: String,
+    ) {
+        if (eventName != "ai_widget_card_followup_click") {
+            return
+        }
+        meterRegistry.counter(
+            "ai_widget_card_followup_source_type_total",
+            "source_type",
+            targetSourceType,
+        ).increment()
+        meterRegistry.counter(
+            "ai_widget_card_followup_scope_total",
+            "scope",
+            sourceTypeScope,
+        ).increment()
+        meterRegistry.counter(
+            "ai_widget_card_followup_origin_total",
+            "origin",
+            source,
+        ).increment()
+    }
+
     private fun normalizeSource(source: String?): String {
         val normalized = source?.trim()?.lowercase().orEmpty()
         return if (normalized in ALLOWED_SOURCES) normalized else "unknown"
@@ -566,6 +605,7 @@ class TelemetryController(
             "ai_widget_card_type_filter_click",
             "ai_widget_card_list_toggle_click",
             "ai_widget_card_save_click",
+            "ai_widget_card_followup_click",
             "ai_widget_regenerate_click",
             "ai_widget_search_blocked",
             "ai_widget_slot_chip_click",
@@ -587,6 +627,8 @@ class TelemetryController(
             "filter_bulk",
             "quick_fix",
             "prompt_history",
+            "results_card",
+            "saved_card",
         )
 
         private val ALLOWED_SOURCE_TYPES = setOf(

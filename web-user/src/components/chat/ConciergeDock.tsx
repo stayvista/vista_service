@@ -109,6 +109,7 @@ type TelemetryEventName =
   | "ai_widget_card_type_filter_click"
   | "ai_widget_card_list_toggle_click"
   | "ai_widget_card_save_click"
+  | "ai_widget_card_followup_click"
   | "ai_widget_regenerate_click"
   | "ai_widget_search_blocked"
   | "ai_widget_slot_chip_click"
@@ -930,6 +931,24 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
     setSavedCards([]);
   }
 
+  function askCardFollowup(card: ChatCard, origin: "results_card" | "saved_card") {
+    if (loading) {
+      return;
+    }
+    const sourceType = normalizeCardType(card.type);
+    if (!sourceType || sourceType === "ALL") {
+      return;
+    }
+    const nextSourceTypes = normalizeSourceTypes([sourceType]);
+    setActiveSourceTypes(nextSourceTypes);
+    const prompt = buildCardFollowupPrompt(card, sourceType, cityLabel, nights);
+    track("ai_widget_card_followup_click", origin, {
+      source_type_scope: sourceTypeScope(nextSourceTypes),
+      target_source_type: sourceType,
+    });
+    void ask(prompt, nextSourceTypes);
+  }
+
   function track(
     eventName: TelemetryEventName,
     source: string,
@@ -1446,6 +1465,9 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
                   <p className="eyebrow">{card.type}</p>
                   <strong>{card.title}</strong>
                   <div className="concierge-card-actions">
+                    <button type="button" className="chip-btn" disabled={loading} onClick={() => askCardFollowup(card, "saved_card")}>
+                      유사 추천
+                    </button>
                     {renderCardLink(card)}
                     <button type="button" className="chip-btn" onClick={() => toggleCardSave(card)}>
                       저장 해제
@@ -1479,6 +1501,14 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
                   <h3>{card.title}</h3>
                   {card.why && <p>{card.why}</p>}
                   <div className="concierge-card-actions">
+                    <button
+                      type="button"
+                      className="chip-btn"
+                      disabled={loading}
+                      onClick={() => askCardFollowup(card, "results_card")}
+                    >
+                      유사 추천
+                    </button>
                     <button
                       type="button"
                       className={savedCardKeys.has(cardToken(card)) ? "chip-btn active" : "chip-btn"}
@@ -1543,6 +1573,22 @@ function renderCardLink(card: ChatCard) {
       return <Link className="inline-cta" to="/nearby">지도 보기</Link>;
     default:
       return null;
+  }
+}
+
+function buildCardFollowupPrompt(card: ChatCard, sourceType: CardTypeFilter, cityLabel: string, nights: number): string {
+  const title = card.title.trim() || "추천 항목";
+  switch (sourceType) {
+    case "PROPERTY":
+      return `${cityLabel} ${nights}박 일정 기준으로 ${title}와 비슷한 숙소 3곳을 장단점과 함께 비교 추천해줘`;
+    case "PACKAGE":
+      return `${cityLabel} 여행에서 ${title}와 비슷한 패키지 3개를 가격/포함사항 중심으로 추천해줘`;
+    case "TICKET":
+      return `${cityLabel} 여행에서 ${title}와 비슷한 티켓/액티비티 3개를 일정 맞춰 추천해줘`;
+    case "POI":
+      return `${cityLabel}에서 ${title} 주변으로 갈만한 명소와 맛집 동선을 추천해줘`;
+    default:
+      return `${cityLabel} 여행 추천을 다시 정리해줘`;
   }
 }
 

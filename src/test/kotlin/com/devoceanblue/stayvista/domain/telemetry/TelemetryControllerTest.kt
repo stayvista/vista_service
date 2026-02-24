@@ -486,6 +486,44 @@ class TelemetryControllerTest {
     }
 
     @Test
+    fun `ingest should accept card followup telemetry event`() {
+        val response = controller.ingest(
+            TelemetryEventRequest(
+                event_name = "ai_widget_card_followup_click",
+                source = "saved_card",
+                route = "LLM",
+                source_type_scope = "PROPERTY,POI",
+                target_source_type = "PROPERTY",
+            ),
+        )
+
+        assertTrue(response.data.accepted)
+        assertEquals("ai_widget_card_followup_click", response.data.event_name)
+        assertEquals(1.0, meterRegistry.get("ai_widget_card_followup_click_total").counter().count())
+        assertEquals(
+            1.0,
+            meterRegistry.get("ai_widget_card_followup_source_type_total")
+                .tag("source_type", "PROPERTY")
+                .counter()
+                .count(),
+        )
+        assertEquals(
+            1.0,
+            meterRegistry.get("ai_widget_card_followup_scope_total")
+                .tag("scope", "PROPERTY+POI")
+                .counter()
+                .count(),
+        )
+        assertEquals(
+            1.0,
+            meterRegistry.get("ai_widget_card_followup_origin_total")
+                .tag("origin", "saved_card")
+                .counter()
+                .count(),
+        )
+    }
+
+    @Test
     fun `ingest should accept generation cancel telemetry event`() {
         val response = controller.ingest(
             TelemetryEventRequest(
@@ -767,6 +805,35 @@ class TelemetryControllerTest {
                     target_source_type = "ALL",
                     card_save_state = "saved",
                     saved_card_count = 1,
+                ),
+            )
+        }
+
+        assertEquals(ErrorCode.VALIDATION_ERROR, exception.errorCode)
+    }
+
+    @Test
+    fun `ingest should reject card followup without target source type`() {
+        val exception = assertThrows<DomainException> {
+            controller.ingest(
+                TelemetryEventRequest(
+                    event_name = "ai_widget_card_followup_click",
+                    source = "results_card",
+                ),
+            )
+        }
+
+        assertEquals(ErrorCode.VALIDATION_ERROR, exception.errorCode)
+    }
+
+    @Test
+    fun `ingest should reject card followup with all target source type`() {
+        val exception = assertThrows<DomainException> {
+            controller.ingest(
+                TelemetryEventRequest(
+                    event_name = "ai_widget_card_followup_click",
+                    source = "results_card",
+                    target_source_type = "ALL",
                 ),
             )
         }
