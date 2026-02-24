@@ -75,6 +75,16 @@ class AuthGuardFilterTest {
     }
 
     @Test
+    fun `chat widget snapshot should fail when bearer token is missing`() {
+        mockMvc.perform(
+            get("/v1/chat/widget/session/snapshot"),
+        )
+            .andExpect(status().isUnauthorized)
+            .andExpect(jsonPath("$.error.code").value("UNAUTHORIZED"))
+            .andExpect(jsonPath("$.request_id").isNotEmpty)
+    }
+
+    @Test
     fun `admin endpoint should fail when X-Admin-Id is missing`() {
         mockMvc.perform(
             post("/v1/admin/properties")

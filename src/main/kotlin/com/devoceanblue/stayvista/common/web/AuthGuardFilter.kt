@@ -113,6 +113,7 @@ class AuthGuardFilter(
 
     private fun requiresUserAuth(method: String, path: String): Boolean {
         if (path.startsWith("/v1/admin/")) return false
+        if (path == "/v1/chat/widget/session/snapshot") return true
         if (path.startsWith("/v1/me/")) return true
         if (path.startsWith("/v1/tickets/orders/")) return true
         if (method == "POST" && path.matches(Regex("/v1/promotions/campaigns/\\d+/claim"))) return true
@@ -130,6 +131,7 @@ class AuthGuardFilter(
         return when {
             path.startsWith("/v1/bookings/") -> "bookings"
             path.startsWith("/v1/me/") -> "me"
+            path == "/v1/chat/widget/session/snapshot" -> "chat_widget"
             path.startsWith("/v1/tickets/orders/") -> "ticket_orders"
             path.startsWith("/v1/packages/") -> "packages"
             else -> "other"

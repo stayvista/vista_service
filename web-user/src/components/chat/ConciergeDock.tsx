@@ -99,6 +99,19 @@ type Props = {
 const API_BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:18765";
 const CONCIERGE_SESSION_KEY = "stayvista.web_user.concierge.session_id";
 const CONCIERGE_DOCK_STATE_KEY = "stayvista.web_user.concierge.dock_state.v1";
+const CONCIERGE_DOCK_SCHEMA_VERSION = 1;
+
+type WidgetSnapshotPayload = {
+  schema_version: number;
+  state: ConciergeDockState;
+};
+
+type WidgetSnapshotLoadData = {
+  has_snapshot: boolean;
+  schema_version?: number;
+  state?: Partial<ConciergeDockState>;
+  updated_at?: string;
+};
 type TelemetryEventName =
   | "ai_widget_open"
   | "ai_widget_prompt_submit"
@@ -234,6 +247,7 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const pendingImeSubmitRef = useRef(false);
+  const snapshotHydratedRef = useRef(false);
   const [open, setOpen] = useState(restoredState.open);
   const [isCompactViewport, setIsCompactViewport] = useState(
     () => typeof window !== "undefined" && window.innerWidth <= 1080,
@@ -272,6 +286,98 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
   const [autopatchNotice, setAutopatchNotice] = useState("");
   const [selectedCardType, setSelectedCardType] = useState<CardTypeFilter>("ALL");
   const [expandedCards, setExpandedCards] = useState(false);
+  const [snapshotLoadDone, setSnapshotLoadDone] = useState(false);
+
+  const persistedDockState = useMemo<ConciergeDockState>(() => ({
+    open,
+    activeSourceTypes,
+    messageDraft: message,
+    lastPrompt,
+    answerFeedback,
+    messages: messages.slice(-20),
+    answer,
+    cards: cards.slice(0, 6),
+    followups: followups.slice(0, 6),
+    routeLabel,
+    handoffSummary,
+    handoffConfidence,
+    handoffProfileApplied,
+    handoffRationale: handoffRationale.slice(0, 6),
+    handoffSortHint,
+    handoffSourceHints: handoffSourceHints.slice(0, 6),
+    handoffClarifyQuestions: handoffClarifyQuestions.slice(0, 6),
+    handoffClarifyActions: handoffClarifyActions.slice(0, 8),
+    handoffClarifyRequired,
+    handoffMissingSlots: handoffMissingSlots.slice(0, 6),
+    handoffSearchPatch,
+    handoffRecommendedSourceTypes,
+    handoffFilters: handoffFilters.slice(0, 8),
+    selectedHandoffFilterKeys: selectedHandoffFilterKeys.slice(0, 8),
+    savedCards: savedCards.slice(0, 12),
+    lastContextSnapshot,
+  }), [
+    open,
+    activeSourceTypes,
+    message,
+    lastPrompt,
+    answerFeedback,
+    messages,
+    answer,
+    cards,
+    followups,
+    routeLabel,
+    handoffSummary,
+    handoffConfidence,
+    handoffProfileApplied,
+    handoffRationale,
+    handoffSortHint,
+    handoffSourceHints,
+    handoffClarifyQuestions,
+    handoffClarifyActions,
+    handoffClarifyRequired,
+    handoffMissingSlots,
+    handoffSearchPatch,
+    handoffRecommendedSourceTypes,
+    handoffFilters,
+    selectedHandoffFilterKeys,
+    savedCards,
+    lastContextSnapshot,
+  ]);
+
+  function hydrateDockState(state: ConciergeDockState) {
+    setOpen(state.open);
+    setActiveSourceTypes(state.activeSourceTypes.length > 0 ? state.activeSourceTypes : [...SOURCE_TYPE_FILTERS.city]);
+    setMessage(state.messageDraft);
+    setLastPrompt(state.lastPrompt);
+    setAnswerFeedback(state.answerFeedback);
+    setMessages(state.messages);
+    setAnswer(state.answer);
+    setStreamingAnswer("");
+    setCards(state.cards);
+    setFollowups(state.followups);
+    setRouteLabel(state.routeLabel || "-");
+    setHandoffSummary(state.handoffSummary);
+    setHandoffConfidence(state.handoffConfidence);
+    setHandoffProfileApplied(state.handoffProfileApplied);
+    setHandoffRationale(state.handoffRationale);
+    setHandoffSortHint(state.handoffSortHint);
+    setHandoffSourceHints(state.handoffSourceHints);
+    setHandoffClarifyQuestions(state.handoffClarifyQuestions);
+    setHandoffClarifyActions(state.handoffClarifyActions);
+    setHandoffClarifyRequired(state.handoffClarifyRequired);
+    setHandoffMissingSlots(state.handoffMissingSlots);
+    setHandoffSearchPatch(state.handoffSearchPatch);
+    setHandoffRecommendedSourceTypes(state.handoffRecommendedSourceTypes);
+    setHandoffFilters(state.handoffFilters);
+    setSelectedHandoffFilterKeys(state.selectedHandoffFilterKeys);
+    setSavedCards(state.savedCards);
+    setLastContextSnapshot(state.lastContextSnapshot);
+    setError(null);
+    setCopyDone(false);
+    setAutopatchNotice("");
+    setSelectedCardType("ALL");
+    setExpandedCards(false);
+  }
 
   const canSubmit = useMemo(() => message.trim().length > 0 && !loading, [loading, message]);
   const cityLabel = (searchContext.placeLabel || searchContext.city || "서울").trim();
@@ -587,62 +693,74 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
   }, [expandedCards, visibleCards.length]);
 
   useEffect(() => {
-    saveConciergeDockState({
-      open,
-      activeSourceTypes,
-      messageDraft: message,
-      lastPrompt,
-      answerFeedback,
-      messages: messages.slice(-20),
-      answer,
-      cards: cards.slice(0, 6),
-      followups: followups.slice(0, 6),
-      routeLabel,
-      handoffSummary,
-      handoffConfidence,
-      handoffProfileApplied,
-      handoffRationale: handoffRationale.slice(0, 6),
-      handoffSortHint,
-      handoffSourceHints: handoffSourceHints.slice(0, 6),
-      handoffClarifyQuestions: handoffClarifyQuestions.slice(0, 6),
-      handoffClarifyActions: handoffClarifyActions.slice(0, 8),
-      handoffClarifyRequired,
-      handoffMissingSlots: handoffMissingSlots.slice(0, 6),
-      handoffSearchPatch,
-      handoffRecommendedSourceTypes,
-      handoffFilters: handoffFilters.slice(0, 8),
-      selectedHandoffFilterKeys: selectedHandoffFilterKeys.slice(0, 8),
-      savedCards: savedCards.slice(0, 12),
-      lastContextSnapshot,
-    });
-  }, [
-    open,
-    activeSourceTypes,
-    message,
-    lastPrompt,
-    answerFeedback,
-    messages,
-    answer,
-    cards,
-    followups,
-    routeLabel,
-    handoffSummary,
-    handoffConfidence,
-    handoffProfileApplied,
-    handoffRationale,
-    handoffSortHint,
-    handoffSourceHints,
-    handoffClarifyQuestions,
-    handoffClarifyActions,
-    handoffClarifyRequired,
-    handoffMissingSlots,
-    handoffSearchPatch,
-    handoffRecommendedSourceTypes,
-    handoffFilters,
-    selectedHandoffFilterKeys,
-    savedCards,
-    lastContextSnapshot,
-  ]);
+    let cancelled = false;
+    const token = getAuthBearerToken();
+    if (!token) {
+      setSnapshotLoadDone(true);
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    const restoreFromServer = async () => {
+      try {
+        const snapshot = await loadWidgetSnapshot(token);
+        if (cancelled) {
+          return;
+        }
+        if (
+          snapshot.has_snapshot
+          && snapshot.schema_version === CONCIERGE_DOCK_SCHEMA_VERSION
+          && snapshot.state
+          && typeof snapshot.state === "object"
+        ) {
+          const restored = parseConciergeDockState(snapshot.state as Partial<ConciergeDockState>);
+          hydrateDockState(restored);
+          snapshotHydratedRef.current = true;
+        }
+      } catch {
+        // Server snapshot load is best-effort and must not block local fallback.
+      } finally {
+        if (!cancelled) {
+          setSnapshotLoadDone(true);
+        }
+      }
+    };
+
+    void restoreFromServer();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    saveConciergeDockState(persistedDockState);
+  }, [persistedDockState]);
+
+  useEffect(() => {
+    if (!snapshotLoadDone) {
+      return;
+    }
+    const token = getAuthBearerToken();
+    if (!token) {
+      return;
+    }
+    if (snapshotHydratedRef.current) {
+      snapshotHydratedRef.current = false;
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      void saveWidgetSnapshot(token, {
+        schema_version: CONCIERGE_DOCK_SCHEMA_VERSION,
+        state: persistedDockState,
+      }).catch(() => {
+        // Snapshot save is best-effort and must not break chat UX.
+      });
+    }, 700);
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [snapshotLoadDone, persistedDockState]);
 
   function resetConversation() {
     setMessage("");
@@ -2560,82 +2678,125 @@ function emptyDockState(): ConciergeDockState {
   };
 }
 
-function loadConciergeDockState(): ConciergeDockState {
+function parseConciergeDockState(parsed: Partial<ConciergeDockState> | null | undefined): ConciergeDockState {
   const defaults = emptyDockState();
-  if (typeof window === "undefined") {
+  if (!parsed || typeof parsed !== "object") {
     return defaults;
+  }
+
+  const activeSourceTypes = normalizeSourceTypes(Array.isArray(parsed.activeSourceTypes) ? parsed.activeSourceTypes : []);
+  const isMessage = (item: unknown): item is ChatMessage => (
+    !!item
+    && typeof item === "object"
+    && ("role" in item)
+    && ("text" in item)
+    && ((item as { role: string }).role === "user" || (item as { role: string }).role === "assistant")
+    && typeof (item as { text: unknown }).text === "string"
+  );
+  const isCard = (item: unknown): item is ChatCard => (
+    !!item
+    && typeof item === "object"
+    && typeof (item as { type?: unknown }).type === "string"
+    && typeof (item as { title?: unknown }).title === "string"
+  );
+  const isFilter = (item: unknown): item is SearchHandoffFilter => (
+    !!item
+    && typeof item === "object"
+    && typeof (item as { key?: unknown }).key === "string"
+    && typeof (item as { value?: unknown }).value === "string"
+    && typeof (item as { label?: unknown }).label === "string"
+  );
+  const toStringArray = (value: unknown, limit: number): string[] => (
+    Array.isArray(value) ? value.filter((item): item is string => typeof item === "string").slice(0, limit) : []
+  );
+
+  const sortHint = (
+    parsed.handoffSortHint
+    && typeof parsed.handoffSortHint === "object"
+    && typeof parsed.handoffSortHint.value === "string"
+    && ALLOWED_SORT_VALUES.has(parsed.handoffSortHint.value)
+  )
+    ? {
+        value: parsed.handoffSortHint.value,
+        label: typeof parsed.handoffSortHint.label === "string" && parsed.handoffSortHint.label.trim()
+          ? parsed.handoffSortHint.label
+          : SORT_VALUE_LABELS[parsed.handoffSortHint.value] ?? parsed.handoffSortHint.value,
+        reason: typeof parsed.handoffSortHint.reason === "string" ? parsed.handoffSortHint.reason : undefined,
+      }
+    : null;
+
+  const rawPatch = parsed.handoffSearchPatch && typeof parsed.handoffSearchPatch === "object"
+    ? parsed.handoffSearchPatch as Record<string, unknown>
+    : undefined;
+  const handoffSearchPatch: SearchHandoffSearchPatch = {};
+  if (typeof rawPatch?.city === "string") {
+    const cityCode = normalizeCityCode(rawPatch.city);
+    if (cityCode) {
+      handoffSearchPatch.city = cityCode;
+    }
+  }
+  if (typeof rawPatch?.days === "number" && Number.isFinite(rawPatch.days)) {
+    const days = Math.trunc(rawPatch.days);
+    if (days >= 1 && days <= 30) {
+      handoffSearchPatch.days = days;
+    }
+  }
+  if (typeof rawPatch?.companions === "string") {
+    const companions = rawPatch.companions.trim().toUpperCase();
+    if (["FAMILY", "COUPLE", "SOLO", "FRIENDS"].includes(companions)) {
+      handoffSearchPatch.companions = companions;
+    }
+  }
+
+  return {
+    ...defaults,
+    open: parsed.open === true,
+    activeSourceTypes,
+    messageDraft: typeof parsed.messageDraft === "string" ? parsed.messageDraft : "",
+    lastPrompt: typeof parsed.lastPrompt === "string" ? parsed.lastPrompt : "",
+    answerFeedback: parsed.answerFeedback === "positive" || parsed.answerFeedback === "negative"
+      ? parsed.answerFeedback
+      : null,
+    messages: Array.isArray(parsed.messages) ? parsed.messages.filter(isMessage).slice(-20) : [],
+    answer: typeof parsed.answer === "string" ? parsed.answer : "",
+    cards: Array.isArray(parsed.cards) ? parsed.cards.filter(isCard).slice(0, 6) : [],
+    followups: toStringArray(parsed.followups, 6),
+    routeLabel: typeof parsed.routeLabel === "string" && parsed.routeLabel.trim() ? parsed.routeLabel : "-",
+    handoffSummary: typeof parsed.handoffSummary === "string" ? parsed.handoffSummary : "",
+    handoffConfidence: typeof parsed.handoffConfidence === "number" && Number.isFinite(parsed.handoffConfidence)
+      ? Math.min(1, Math.max(0, parsed.handoffConfidence))
+      : null,
+    handoffProfileApplied: parsed.handoffProfileApplied === true,
+    handoffRationale: toStringArray(parsed.handoffRationale, 6),
+    handoffSortHint: sortHint,
+    handoffSourceHints: Array.isArray(parsed.handoffSourceHints) ? parsed.handoffSourceHints.slice(0, 6) : [],
+    handoffClarifyQuestions: toStringArray(parsed.handoffClarifyQuestions, 6),
+    handoffClarifyActions: Array.isArray(parsed.handoffClarifyActions) ? parsed.handoffClarifyActions.slice(0, 8) : [],
+    handoffClarifyRequired: parsed.handoffClarifyRequired === true,
+    handoffMissingSlots: toStringArray(parsed.handoffMissingSlots, 6),
+    handoffSearchPatch,
+    handoffRecommendedSourceTypes: normalizeSourceTypes(
+      Array.isArray(parsed.handoffRecommendedSourceTypes) ? parsed.handoffRecommendedSourceTypes : [],
+    ),
+    handoffFilters: Array.isArray(parsed.handoffFilters) ? parsed.handoffFilters.filter(isFilter).slice(0, 8) : [],
+    selectedHandoffFilterKeys: toStringArray(parsed.selectedHandoffFilterKeys, 8),
+    savedCards: Array.isArray(parsed.savedCards) ? parsed.savedCards.filter(isCard).slice(0, 12) : [],
+    lastContextSnapshot: parseContextSnapshot(parsed.lastContextSnapshot),
+  };
+}
+
+function loadConciergeDockState(): ConciergeDockState {
+  if (typeof window === "undefined") {
+    return emptyDockState();
   }
   const raw = window.localStorage.getItem(CONCIERGE_DOCK_STATE_KEY);
   if (!raw) {
-    return defaults;
+    return emptyDockState();
   }
   try {
-    const parsed = JSON.parse(raw) as Partial<ConciergeDockState>;
-    const activeSourceTypes = normalizeSourceTypes(Array.isArray(parsed.activeSourceTypes) ? parsed.activeSourceTypes : []);
-    const isMessage = (item: unknown): item is ChatMessage => (
-      !!item
-      && typeof item === "object"
-      && ("role" in item)
-      && ("text" in item)
-      && ((item as { role: string }).role === "user" || (item as { role: string }).role === "assistant")
-      && typeof (item as { text: unknown }).text === "string"
-    );
-    const messages = Array.isArray(parsed.messages) ? parsed.messages.filter(isMessage).slice(-20) : [];
-    const isCard = (item: unknown): item is ChatCard => (
-      !!item &&
-      typeof item === "object" &&
-      typeof (item as { type?: unknown }).type === "string" &&
-      typeof (item as { title?: unknown }).title === "string"
-    );
-    return {
-      ...defaults,
-      open: parsed.open === true,
-      activeSourceTypes,
-      messageDraft: typeof parsed.messageDraft === "string" ? parsed.messageDraft : "",
-      lastPrompt: typeof parsed.lastPrompt === "string" ? parsed.lastPrompt : "",
-      answerFeedback: parsed.answerFeedback === "positive" || parsed.answerFeedback === "negative"
-        ? parsed.answerFeedback
-        : null,
-      messages,
-      answer: typeof parsed.answer === "string" ? parsed.answer : "",
-      cards: Array.isArray(parsed.cards) ? parsed.cards.slice(0, 6) : [],
-      followups: Array.isArray(parsed.followups) ? parsed.followups.filter((item) => typeof item === "string").slice(0, 6) : [],
-      routeLabel: typeof parsed.routeLabel === "string" && parsed.routeLabel.trim() ? parsed.routeLabel : "-",
-      handoffSummary: typeof parsed.handoffSummary === "string" ? parsed.handoffSummary : "",
-      handoffConfidence: typeof parsed.handoffConfidence === "number" && Number.isFinite(parsed.handoffConfidence)
-        ? Math.min(1, Math.max(0, parsed.handoffConfidence))
-        : null,
-      handoffProfileApplied: parsed.handoffProfileApplied === true,
-      handoffRationale: Array.isArray(parsed.handoffRationale)
-        ? parsed.handoffRationale.filter((item) => typeof item === "string").slice(0, 6)
-        : [],
-      handoffSortHint: parsed.handoffSortHint && typeof parsed.handoffSortHint === "object"
-        ? parsed.handoffSortHint
-        : null,
-      handoffSourceHints: Array.isArray(parsed.handoffSourceHints) ? parsed.handoffSourceHints.slice(0, 6) : [],
-      handoffClarifyQuestions: Array.isArray(parsed.handoffClarifyQuestions)
-        ? parsed.handoffClarifyQuestions.filter((item) => typeof item === "string").slice(0, 6)
-        : [],
-      handoffClarifyActions: Array.isArray(parsed.handoffClarifyActions) ? parsed.handoffClarifyActions.slice(0, 8) : [],
-      handoffClarifyRequired: parsed.handoffClarifyRequired === true,
-      handoffMissingSlots: Array.isArray(parsed.handoffMissingSlots)
-        ? parsed.handoffMissingSlots.filter((item) => typeof item === "string").slice(0, 6)
-        : [],
-      handoffSearchPatch: parsed.handoffSearchPatch && typeof parsed.handoffSearchPatch === "object"
-        ? parsed.handoffSearchPatch
-        : {},
-      handoffRecommendedSourceTypes: normalizeSourceTypes(
-        Array.isArray(parsed.handoffRecommendedSourceTypes) ? parsed.handoffRecommendedSourceTypes : [],
-      ),
-      handoffFilters: Array.isArray(parsed.handoffFilters) ? parsed.handoffFilters.slice(0, 8) : [],
-      selectedHandoffFilterKeys: Array.isArray(parsed.selectedHandoffFilterKeys)
-        ? parsed.selectedHandoffFilterKeys.filter((item) => typeof item === "string").slice(0, 8)
-        : [],
-      savedCards: Array.isArray(parsed.savedCards) ? parsed.savedCards.filter(isCard).slice(0, 12) : [],
-      lastContextSnapshot: parseContextSnapshot(parsed.lastContextSnapshot),
-    };
+    return parseConciergeDockState(JSON.parse(raw) as Partial<ConciergeDockState>);
   } catch {
-    return defaults;
+    return emptyDockState();
   }
 }
 
@@ -2686,6 +2847,38 @@ function ensureConciergeSessionId(): string {
   const generated = `cg-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
   window.localStorage.setItem(CONCIERGE_SESSION_KEY, generated);
   return generated;
+}
+
+async function loadWidgetSnapshot(token: string): Promise<WidgetSnapshotLoadData> {
+  const response = await fetch(`${API_BASE}/v1/chat/widget/session/snapshot`, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+  if (!response.ok) {
+    throw await parseApiError(response);
+  }
+  const envelope = (await response.json()) as { data?: WidgetSnapshotLoadData };
+  const data = envelope.data;
+  if (!data || typeof data !== "object") {
+    return { has_snapshot: false };
+  }
+  return data;
+}
+
+async function saveWidgetSnapshot(token: string, payload: WidgetSnapshotPayload): Promise<void> {
+  const response = await fetch(`${API_BASE}/v1/chat/widget/session/snapshot`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    throw await parseApiError(response);
+  }
 }
 
 async function recommend(payload: Record<string, unknown>, signal?: AbortSignal): Promise<ChatData> {

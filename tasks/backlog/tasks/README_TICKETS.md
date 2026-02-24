@@ -12,7 +12,6 @@
 - `U-0967` AI 빠른 보완 응답 칩 UX v1
 - `U-0968` AI 프롬프트 기반 source scope 자동 전환 UX v1
 - `U-0969` AI 추천 정렬 힌트 UX v1
-- `U-0972` AI 위젯 세션 지속/리셋 UX v1
 - `U-0973` AI 위젯 답변 피드백/재생성 UX v1
 - `U-0974` AI 위젯 슬롯 체크리스트/원클릭 보완 UX v1
 - `U-0975` AI 위젯 응답 생성 중단 UX v1
@@ -46,7 +45,6 @@
 - `B-0969` AI handoff clarify actions schema v1
 - `B-0970` Prompt source scope extractor v1
 - `B-0971` AI handoff sort recommendation policy v1
-- `B-0972` AI Widget Session Snapshot API v1
 - `B-0973` AI Widget Feedback Telemetry Extension v1
 - `B-0974` AI Widget Slot Completion Telemetry v1
 - `B-0975` AI Widget Bulk Filter & Cancel Telemetry Extension v1
