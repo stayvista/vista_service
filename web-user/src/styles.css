@@ -940,6 +940,21 @@ button:disabled {
   font-weight: 700;
 }
 
+.concierge-error-panel {
+  display: grid;
+  gap: 8px;
+}
+
+.concierge-error-panel p {
+  margin: 0;
+}
+
+.concierge-error-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
 .concierge-dock-thread {
   border: 1px solid #d6e3f6;
   border-radius: 12px;

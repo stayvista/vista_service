@@ -114,13 +114,15 @@ type TelemetryEventName =
   | "ai_widget_search_blocked"
   | "ai_widget_slot_chip_click"
   | "ai_widget_filter_bulk_apply"
-  | "ai_widget_generation_cancel";
+  | "ai_widget_generation_cancel"
+  | "ai_widget_error_recovery_click";
 
 type CardTypeFilter = "ALL" | "PROPERTY" | "PACKAGE" | "TICKET" | "POI";
 type CardListState = "expanded" | "collapsed";
 type CardSaveState = "saved" | "unsaved";
 type PromptReuseAction = "draft" | "submit";
 type PromptSubmitMethod = "button" | "keyboard_enter" | "keyboard_shortcut" | "history_submit";
+type ErrorRecoveryAction = "retry" | "restore_draft" | "reset_scope" | "dismiss";
 
 type ConciergeDockState = {
   open: boolean;
@@ -857,6 +859,49 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
     });
   }
 
+  function retryFromError() {
+    if (!lastPrompt || loading) {
+      return;
+    }
+    setError(null);
+    track("ai_widget_error_recovery_click", "error_panel", {
+      recovery_action: "retry",
+      source_type_scope: sourceTypeScope(activeSourceTypes),
+    });
+    submitPrompt({ prompt: lastPrompt, source: "text_input", method: "button" });
+  }
+
+  function restoreDraftFromError() {
+    if (!lastPrompt) {
+      return;
+    }
+    setError(null);
+    setMessage(lastPrompt);
+    composerRef.current?.focus();
+    track("ai_widget_error_recovery_click", "error_panel", {
+      recovery_action: "restore_draft",
+      source_type_scope: sourceTypeScope(activeSourceTypes),
+    });
+  }
+
+  function resetScopeFromError() {
+    const nextSourceTypes = [...SOURCE_TYPE_FILTERS.city];
+    setError(null);
+    setActiveSourceTypes(nextSourceTypes);
+    track("ai_widget_error_recovery_click", "error_panel", {
+      recovery_action: "reset_scope",
+      source_type_scope: sourceTypeScope(nextSourceTypes),
+    });
+  }
+
+  function dismissErrorNotice() {
+    setError(null);
+    track("ai_widget_error_recovery_click", "error_panel", {
+      recovery_action: "dismiss",
+      source_type_scope: sourceTypeScope(activeSourceTypes),
+    });
+  }
+
   function selectAllHandoffFilters() {
     if (bulkSelectableFilterTokens.length === 0) {
       return;
@@ -1014,6 +1059,7 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
       reuse_rank?: number;
       reuse_action?: PromptReuseAction;
       submit_method?: PromptSubmitMethod;
+      recovery_action?: ErrorRecoveryAction;
       visible_card_count?: number;
       card_list_state?: CardListState;
       card_save_state?: CardSaveState;
@@ -1438,7 +1484,43 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
           </div>
         </form>
 
-        {error && <p className="notice warning">{error}</p>}
+        {error && (
+          <div className="notice warning concierge-error-panel">
+            <p>{error}</p>
+            <div className="concierge-error-actions">
+              <button
+                type="button"
+                className="chip-btn"
+                onClick={retryFromError}
+                disabled={!lastPrompt || loading}
+              >
+                바로 재시도
+              </button>
+              <button
+                type="button"
+                className="chip-btn"
+                onClick={restoreDraftFromError}
+                disabled={!lastPrompt}
+              >
+                질문 복원
+              </button>
+              <button
+                type="button"
+                className="chip-btn"
+                onClick={resetScopeFromError}
+              >
+                추천 범위 초기화
+              </button>
+              <button
+                type="button"
+                className="chip-btn"
+                onClick={dismissErrorNotice}
+              >
+                닫기
+              </button>
+            </div>
+          </div>
+        )}
 
         <div ref={threadRef} className="concierge-dock-thread">
           {!loading && messages.length === 0 && (
@@ -2409,6 +2491,7 @@ async function sendWidgetTelemetry(payload: {
   reuse_rank?: number;
   reuse_action?: PromptReuseAction;
   submit_method?: PromptSubmitMethod;
+  recovery_action?: ErrorRecoveryAction;
   visible_card_count?: number;
   card_list_state?: CardListState;
   card_save_state?: CardSaveState;

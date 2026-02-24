@@ -394,6 +394,38 @@ class TelemetryControllerTest {
     }
 
     @Test
+    fun `ingest should accept error recovery telemetry event`() {
+        val response = controller.ingest(
+            TelemetryEventRequest(
+                event_name = "ai_widget_error_recovery_click",
+                source = "error_panel",
+                route = "LLM",
+                source_type_scope = "PROPERTY,POI",
+                recovery_action = "retry",
+            ),
+        )
+
+        assertTrue(response.data.accepted)
+        assertEquals("ai_widget_error_recovery_click", response.data.event_name)
+        assertEquals(1.0, meterRegistry.get("ai_widget_error_recovery_click_total").counter().count())
+        assertEquals(
+            1.0,
+            meterRegistry.get("ai_widget_error_recovery_action_total")
+                .tag("action", "retry")
+                .counter()
+                .count(),
+        )
+        assertEquals(
+            1.0,
+            meterRegistry.get("ai_widget_error_recovery_scope_total")
+                .tag("action", "retry")
+                .tag("scope", "PROPERTY+POI")
+                .counter()
+                .count(),
+        )
+    }
+
+    @Test
     fun `ingest should accept card type filter telemetry event`() {
         val response = controller.ingest(
             TelemetryEventRequest(
@@ -661,6 +693,35 @@ class TelemetryControllerTest {
                     event_name = "ai_widget_prompt_submit",
                     source = "text_input",
                     submit_method = "enter",
+                ),
+            )
+        }
+
+        assertEquals(ErrorCode.VALIDATION_ERROR, exception.errorCode)
+    }
+
+    @Test
+    fun `ingest should reject error recovery without action`() {
+        val exception = assertThrows<DomainException> {
+            controller.ingest(
+                TelemetryEventRequest(
+                    event_name = "ai_widget_error_recovery_click",
+                    source = "error_panel",
+                ),
+            )
+        }
+
+        assertEquals(ErrorCode.VALIDATION_ERROR, exception.errorCode)
+    }
+
+    @Test
+    fun `ingest should reject invalid error recovery action`() {
+        val exception = assertThrows<DomainException> {
+            controller.ingest(
+                TelemetryEventRequest(
+                    event_name = "ai_widget_error_recovery_click",
+                    source = "error_panel",
+                    recovery_action = "retry_now",
                 ),
             )
         }

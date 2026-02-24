@@ -128,6 +128,19 @@ class TelemetryController(
                 message = "submit_method must be button, keyboard_enter, keyboard_shortcut, or history_submit for ai_widget_prompt_submit",
             )
         }
+        val recoveryAction = normalizeRecoveryAction(request.recovery_action)
+        if (eventName == "ai_widget_error_recovery_click" && recoveryAction == "invalid") {
+            throw DomainException(
+                errorCode = ErrorCode.VALIDATION_ERROR,
+                message = "recovery_action must be retry, restore_draft, reset_scope, or dismiss for ai_widget_error_recovery_click",
+            )
+        }
+        if (eventName == "ai_widget_error_recovery_click" && recoveryAction == "none") {
+            throw DomainException(
+                errorCode = ErrorCode.VALIDATION_ERROR,
+                message = "recovery_action is required for ai_widget_error_recovery_click",
+            )
+        }
         val visibleCardCount = request.visible_card_count
         if (visibleCardCount != null && visibleCardCount !in 0..12) {
             throw DomainException(
@@ -234,6 +247,7 @@ class TelemetryController(
         recordPromptAutopatchMetrics(eventName, autoPatchCount)
         recordPromptSubmitMetrics(eventName, submitMethod, sourceTypeScope)
         recordPromptReuseMetrics(eventName, reuseRank, reuseAction, sourceTypeScope)
+        recordErrorRecoveryMetrics(eventName, recoveryAction, sourceTypeScope)
         recordCardTypeFilterMetrics(eventName, targetSourceType, sourceTypeScope, visibleCardCount)
         recordCardListToggleMetrics(eventName, cardListState, sourceTypeScope, visibleCardCount)
         recordCardSaveMetrics(eventName, cardSaveState, targetSourceType, sourceTypeScope, savedCardCount)
@@ -435,6 +449,28 @@ class TelemetryController(
         ).increment()
         meterRegistry.counter(
             "ai_widget_prompt_reuse_scope_total",
+            "scope",
+            sourceTypeScope,
+        ).increment()
+    }
+
+    private fun recordErrorRecoveryMetrics(
+        eventName: String,
+        recoveryAction: String,
+        sourceTypeScope: String,
+    ) {
+        if (eventName != "ai_widget_error_recovery_click" || recoveryAction == "none") {
+            return
+        }
+        meterRegistry.counter(
+            "ai_widget_error_recovery_action_total",
+            "action",
+            recoveryAction,
+        ).increment()
+        meterRegistry.counter(
+            "ai_widget_error_recovery_scope_total",
+            "action",
+            recoveryAction,
             "scope",
             sourceTypeScope,
         ).increment()
@@ -650,6 +686,14 @@ class TelemetryController(
         return if (normalized in ALLOWED_SUBMIT_METHODS) normalized else "invalid"
     }
 
+    private fun normalizeRecoveryAction(rawRecoveryAction: String?): String {
+        val normalized = rawRecoveryAction?.trim()?.lowercase().orEmpty()
+        if (normalized.isBlank()) {
+            return "none"
+        }
+        return if (normalized in ALLOWED_RECOVERY_ACTIONS) normalized else "invalid"
+    }
+
     companion object {
         private val ALLOWED_EVENTS = setOf(
             "ai_widget_open",
@@ -676,6 +720,7 @@ class TelemetryController(
             "ai_widget_slot_chip_click",
             "ai_widget_filter_bulk_apply",
             "ai_widget_generation_cancel",
+            "ai_widget_error_recovery_click",
         )
 
         private val ALLOWED_SOURCES = setOf(
@@ -694,6 +739,7 @@ class TelemetryController(
             "prompt_history",
             "results_card",
             "saved_card",
+            "error_panel",
         )
 
         private val ALLOWED_SOURCE_TYPES = setOf(
@@ -765,6 +811,13 @@ class TelemetryController(
             "keyboard_shortcut",
             "history_submit",
         )
+
+        private val ALLOWED_RECOVERY_ACTIONS = setOf(
+            "retry",
+            "restore_draft",
+            "reset_scope",
+            "dismiss",
+        )
     }
 }
 
@@ -787,6 +840,7 @@ data class TelemetryEventRequest(
     val reuse_rank: Int? = null,
     val reuse_action: String? = null,
     val submit_method: String? = null,
+    val recovery_action: String? = null,
     val visible_card_count: Int? = null,
     val target_source_type: String? = null,
     val card_list_state: String? = null,
