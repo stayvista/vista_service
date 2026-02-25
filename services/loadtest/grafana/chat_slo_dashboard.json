@@ -190,6 +190,99 @@
           "refId": "B"
         }
       ]
+    },
+    {
+      "type": "timeseries",
+      "title": "AI Widget Handoff Detail",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 48},
+      "targets": [
+        {
+          "expr": "sum(rate(ai_widget_handoff_filter_count_sum[5m])) / clamp_min(sum(rate(ai_widget_handoff_filter_count_count[5m])), 0.0001)",
+          "legendFormat": "avg_filter_count",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(ai_widget_handoff_confidence_sum[5m])) / clamp_min(sum(rate(ai_widget_handoff_confidence_count[5m])), 0.0001)",
+          "legendFormat": "avg_confidence",
+          "refId": "B"
+        },
+        {
+          "expr": "sum(rate(ai_widget_handoff_profile_applied_total{applied=\"true\"}[15m])) / clamp_min(sum(rate(ai_widget_handoff_profile_applied_total[15m])), 0.0001)",
+          "legendFormat": "profile_applied_ratio",
+          "refId": "C"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "AI Widget Handoff Scope & Clarify State",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 48},
+      "targets": [
+        {
+          "expr": "sum(rate(ai_widget_handoff_scope_total[5m])) by (scope)",
+          "legendFormat": "scope_{{scope}}",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(ai_widget_handoff_clarify_required_total[5m])) by (required)",
+          "legendFormat": "clarify_required={{required}}",
+          "refId": "B"
+        },
+        {
+          "expr": "sum(rate(ai_widget_handoff_clarify_click_state_total[5m])) by (state)",
+          "legendFormat": "clarify_state={{state}}",
+          "refId": "C"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Clarify Suggestion Ratio & CTR",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 56},
+      "targets": [
+        {
+          "expr": "sum(rate(chat_search_handoff_clarify_suggested_total[15m])) / clamp_min(sum(rate(chat_search_handoff_total[15m])), 0.0001)",
+          "legendFormat": "clarify_suggested_ratio",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(ai_widget_clarify_click_total[15m])) / clamp_min(sum(rate(chat_search_handoff_clarify_suggested_total[15m])), 0.0001)",
+          "legendFormat": "clarify_ctr",
+          "refId": "B"
+        },
+        {
+          "expr": "sum(rate(chat_search_handoff_clarify_question_count_sum[15m])) / clamp_min(sum(rate(chat_search_handoff_clarify_question_count_count[15m])), 0.0001)",
+          "legendFormat": "avg_clarify_questions",
+          "refId": "C"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Clarify Impact on Handoff Quality",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 56},
+      "targets": [
+        {
+          "expr": "sum(rate(ai_widget_handoff_confidence_by_clarify_sum{state=\"clicked\"}[15m])) / clamp_min(sum(rate(ai_widget_handoff_confidence_by_clarify_count{state=\"clicked\"}[15m])), 0.0001)",
+          "legendFormat": "confidence_clicked",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(ai_widget_handoff_confidence_by_clarify_sum{state=\"not_clicked\"}[15m])) / clamp_min(sum(rate(ai_widget_handoff_confidence_by_clarify_count{state=\"not_clicked\"}[15m])), 0.0001)",
+          "legendFormat": "confidence_not_clicked",
+          "refId": "B"
+        },
+        {
+          "expr": "sum(rate(ai_widget_handoff_filter_count_by_clarify_sum{state=\"clicked\"}[15m])) / clamp_min(sum(rate(ai_widget_handoff_filter_count_by_clarify_count{state=\"clicked\"}[15m])), 0.0001)",
+          "legendFormat": "filter_count_clicked",
+          "refId": "C"
+        },
+        {
+          "expr": "sum(rate(ai_widget_handoff_filter_count_by_clarify_sum{state=\"not_clicked\"}[15m])) / clamp_min(sum(rate(ai_widget_handoff_filter_count_by_clarify_count{state=\"not_clicked\"}[15m])), 0.0001)",
+          "legendFormat": "filter_count_not_clicked",
+          "refId": "D"
+        }
+      ]
     }
   ],
   "refresh": "30s",
@@ -202,6 +295,6 @@
   "timezone": "",
   "title": "StayVista AI Copilot SLO",
   "uid": "stayvista-chat-slo",
-  "version": 2,
+  "version": 3,
   "weekStart": ""
 }

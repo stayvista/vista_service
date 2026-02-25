@@ -176,6 +176,7 @@ type ConciergeDockState = {
   handoffRecommendedSourceTypes: string[];
   handoffFilters: SearchHandoffFilter[];
   selectedHandoffFilterKeys: string[];
+  clarifyLoopClickCount: number;
   savedCards: ChatCard[];
   lastContextSnapshot: ContextSnapshot | null;
 };
@@ -278,6 +279,7 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
   const [handoffRecommendedSourceTypes, setHandoffRecommendedSourceTypes] = useState<string[]>(restoredState.handoffRecommendedSourceTypes);
   const [handoffFilters, setHandoffFilters] = useState<SearchHandoffFilter[]>(restoredState.handoffFilters);
   const [selectedHandoffFilterKeys, setSelectedHandoffFilterKeys] = useState<string[]>(restoredState.selectedHandoffFilterKeys);
+  const [clarifyLoopClickCount, setClarifyLoopClickCount] = useState(restoredState.clarifyLoopClickCount);
   const [savedCards, setSavedCards] = useState<ChatCard[]>(restoredState.savedCards);
   const [lastContextSnapshot, setLastContextSnapshot] = useState<ContextSnapshot | null>(restoredState.lastContextSnapshot);
   const [loading, setLoading] = useState(false);
@@ -313,6 +315,7 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
     handoffRecommendedSourceTypes,
     handoffFilters: handoffFilters.slice(0, 8),
     selectedHandoffFilterKeys: selectedHandoffFilterKeys.slice(0, 8),
+    clarifyLoopClickCount,
     savedCards: savedCards.slice(0, 12),
     lastContextSnapshot,
   }), [
@@ -340,6 +343,7 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
     handoffRecommendedSourceTypes,
     handoffFilters,
     selectedHandoffFilterKeys,
+    clarifyLoopClickCount,
     savedCards,
     lastContextSnapshot,
   ]);
@@ -370,6 +374,7 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
     setHandoffRecommendedSourceTypes(state.handoffRecommendedSourceTypes);
     setHandoffFilters(state.handoffFilters);
     setSelectedHandoffFilterKeys(state.selectedHandoffFilterKeys);
+    setClarifyLoopClickCount(state.clarifyLoopClickCount);
     setSavedCards(state.savedCards);
     setLastContextSnapshot(state.lastContextSnapshot);
     setError(null);
@@ -786,6 +791,7 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
     setHandoffRecommendedSourceTypes([]);
     setHandoffFilters([]);
     setSelectedHandoffFilterKeys([]);
+    setClarifyLoopClickCount(0);
     setError(null);
     setLoading(false);
     setActiveSourceTypes([...SOURCE_TYPE_FILTERS.city]);
@@ -932,6 +938,7 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
     } else {
       setAutopatchNotice("");
     }
+    setClarifyLoopClickCount(0);
     track("ai_widget_prompt_submit", source, {
       source_type_scope: scope,
       submit_method: method,
@@ -999,6 +1006,7 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
       handoff_profile_applied: handoffProfileApplied,
       clarify_required: handoffClarifyRequired,
       missing_slot_count: handoffMissingSlots.length,
+      clarify_click_count: clarifyLoopClickCount,
       source_type_scope: sourceTypeScope(handoffSourceTypes),
     });
     const nextSearchContext = applySearchPatch(searchContext, handoffSearchPatch);
@@ -1018,6 +1026,7 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
         }
       : undefined;
     onSearch(nextSearchContext, payload);
+    setClarifyLoopClickCount(0);
     if (isCompactViewport) {
       setOpen(false);
     }
@@ -1168,6 +1177,7 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
       track("ai_widget_clarify_click", "handoff_clarify", {
         source_type_scope: sourceTypeScope(activeSourceTypes),
       });
+      setClarifyLoopClickCount((prev) => prev + 1);
       void ask(handoffClarifyQuestions[0], activeSourceTypes);
     }
   }
@@ -1336,6 +1346,7 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
       handoff_profile_applied?: boolean;
       clarify_required?: boolean;
       missing_slot_count?: number;
+      clarify_click_count?: number;
       source_type_scope?: string;
       clarify_slot?: string;
       sort_value?: string;
@@ -1402,6 +1413,7 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
       clarify_slot: slot.slot,
       source_type_scope: sourceTypeScope(activeSourceTypes),
     });
+    setClarifyLoopClickCount((prev) => prev + 1);
     void ask(slot.prompt, activeSourceTypes);
   }
 
@@ -1430,6 +1442,7 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
         source_type_scope: sourceTypeScope(sourceTypes),
       },
     );
+    setClarifyLoopClickCount((prev) => prev + 1);
     void ask(action.prompt, sourceTypes, patchedContext);
   }
 
@@ -1579,6 +1592,7 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
               disabled={loading}
                 onClick={() => {
                   const scope = sourceTypeScope(item.sourceType);
+                  setClarifyLoopClickCount(0);
                   track("ai_widget_prompt_submit", "quick_prompt", { source_type_scope: scope });
                   void ask(item.prompt, item.sourceType);
                 }}
@@ -1703,6 +1717,7 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
                     onClick={() => {
                       const scope = sourceTypeScope(activeSourceTypes);
                       track("ai_widget_clarify_click", "handoff_clarify", { source_type_scope: scope });
+                      setClarifyLoopClickCount((prev) => prev + 1);
                       void ask(question, activeSourceTypes);
                     }}
                   >
@@ -2673,6 +2688,7 @@ function emptyDockState(): ConciergeDockState {
     handoffRecommendedSourceTypes: [],
     handoffFilters: [],
     selectedHandoffFilterKeys: [],
+    clarifyLoopClickCount: 0,
     savedCards: [],
     lastContextSnapshot: null,
   };
@@ -2780,6 +2796,9 @@ function parseConciergeDockState(parsed: Partial<ConciergeDockState> | null | un
     ),
     handoffFilters: Array.isArray(parsed.handoffFilters) ? parsed.handoffFilters.filter(isFilter).slice(0, 8) : [],
     selectedHandoffFilterKeys: toStringArray(parsed.selectedHandoffFilterKeys, 8),
+    clarifyLoopClickCount: typeof parsed.clarifyLoopClickCount === "number" && Number.isFinite(parsed.clarifyLoopClickCount)
+      ? Math.min(10, Math.max(0, Math.trunc(parsed.clarifyLoopClickCount)))
+      : 0,
     savedCards: Array.isArray(parsed.savedCards) ? parsed.savedCards.filter(isCard).slice(0, 12) : [],
     lastContextSnapshot: parseContextSnapshot(parsed.lastContextSnapshot),
   };
@@ -2979,6 +2998,7 @@ async function sendWidgetTelemetry(payload: {
   handoff_profile_applied?: boolean;
   clarify_required?: boolean;
   missing_slot_count?: number;
+  clarify_click_count?: number;
   source_type_scope?: string;
   clarify_slot?: string;
   sort_value?: string;

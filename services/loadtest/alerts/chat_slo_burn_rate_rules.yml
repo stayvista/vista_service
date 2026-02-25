@@ -145,3 +145,59 @@ groups:
         annotations:
           summary: "Search handoff confidence dropped"
           description: "Average handoff confidence stayed below 0.45 for 20m."
+
+      - alert: ChatSearchHandoffProfileAppliedRatioLow
+        expr: |
+          (
+            sum(rate(ai_widget_handoff_profile_applied_total{applied="true"}[30m]))
+            /
+            clamp_min(sum(rate(ai_widget_handoff_profile_applied_total[30m])), 1)
+          ) < 0.20
+          and
+          (
+            sum(rate(ai_widget_event_total{event="ai_widget_search_handoff"}[30m])) > 0.05
+          )
+        for: 30m
+        labels:
+          severity: ticket
+          service: chat
+          component: handoff
+        annotations:
+          summary: "Search handoff profile-applied ratio low"
+          description: "Profile-applied ratio stayed below 20% for 30m while handoff traffic is present."
+
+      - alert: ChatSearchHandoffClarifySuggestedRatioHigh
+        expr: |
+          (
+            sum(rate(chat_search_handoff_clarify_suggested_total[15m]))
+            /
+            clamp_min(sum(rate(chat_search_handoff_total[15m])), 1)
+          ) > 0.65
+        for: 20m
+        labels:
+          severity: ticket
+          service: chat
+          component: handoff
+        annotations:
+          summary: "Search handoff clarify suggested ratio high"
+          description: "Clarify-suggested ratio exceeded 65% for 20m. Check slot resolver/prompt tuning."
+
+      - alert: ChatSearchHandoffClarifyCtrLow
+        expr: |
+          (
+            sum(rate(ai_widget_clarify_click_total[30m]))
+            /
+            clamp_min(sum(rate(chat_search_handoff_clarify_suggested_total[30m])), 1)
+          ) < 0.25
+          and
+          (
+            sum(rate(chat_search_handoff_clarify_suggested_total[30m])) > 0.02
+          )
+        for: 30m
+        labels:
+          severity: ticket
+          service: chat
+          component: handoff
+        annotations:
+          summary: "Search handoff clarify CTR low"
+          description: "Clarify click-through stayed below 25% for 30m while clarify suggestions are active."

@@ -96,6 +96,7 @@ class TelemetryControllerTest {
                 handoff_profile_applied = true,
                 clarify_required = true,
                 missing_slot_count = 2,
+                clarify_click_count = 2,
             ),
         )
 
@@ -124,6 +125,26 @@ class TelemetryControllerTest {
         assertTrue(meterRegistry.get("ai_widget_handoff_filter_count").summary().count() >= 1)
         assertTrue(meterRegistry.get("ai_widget_handoff_confidence").summary().count() >= 1)
         assertTrue(meterRegistry.get("ai_widget_handoff_missing_slot_count").summary().count() >= 1)
+        assertTrue(meterRegistry.get("ai_widget_handoff_clarify_click_count").summary().count() >= 1)
+        assertEquals(
+            1.0,
+            meterRegistry.get("ai_widget_handoff_clarify_click_state_total")
+                .tag("state", "clicked")
+                .counter()
+                .count(),
+        )
+        assertTrue(
+            meterRegistry.get("ai_widget_handoff_filter_count_by_clarify")
+                .tag("state", "clicked")
+                .summary()
+                .count() >= 1,
+        )
+        assertTrue(
+            meterRegistry.get("ai_widget_handoff_confidence_by_clarify")
+                .tag("state", "clicked")
+                .summary()
+                .count() >= 1,
+        )
     }
 
     @Test
@@ -922,6 +943,21 @@ class TelemetryControllerTest {
                     event_name = "ai_widget_search_handoff",
                     source = "search_cta",
                     missing_slot_count = 9,
+                ),
+            )
+        }
+
+        assertEquals(ErrorCode.VALIDATION_ERROR, exception.errorCode)
+    }
+
+    @Test
+    fun `ingest should reject invalid clarify click count`() {
+        val exception = assertThrows<DomainException> {
+            controller.ingest(
+                TelemetryEventRequest(
+                    event_name = "ai_widget_search_handoff",
+                    source = "search_cta",
+                    clarify_click_count = 99,
                 ),
             )
         }

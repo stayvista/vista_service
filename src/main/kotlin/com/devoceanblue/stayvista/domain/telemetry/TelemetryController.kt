@@ -333,6 +333,14 @@ class TelemetryController(
                 message = "missing_slot_count must be between 0 and 5",
             )
         }
+
+        val clarifyClickCount = request.clarify_click_count
+        if (clarifyClickCount != null && clarifyClickCount !in 0..10) {
+            throw DomainException(
+                errorCode = ErrorCode.VALIDATION_ERROR,
+                message = "clarify_click_count must be between 0 and 10",
+            )
+        }
     }
 
     private fun recordOptionalMetrics(eventName: String, request: TelemetryEventRequest, sourceTypeScope: String) {
@@ -340,11 +348,21 @@ class TelemetryController(
             return
         }
 
+        val clarifyState = when {
+            request.clarify_click_count == null -> "unknown"
+            request.clarify_click_count > 0 -> "clicked"
+            else -> "not_clicked"
+        }
+
         request.filter_count?.let { count ->
             meterRegistry.summary("ai_widget_handoff_filter_count").record(count.toDouble())
+            meterRegistry.summary("ai_widget_handoff_filter_count_by_clarify", "state", clarifyState)
+                .record(count.toDouble())
         }
         request.handoff_confidence?.let { confidence ->
             meterRegistry.summary("ai_widget_handoff_confidence").record(confidence)
+            meterRegistry.summary("ai_widget_handoff_confidence_by_clarify", "state", clarifyState)
+                .record(confidence)
         }
         request.handoff_profile_applied?.let { applied ->
             meterRegistry.counter(
@@ -363,6 +381,14 @@ class TelemetryController(
         request.missing_slot_count?.let { count ->
             meterRegistry.summary("ai_widget_handoff_missing_slot_count").record(count.toDouble())
         }
+        request.clarify_click_count?.let { count ->
+            meterRegistry.summary("ai_widget_handoff_clarify_click_count").record(count.toDouble())
+        }
+        meterRegistry.counter(
+            "ai_widget_handoff_clarify_click_state_total",
+            "state",
+            clarifyState,
+        ).increment()
         meterRegistry.counter("ai_widget_handoff_scope_total", "scope", sourceTypeScope).increment()
     }
 
@@ -1057,6 +1083,7 @@ data class TelemetryEventRequest(
     val handoff_profile_applied: Boolean? = null,
     val clarify_required: Boolean? = null,
     val missing_slot_count: Int? = null,
+    val clarify_click_count: Int? = null,
     val clarify_slot: String? = null,
     val sort_value: String? = null,
     val feedback_value: String? = null,
