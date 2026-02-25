@@ -219,6 +219,7 @@ export function PropertyPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [holdPendingPlanId, setHoldPendingPlanId] = useState<string | null>(null);
+  const [holdPendingRoomTypeId, setHoldPendingRoomTypeId] = useState<number | null>(null);
   const [holdErrorMessage, setHoldErrorMessage] = useState<string | null>(null);
 
   const [expandedDescription, setExpandedDescription] = useState(false);
@@ -710,6 +711,7 @@ export function PropertyPage() {
     }
     setHoldErrorMessage(null);
     setHoldPendingPlanId(plan.planId);
+    setHoldPendingRoomTypeId(offer.room.room_type_id);
     try {
       try {
         const latestRoomTypes = await fetchRoomTypesSnapshot();
@@ -795,6 +797,7 @@ export function PropertyPage() {
       }
     } finally {
       setHoldPendingPlanId(null);
+      setHoldPendingRoomTypeId(null);
     }
   }
 
@@ -1089,9 +1092,13 @@ export function PropertyPage() {
                                 type="button"
                                 className="inline-cta"
                                 onClick={() => void handleBookNow(offer, plan)}
-                                disabled={holdPendingPlanId === plan.planId}
+                                disabled={holdPendingRoomTypeId !== null}
                               >
-                                {holdPendingPlanId === plan.planId ? "재고 확인 중..." : "지금 예약하기"}
+                                {holdPendingPlanId === plan.planId
+                                  ? "재고 확인 중..."
+                                  : holdPendingRoomTypeId !== null
+                                    ? "잠시만요..."
+                                    : "지금 예약하기"}
                               </button>
                             ) : (
                               <button type="button" className="inline-cta is-disabled" disabled>
