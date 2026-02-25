@@ -358,10 +358,14 @@ class TelemetryController(
             meterRegistry.summary("ai_widget_handoff_filter_count").record(count.toDouble())
             meterRegistry.summary("ai_widget_handoff_filter_count_by_clarify", "state", clarifyState)
                 .record(count.toDouble())
+            meterRegistry.summary("ai_widget_handoff_filter_count_by_scope", "scope", sourceTypeScope)
+                .record(count.toDouble())
         }
         request.handoff_confidence?.let { confidence ->
             meterRegistry.summary("ai_widget_handoff_confidence").record(confidence)
             meterRegistry.summary("ai_widget_handoff_confidence_by_clarify", "state", clarifyState)
+                .record(confidence)
+            meterRegistry.summary("ai_widget_handoff_confidence_by_scope", "scope", sourceTypeScope)
                 .record(confidence)
         }
         request.handoff_profile_applied?.let { applied ->

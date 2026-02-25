@@ -126,8 +126,11 @@
 1) 주요 지표 확인 (Grafana: `StayVista AI Copilot SLO`)
    - `ai_widget_handoff_filter_count`
    - `ai_widget_handoff_confidence`
+   - `ai_widget_handoff_filter_count_by_scope{scope=*}`
+   - `ai_widget_handoff_confidence_by_scope{scope=*}`
    - `ai_widget_handoff_profile_applied_total{applied=*}`
    - `ai_widget_handoff_scope_total{scope=*}`
+   - `ai_widget_source_scope_total{event=ai_widget_search_handoff,scope=*}`
    - `chat_search_handoff_clarify_suggested_total`
    - `ai_widget_clarify_click_total`
    - `chat_search_handoff_clarify_question_count`
@@ -137,6 +140,7 @@
    - `ChatSearchHandoffProfileAppliedRatioLow`
    - `ChatSearchHandoffClarifySuggestedRatioHigh`
    - `ChatSearchHandoffClarifyCtrLow`
+   - `ChatSearchHandoffScopeDriftHigh`
 3) 1차 대응 순서
    - `clarify_suggested_ratio` 상승 + `clarify_ctr` 하락 동시 발생 시:
      - 슬롯 추출 규칙(`city/days/companions/budget/preferences`) 민감도 완화
@@ -144,6 +148,10 @@
    - `profile_applied_ratio` 하락 시:
      - 프로필 키 누락/만료 확인 (`chat_pref_profile_total{status=miss}`)
      - 위젯 handoff payload의 `handoff_profile_applied` 필드 누락 여부 확인
+   - `scope_drift_ratio` 상승 시:
+     - `ai_widget_source_scope_total{event=ai_widget_search_handoff}`와 `ai_widget_handoff_scope_total`를 scope별 비교
+     - 프론트 payload `source_type_scope` 직렬화 형식(`PROPERTY+POI`) 불일치 여부 확인
+     - route별 fallback 비율(`ai_widget_event_total{event=ai_widget_orchestrator_fallback}`) 급증 여부 확인
    - `clarify clicked` 대비 `not_clicked` 품질 역전 시:
      - `ai_widget_handoff_confidence_by_clarify`와 `ai_widget_handoff_filter_count_by_clarify` 비교
      - clarify 문구를 액션형(버튼/칩)으로 단순화하고 질문 수 상한(권장 2개) 적용

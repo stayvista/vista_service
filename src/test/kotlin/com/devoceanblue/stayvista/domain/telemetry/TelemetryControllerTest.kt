@@ -145,6 +145,18 @@ class TelemetryControllerTest {
                 .summary()
                 .count() >= 1,
         )
+        assertTrue(
+            meterRegistry.get("ai_widget_handoff_filter_count_by_scope")
+                .tag("scope", "PROPERTY+PACKAGE")
+                .summary()
+                .count() >= 1,
+        )
+        assertTrue(
+            meterRegistry.get("ai_widget_handoff_confidence_by_scope")
+                .tag("scope", "PROPERTY+PACKAGE")
+                .summary()
+                .count() >= 1,
+        )
     }
 
     @Test

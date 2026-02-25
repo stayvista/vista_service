@@ -283,6 +283,45 @@
           "refId": "D"
         }
       ]
+    },
+    {
+      "type": "timeseries",
+      "title": "AI Widget Source Scope Event Distribution",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 64},
+      "targets": [
+        {
+          "expr": "sum(rate(ai_widget_source_scope_total{event=\"ai_widget_search_handoff\"}[5m])) by (scope)",
+          "legendFormat": "handoff_scope_{{scope}}",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(ai_widget_source_scope_total{event=\"ai_widget_prompt_submit\"}[5m])) by (scope)",
+          "legendFormat": "prompt_submit_scope_{{scope}}",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Handoff Quality & Scope Drift",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 64},
+      "targets": [
+        {
+          "expr": "sum(rate(ai_widget_handoff_confidence_by_scope_sum[15m])) by (scope) / clamp_min(sum(rate(ai_widget_handoff_confidence_by_scope_count[15m])) by (scope), 0.0001)",
+          "legendFormat": "confidence_{{scope}}",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(ai_widget_handoff_filter_count_by_scope_sum[15m])) by (scope) / clamp_min(sum(rate(ai_widget_handoff_filter_count_by_scope_count[15m])) by (scope), 0.0001)",
+          "legendFormat": "filter_count_{{scope}}",
+          "refId": "B"
+        },
+        {
+          "expr": "abs(sum(rate(ai_widget_handoff_scope_total[15m])) by (scope) - sum(rate(ai_widget_source_scope_total{event=\"ai_widget_search_handoff\"}[15m])) by (scope)) / clamp_min(sum(rate(ai_widget_source_scope_total{event=\"ai_widget_search_handoff\"}[15m])) by (scope), 0.0001)",
+          "legendFormat": "drift_ratio_{{scope}}",
+          "refId": "C"
+        }
+      ]
     }
   ],
   "refresh": "30s",
@@ -295,6 +334,6 @@
   "timezone": "",
   "title": "StayVista AI Copilot SLO",
   "uid": "stayvista-chat-slo",
-  "version": 3,
+  "version": 4,
   "weekStart": ""
 }

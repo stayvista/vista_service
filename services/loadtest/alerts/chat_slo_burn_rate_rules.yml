@@ -201,3 +201,30 @@ groups:
         annotations:
           summary: "Search handoff clarify CTR low"
           description: "Clarify click-through stayed below 25% for 30m while clarify suggestions are active."
+
+      - alert: ChatSearchHandoffScopeDriftHigh
+        expr: |
+          max(
+            abs(
+              sum(rate(ai_widget_handoff_scope_total[15m])) by (scope)
+              -
+              sum(rate(ai_widget_source_scope_total{event="ai_widget_search_handoff"}[15m])) by (scope)
+            )
+            /
+            clamp_min(
+              sum(rate(ai_widget_source_scope_total{event="ai_widget_search_handoff"}[15m])) by (scope),
+              0.0001
+            )
+          ) > 0.20
+          and
+          (
+            sum(rate(ai_widget_source_scope_total{event="ai_widget_search_handoff"}[15m])) > 0.05
+          )
+        for: 15m
+        labels:
+          severity: ticket
+          service: chat
+          component: handoff
+        annotations:
+          summary: "Search handoff source scope drift high"
+          description: "Scope drift ratio exceeded 20% for 15m. Check source-scope parse/fallback/UI sync."
