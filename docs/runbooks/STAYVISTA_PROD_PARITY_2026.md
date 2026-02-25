@@ -20,6 +20,7 @@
    - Handoff scope quality: `ai_widget_handoff_filter_count_by_scope`, `ai_widget_handoff_confidence_by_scope`
    - Scope event distribution: `ai_widget_source_scope_total{event=*}`
    - Clarify loop: `chat_search_handoff_clarify_suggested_total`, `ai_widget_clarify_click_total`, `chat_search_handoff_clarify_question_count`
+   - Clarify required/action: `chat_search_handoff_clarify_required_total`, `chat_search_handoff_missing_slot_count`, `chat_search_handoff_clarify_action_count`, `chat_search_handoff_clarify_action_total`, `ai_widget_clarify_action_slot_total`
    - Clarify impact: `ai_widget_handoff_confidence_by_clarify`, `ai_widget_handoff_filter_count_by_clarify`, `ai_widget_handoff_clarify_click_state_total`
    - Quality: `ai_copilot_quality_event_total`
    - Degrade/no-result: `chat_copilot_orchestrator_requests_total`, `chat_copilot_orchestrator_no_result_total`
@@ -35,6 +36,10 @@
    - `ChatSearchHandoffClarifySuggestedRatioHigh`
    - `ChatSearchHandoffClarifyCtrLow`
    - `ChatSearchHandoffScopeDriftHigh`
+   - `ChatSearchHandoffClarifyRequiredRatioHigh`
+   - `ChatSearchHandoffMissingSlotCountHigh`
+   - `ChatSearchHandoffClarifyActionClickLow`
+   - `ChatSearchHandoffClarifyActionSlotSkewHigh`
 4. 필터/Facet 메트릭 확인
    - `search_facets_requests_total`
    - `search_facets_latency_ms`
@@ -101,7 +106,9 @@ k6 run services/loadtest/k6/full_funnel.js
 3. `profile_applied_ratio` 20% 미만이면 프로필 만료율(`chat_pref_profile_total{status=miss}`) 점검
 4. `scope_drift_ratio` > 0.20 이면 `source_scope` 직렬화 규칙/프론트 동기화/API validation 로그 점검
 5. `clarify_suggested_ratio` > 0.65 이고 `clarify_ctr` < 0.25이면 슬롯 추출 규칙 완화
-6. clarify 클릭 이후 품질 비교:
+6. `clarify_required_ratio` > 0.60 또는 `avg_missing_slots` > 1.8이면 슬롯 추출 회귀/컨텍스트 누락 점검
+7. `clarify_action_click_ratio` < 0.35 또는 단일 slot 비중 > 75%이면 액션 UX/slot 키워드 가중치 튜닝
+8. clarify 클릭 이후 품질 비교:
    - `confidence_clicked - confidence_not_clicked`
    - `filter_count_clicked - filter_count_not_clicked`
    - 두 지표가 연속 1일 역전 시 프롬프트/칩 문구 튜닝 티켓 생성

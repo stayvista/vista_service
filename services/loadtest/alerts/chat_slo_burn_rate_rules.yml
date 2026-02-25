@@ -228,3 +228,83 @@ groups:
         annotations:
           summary: "Search handoff source scope drift high"
           description: "Scope drift ratio exceeded 20% for 15m. Check source-scope parse/fallback/UI sync."
+
+      - alert: ChatSearchHandoffClarifyRequiredRatioHigh
+        expr: |
+          (
+            sum(rate(chat_search_handoff_clarify_required_total{required="true"}[15m]))
+            /
+            clamp_min(sum(rate(chat_search_handoff_clarify_required_total[15m])), 1)
+          ) > 0.60
+          and
+          (
+            sum(rate(chat_search_handoff_total[15m])) > 0.05
+          )
+        for: 15m
+        labels:
+          severity: ticket
+          service: chat
+          component: handoff
+        annotations:
+          summary: "Search handoff clarify-required ratio high"
+          description: "clarify_required=true ratio exceeded 60% for 15m. Check slot extraction/prompt drift."
+
+      - alert: ChatSearchHandoffMissingSlotCountHigh
+        expr: |
+          (
+            sum(rate(chat_search_handoff_missing_slot_count_sum[15m]))
+            /
+            clamp_min(sum(rate(chat_search_handoff_missing_slot_count_count[15m])), 1)
+          ) > 1.8
+          and
+          (
+            sum(rate(chat_search_handoff_total[15m])) > 0.05
+          )
+        for: 15m
+        labels:
+          severity: ticket
+          service: chat
+          component: handoff
+        annotations:
+          summary: "Search handoff missing-slot count high"
+          description: "Average missing_slot_count stayed above 1.8 for 15m."
+
+      - alert: ChatSearchHandoffClarifyActionClickLow
+        expr: |
+          (
+            sum(rate(ai_widget_clarify_action_click_total[20m]))
+            /
+            clamp_min(sum(rate(chat_search_handoff_clarify_required_total{required="true"}[20m])), 1)
+          ) < 0.35
+          and
+          (
+            sum(rate(chat_search_handoff_clarify_required_total{required="true"}[20m])) > 0.03
+          )
+        for: 20m
+        labels:
+          severity: ticket
+          service: chat
+          component: handoff
+        annotations:
+          summary: "Search handoff clarify-action click low"
+          description: "Clarify action click ratio stayed below 35% against clarify_required traffic for 20m."
+
+      - alert: ChatSearchHandoffClarifyActionSlotSkewHigh
+        expr: |
+          (
+            max(sum(rate(chat_search_handoff_clarify_action_total[30m])) by (slot))
+            /
+            clamp_min(sum(rate(chat_search_handoff_clarify_action_total[30m])), 1)
+          ) > 0.75
+          and
+          (
+            sum(rate(chat_search_handoff_clarify_action_total[30m])) > 0.05
+          )
+        for: 30m
+        labels:
+          severity: ticket
+          service: chat
+          component: handoff
+        annotations:
+          summary: "Search handoff clarify-action slot skew high"
+          description: "One clarify_action slot occupied over 75% for 30m. Check slot detector bias."

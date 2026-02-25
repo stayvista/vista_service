@@ -64,8 +64,6 @@
 - `B-0989` Me Session Probe API & Auth Reject Metric v1
 - `B-0990` Booking Hold 재사용 및 만료 Hold 즉시정리 v1
 - `I-0960` AI 컨시어지 퍼널 관측성 v1
-- `I-0966` AI clarify-required observability v1
-- `I-0967` AI clarify action observability v1
 - `I-0968` AI source scope intent-match observability v1
 - `I-0969` AI sort hint observability v1
 - `I-0970` AI Widget UX 품질 지표 v1

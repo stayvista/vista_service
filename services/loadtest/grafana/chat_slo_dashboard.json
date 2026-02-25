@@ -322,6 +322,55 @@
           "refId": "C"
         }
       ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Clarify Required & Missing Slots",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 72},
+      "targets": [
+        {
+          "expr": "sum(rate(chat_search_handoff_clarify_required_total{required=\"true\"}[15m])) / clamp_min(sum(rate(chat_search_handoff_clarify_required_total[15m])), 0.0001)",
+          "legendFormat": "chat_clarify_required_ratio",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(ai_widget_handoff_clarify_required_total{required=\"true\"}[15m])) / clamp_min(sum(rate(ai_widget_handoff_clarify_required_total[15m])), 0.0001)",
+          "legendFormat": "widget_clarify_required_ratio",
+          "refId": "B"
+        },
+        {
+          "expr": "sum(rate(chat_search_handoff_missing_slot_count_sum[15m])) / clamp_min(sum(rate(chat_search_handoff_missing_slot_count_count[15m])), 0.0001)",
+          "legendFormat": "chat_avg_missing_slots",
+          "refId": "C"
+        },
+        {
+          "expr": "sum(rate(ai_widget_handoff_missing_slot_count_sum[15m])) / clamp_min(sum(rate(ai_widget_handoff_missing_slot_count_count[15m])), 0.0001)",
+          "legendFormat": "widget_avg_missing_slots",
+          "refId": "D"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Clarify Action Slot Usage",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 72},
+      "targets": [
+        {
+          "expr": "sum(rate(ai_widget_clarify_action_slot_total[15m])) by (slot)",
+          "legendFormat": "widget_action_slot={{slot}}",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(chat_search_handoff_clarify_action_total[15m])) by (slot)",
+          "legendFormat": "advisor_action_slot={{slot}}",
+          "refId": "B"
+        },
+        {
+          "expr": "sum(rate(chat_search_handoff_clarify_action_count_sum[15m])) / clamp_min(sum(rate(chat_search_handoff_clarify_action_count_count[15m])), 0.0001)",
+          "legendFormat": "advisor_avg_action_count",
+          "refId": "C"
+        }
+      ]
     }
   ],
   "refresh": "30s",
@@ -334,6 +383,6 @@
   "timezone": "",
   "title": "StayVista AI Copilot SLO",
   "uid": "stayvista-chat-slo",
-  "version": 4,
+  "version": 5,
   "weekStart": ""
 }

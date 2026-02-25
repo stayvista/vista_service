@@ -132,7 +132,12 @@
    - `ai_widget_handoff_scope_total{scope=*}`
    - `ai_widget_source_scope_total{event=ai_widget_search_handoff,scope=*}`
    - `chat_search_handoff_clarify_suggested_total`
+   - `chat_search_handoff_clarify_required_total{required=*}`
+   - `chat_search_handoff_missing_slot_count`
+   - `chat_search_handoff_clarify_action_count`
+   - `chat_search_handoff_clarify_action_total{slot=*}`
    - `ai_widget_clarify_click_total`
+   - `ai_widget_clarify_action_slot_total{slot=*}`
    - `chat_search_handoff_clarify_question_count`
    - `ai_widget_handoff_confidence_by_clarify{state=*}`
    - `ai_widget_handoff_filter_count_by_clarify{state=*}`
@@ -141,10 +146,18 @@
    - `ChatSearchHandoffClarifySuggestedRatioHigh`
    - `ChatSearchHandoffClarifyCtrLow`
    - `ChatSearchHandoffScopeDriftHigh`
+   - `ChatSearchHandoffClarifyRequiredRatioHigh`
+   - `ChatSearchHandoffMissingSlotCountHigh`
+   - `ChatSearchHandoffClarifyActionClickLow`
+   - `ChatSearchHandoffClarifyActionSlotSkewHigh`
 3) 1차 대응 순서
    - `clarify_suggested_ratio` 상승 + `clarify_ctr` 하락 동시 발생 시:
      - 슬롯 추출 규칙(`city/days/companions/budget/preferences`) 민감도 완화
      - 기본 추천 전송 임계치 하향으로 clarify 의존도 감소
+   - `clarify_required_ratio`와 `missing_slot_count` 동시 상승 시:
+     - handoff advisor 슬롯 추출 회귀 여부 확인 (`ChatRoutingPolicy.extractSlots`)
+     - 프론트 컨텍스트 전달값(city/dates/guests) 누락 여부 확인
+     - 최근 배포에서 prompt template 변경점 우선 롤백 검토
    - `profile_applied_ratio` 하락 시:
      - 프로필 키 누락/만료 확인 (`chat_pref_profile_total{status=miss}`)
      - 위젯 handoff payload의 `handoff_profile_applied` 필드 누락 여부 확인
@@ -153,8 +166,11 @@
      - 프론트 payload `source_type_scope` 직렬화 형식(`PROPERTY+POI`) 불일치 여부 확인
      - route별 fallback 비율(`ai_widget_event_total{event=ai_widget_orchestrator_fallback}`) 급증 여부 확인
    - `clarify clicked` 대비 `not_clicked` 품질 역전 시:
-     - `ai_widget_handoff_confidence_by_clarify`와 `ai_widget_handoff_filter_count_by_clarify` 비교
-     - clarify 문구를 액션형(버튼/칩)으로 단순화하고 질문 수 상한(권장 2개) 적용
+      - `ai_widget_handoff_confidence_by_clarify`와 `ai_widget_handoff_filter_count_by_clarify` 비교
+      - clarify 문구를 액션형(버튼/칩)으로 단순화하고 질문 수 상한(권장 2개) 적용
+   - `clarify_action_click` 저조 또는 slot 편중 시:
+     - `ai_widget_clarify_action_slot_total`와 `chat_search_handoff_clarify_action_total` 비교해 프론트 누락 여부 확인
+     - 특정 slot 편중(`>75%`)이면 해당 slot 추출 키워드 가중치 하향 및 다른 slot 힌트 보강
 4) 재발 방지
    - 주간 리뷰에서 scope별(`PROPERTY/TICKET/PACKAGE/POI`) clarify 제안율/CTR 비교
    - `ai_widget_search_handoff` 샘플 이벤트 50건을 추출해 누락 슬롯/과다질문 케이스 점검
