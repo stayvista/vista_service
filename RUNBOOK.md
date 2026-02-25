@@ -250,6 +250,10 @@ curl -sS -X POST "http://localhost:18765/v1/chat/copilot/orchestrate" \
 - `CopilotActionApplySuccessRateLow`:
   - 프론트 액션 payload 스키마와 API 파라미터 드리프트 확인
   - `ai_widget_action_apply` 이벤트의 `action_apply_success` 누락 여부 점검
+- `ChatSearchHandoffEmptyRatioHigh` 또는 `ChatSearchHandoffConfidenceLow`:
+  - `chat_search_handoff_total{result=*}` 및 `chat_search_handoff_confidence` 추이 확인
+  - `session_id`/`user_id` 컨텍스트 누락 여부 점검 (위젯 요청 payload)
+  - `chat_search_handoff_profile_applied_total` 급감 시 Redis 선호 프로파일 hit율과 만료(`chat_pref_profile_total{status=miss}`) 확인
 
 ## 4) 런타임 설정(초안)
 - MySQL: connection pool 상한, 타임아웃, slow query log on

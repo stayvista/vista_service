@@ -151,6 +151,45 @@
           "refId": "B"
         }
       ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Search Handoff Quality",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 40},
+      "targets": [
+        {
+          "expr": "sum(rate(chat_search_handoff_total[5m])) by (result)",
+          "legendFormat": "handoff_{{result}}",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(chat_search_handoff_filter_count_sum[5m])) / clamp_min(sum(rate(chat_search_handoff_filter_count_count[5m])), 0.0001)",
+          "legendFormat": "avg_filter_count",
+          "refId": "B"
+        },
+        {
+          "expr": "sum(rate(chat_search_handoff_confidence_sum[5m])) / clamp_min(sum(rate(chat_search_handoff_confidence_count[5m])), 0.0001)",
+          "legendFormat": "avg_confidence",
+          "refId": "C"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Search Handoff Empty/Profile Ratio",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 40},
+      "targets": [
+        {
+          "expr": "sum(rate(chat_search_handoff_total{result=\"empty\"}[15m])) / clamp_min(sum(rate(chat_search_handoff_total[15m])), 0.0001)",
+          "legendFormat": "empty_ratio",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(chat_search_handoff_profile_applied_total[15m])) / clamp_min(sum(rate(chat_search_handoff_total{result=\"filters\"}[15m])), 0.0001)",
+          "legendFormat": "profile_applied_ratio",
+          "refId": "B"
+        }
+      ]
     }
   ],
   "refresh": "30s",

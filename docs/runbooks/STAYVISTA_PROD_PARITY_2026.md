@@ -15,6 +15,7 @@
    - Copilot latency: `chat_copilot_orchestrator_latency_ms_seconds_bucket` (p95/p99)
    - Funnel: `ai_copilot_funnel_step_total`
    - Action apply success: `ai_copilot_action_apply_total`
+   - Handoff quality: `chat_search_handoff_total`, `chat_search_handoff_confidence`, `chat_search_handoff_profile_applied_total`
    - Quality: `ai_copilot_quality_event_total`
    - Degrade/no-result: `chat_copilot_orchestrator_requests_total`, `chat_copilot_orchestrator_no_result_total`
 3. 알람 룰 점검
@@ -23,6 +24,8 @@
    - `CopilotOrchestratorLatencyP99High`
    - `CopilotWidgetErrorRateHigh`
    - `CopilotActionApplySuccessRateLow`
+   - `ChatSearchHandoffEmptyRatioHigh`
+   - `ChatSearchHandoffConfidenceLow`
 4. 필터/Facet 메트릭 확인
    - `search_facets_requests_total`
    - `search_facets_latency_ms`

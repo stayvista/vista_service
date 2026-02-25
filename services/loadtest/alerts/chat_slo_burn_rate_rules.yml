@@ -113,3 +113,35 @@ groups:
         annotations:
           summary: "Copilot action apply success rate low"
           description: "Action apply success rate stayed below 85% for 15m."
+
+      - alert: ChatSearchHandoffEmptyRatioHigh
+        expr: |
+          (
+            sum(rate(chat_search_handoff_total{result="empty"}[15m]))
+            /
+            clamp_min(sum(rate(chat_search_handoff_total[15m])), 1)
+          ) > 0.35
+        for: 15m
+        labels:
+          severity: ticket
+          service: chat
+          component: handoff
+        annotations:
+          summary: "Search handoff empty ratio high"
+          description: "chat_search_handoff_total empty ratio exceeded 35% for 15m."
+
+      - alert: ChatSearchHandoffConfidenceLow
+        expr: |
+          (
+            sum(rate(chat_search_handoff_confidence_sum[15m]))
+            /
+            clamp_min(sum(rate(chat_search_handoff_confidence_count[15m])), 1)
+          ) < 0.45
+        for: 20m
+        labels:
+          severity: ticket
+          service: chat
+          component: handoff
+        annotations:
+          summary: "Search handoff confidence dropped"
+          description: "Average handoff confidence stayed below 0.45 for 20m."

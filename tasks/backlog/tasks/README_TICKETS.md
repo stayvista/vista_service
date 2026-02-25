@@ -64,7 +64,6 @@
 - `B-0989` Me Session Probe API & Auth Reject Metric v1
 - `B-0990` Booking Hold 재사용 및 만료 Hold 즉시정리 v1
 - `I-0960` AI 컨시어지 퍼널 관측성 v1
-- `I-0961` AI handoff 품질 지표 v1
 - `I-0962` AI handoff detail telemetry 대시보드 v1
 - `I-0963` AI clarify loop 관측성 v1
 - `I-0964` AI source scope observability v1
