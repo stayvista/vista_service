@@ -221,6 +221,36 @@ curl -sS -X POST "http://localhost:18765/v1/admin/chat/curation/rules" \
 ```
 - 큐레이션은 chat retrieval 시 즉시 반영된다(재기동/재색인 불필요).
 
+### 3.10 AI Copilot 오케스트레이터 점검
+1) 엔드포인트 정상성
+```bash
+curl -sS -X POST "http://localhost:18765/v1/chat/copilot/orchestrate" \
+  -H "Content-Type: application/json" \
+  -d '{"message":"서울 가족여행 숙소 추천","session_state":{"destination":"Seoul","date_range":{"check_in":"2026-03-02","check_out":"2026-03-04"},"guests":{"rooms":1,"adults":2,"children":1,"children_ages":[7]}}}'
+```
+- 응답 필수 필드: `answer`, `actions[]`, `evidence[]`, `confidence`, `tool_trace[]`, `request_id`, `trace_id`
+
+2) 메트릭 확인
+- `chat_copilot_orchestrator_latency_ms`
+- `chat_copilot_orchestrator_requests_total{result=*}`
+- `chat_copilot_orchestrator_tool_total{tool=*,status=*}`
+- `chat_copilot_orchestrator_no_result_total`
+- `ai_copilot_funnel_step_total{step=*}`
+- `ai_copilot_action_apply_total{result=*}`
+- `ai_copilot_quality_event_total{metric=*}`
+- `chat_copilot_guardrail_violation_total{reason=*}`
+
+3) 알람 발생 시 1차 대응 순서
+- `CopilotOrchestratorLatencyP99High`:
+  - 실패 툴 상위 확인: `chat_copilot_orchestrator_tool_total{status="failed"}`
+  - `get_price_calendar` 또는 `check_availability` 실패 급증 시 해당 툴 fallback 경로 활성화
+- `CopilotWidgetErrorRateHigh`:
+  - `ai_widget_orchestrator_fallback`/`ai_widget_search_blocked` 이벤트 급증 원인 확인
+  - 최근 배포 내역과 prompt/rule 변경점 롤백 검토
+- `CopilotActionApplySuccessRateLow`:
+  - 프론트 액션 payload 스키마와 API 파라미터 드리프트 확인
+  - `ai_widget_action_apply` 이벤트의 `action_apply_success` 누락 여부 점검
+
 ## 4) 런타임 설정(초안)
 - MySQL: connection pool 상한, 타임아웃, slow query log on
 - Redis: maxmemory-policy 설정, eviction 알람

@@ -9,85 +9,160 @@
   "panels": [
     {
       "type": "timeseries",
-      "title": "Chat Stream TTFB p95 (ms)",
+      "title": "Copilot Orchestrator Latency p95/p99 (ms)",
       "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, sum(rate(chat_ttfb_ms_seconds_bucket[5m])) by (le)) * 1000",
-          "legendFormat": "ttfb_p95_ms",
-          "refId": "A"
-        }
-      ]
-    },
-    {
-      "type": "timeseries",
-      "title": "Chat Stream Complete p95 (ms)",
-      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
-      "targets": [
-        {
-          "expr": "histogram_quantile(0.95, sum(rate(chat_stream_duration_ms_seconds_bucket[5m])) by (le)) * 1000",
-          "legendFormat": "complete_p95_ms",
-          "refId": "A"
-        }
-      ]
-    },
-    {
-      "type": "timeseries",
-      "title": "LLM Queue Depth / Inflight",
-      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
-      "targets": [
-        {"expr": "llm_queue_depth", "legendFormat": "queue_depth", "refId": "A"},
-        {"expr": "llm_inflight", "legendFormat": "inflight", "refId": "B"}
-      ]
-    },
-    {
-      "type": "timeseries",
-      "title": "LLM Reject / Timeout / Error rate",
-      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
-      "targets": [
-        {"expr": "sum(rate(llm_reject_rate_total[5m]))", "legendFormat": "reject_rate", "refId": "A"},
-        {"expr": "sum(rate(llm_timeout_count_total[5m]))", "legendFormat": "timeout_rate", "refId": "B"},
-        {"expr": "sum(rate(llm_error_count_total[5m]))", "legendFormat": "error_rate", "refId": "C"}
-      ]
-    },
-    {
-      "type": "timeseries",
-      "title": "Cache Hit Rate",
-      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
-      "targets": [
-        {
-          "expr": "sum(rate(cache_hit_rate_retrieval_total{result=\"hit\"}[5m])) / clamp_min(sum(rate(cache_hit_rate_retrieval_total[5m])), 0.0001)",
-          "legendFormat": "retrieval_hit_rate",
+          "expr": "histogram_quantile(0.95, sum(rate(chat_copilot_orchestrator_latency_ms_seconds_bucket[5m])) by (le)) * 1000",
+          "legendFormat": "p95",
           "refId": "A"
         },
         {
-          "expr": "sum(rate(cache_hit_rate_prompt_total{result=\"hit\"}[5m])) / clamp_min(sum(rate(cache_hit_rate_prompt_total[5m])), 0.0001)",
-          "legendFormat": "prompt_hit_rate",
+          "expr": "histogram_quantile(0.99, sum(rate(chat_copilot_orchestrator_latency_ms_seconds_bucket[5m])) by (le)) * 1000",
+          "legendFormat": "p99",
           "refId": "B"
         }
       ]
     },
     {
       "type": "timeseries",
-      "title": "Route Mix",
+      "title": "Action Apply Success Rate",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+      "targets": [
+        {
+          "expr": "sum(rate(ai_copilot_action_apply_total{result=\"success\"}[5m])) / clamp_min(sum(rate(ai_copilot_action_apply_total[5m])), 0.0001)",
+          "legendFormat": "success_rate",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Copilot Funnel Step Rate",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+      "targets": [
+        {
+          "expr": "sum(rate(ai_copilot_funnel_step_total[5m])) by (step)",
+          "legendFormat": "{{step}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Widget→Booking Conversion",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+      "targets": [
+        {
+          "expr": "sum(rate(ai_copilot_funnel_step_total{step=\"booking_confirm\"}[15m])) / clamp_min(sum(rate(ai_copilot_funnel_step_total{step=\"widget_open\"}[15m])), 0.0001)",
+          "legendFormat": "widget_to_booking_confirm",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(ai_copilot_funnel_step_total{step=\"booking_confirm\"}[15m])) / clamp_min(sum(rate(ai_copilot_funnel_step_total{step=\"prompt_submit\"}[15m])), 0.0001)",
+          "legendFormat": "prompt_to_booking_confirm",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Copilot Quality Event Rate",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
+      "targets": [
+        {
+          "expr": "sum(rate(ai_copilot_quality_event_total[5m])) by (metric)",
+          "legendFormat": "{{metric}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Fallback / No-result Ratio (per prompt)",
       "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
       "targets": [
-        {"expr": "sum(rate(route_clarify_rate_total[5m]))", "legendFormat": "clarify", "refId": "A"},
-        {"expr": "sum(rate(route_template_rate_total[5m]))", "legendFormat": "template", "refId": "B"},
-        {"expr": "sum(rate(route_llm_rate_total[5m]))", "legendFormat": "llm", "refId": "C"}
+        {
+          "expr": "sum(rate(ai_copilot_quality_event_total{metric=\"fallback\"}[5m])) / clamp_min(sum(rate(ai_widget_event_total{event=\"ai_widget_prompt_submit\"}[5m])), 0.0001)",
+          "legendFormat": "fallback_ratio",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(ai_copilot_quality_event_total{metric=\"no_result\"}[5m])) / clamp_min(sum(rate(ai_widget_event_total{event=\"ai_widget_prompt_submit\"}[5m])), 0.0001)",
+          "legendFormat": "no_result_ratio",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Orchestrator Tool Failure Rate",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 24},
+      "targets": [
+        {
+          "expr": "sum(rate(chat_copilot_orchestrator_tool_total{status=\"failed\"}[5m])) by (tool)",
+          "legendFormat": "{{tool}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Orchestrator Degraded Ratio",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 24},
+      "targets": [
+        {
+          "expr": "sum(rate(chat_copilot_orchestrator_requests_total{result=\"degraded\"}[5m])) / clamp_min(sum(rate(chat_copilot_orchestrator_requests_total[5m])), 0.0001)",
+          "legendFormat": "degraded_ratio",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "7d Moving Average Conversion (widget→confirm)",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 32},
+      "targets": [
+        {
+          "expr": "avg_over_time((sum(rate(ai_copilot_funnel_step_total{step=\"booking_confirm\"}[30m])) / clamp_min(sum(rate(ai_copilot_funnel_step_total{step=\"widget_open\"}[30m])), 0.0001))[7d:30m])",
+          "legendFormat": "conversion_7d_ma",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(ai_copilot_funnel_step_total{step=\"booking_confirm\"}[30m])) / clamp_min(sum(rate(ai_copilot_funnel_step_total{step=\"widget_open\"}[30m])), 0.0001)",
+          "legendFormat": "conversion_current",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Orchestrator Request Mix",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 32},
+      "targets": [
+        {
+          "expr": "sum(rate(chat_copilot_orchestrator_requests_total[5m])) by (result)",
+          "legendFormat": "{{result}}",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(chat_copilot_orchestrator_no_result_total[5m]))",
+          "legendFormat": "no_result",
+          "refId": "B"
+        }
       ]
     }
   ],
   "refresh": "30s",
   "schemaVersion": 39,
   "style": "dark",
-  "tags": ["stayvista", "chat", "slo"],
+  "tags": ["stayvista", "chat", "copilot", "slo"],
   "templating": {"list": []},
   "time": {"from": "now-6h", "to": "now"},
   "timepicker": {},
   "timezone": "",
-  "title": "StayVista Chat SLO",
+  "title": "StayVista AI Copilot SLO",
   "uid": "stayvista-chat-slo",
-  "version": 1,
+  "version": 2,
   "weekStart": ""
 }

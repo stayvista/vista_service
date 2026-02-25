@@ -109,3 +109,99 @@ data class StructuredLlmOutput(
     val contextUsed: Map<String, Any?>,
     val llmUsed: Boolean,
 )
+
+data class ChatCopilotOrchestrateRequest(
+    @field:NotBlank(message = "message is required")
+    val message: String,
+    val session_state: ChatCopilotSessionState = ChatCopilotSessionState(),
+    val limit: Int = 5,
+)
+
+data class ChatCopilotSessionState(
+    val destination: String? = null,
+    val place_id: String? = null,
+    val date_range: ChatCopilotDateRange? = null,
+    val guests: ChatCopilotGuests = ChatCopilotGuests(),
+    val budget: ChatCopilotBudget? = null,
+    val preferences: ChatCopilotPreferences = ChatCopilotPreferences(),
+    val constraints: ChatCopilotConstraints = ChatCopilotConstraints(),
+)
+
+data class ChatCopilotDateRange(
+    val check_in: String,
+    val check_out: String,
+)
+
+data class ChatCopilotGuests(
+    val rooms: Int = 1,
+    val adults: Int = 2,
+    val children: Int = 0,
+    val children_ages: List<Int> = emptyList(),
+)
+
+data class ChatCopilotBudget(
+    val min_price: Long? = null,
+    val max_price: Long? = null,
+    val currency: String = "KRW",
+)
+
+data class ChatCopilotPreferences(
+    val amenities: List<String> = emptyList(),
+    val property_type: List<String> = emptyList(),
+    val districts: List<String> = emptyList(),
+    val payment_options: List<String> = emptyList(),
+    val themes: List<String> = emptyList(),
+    val brands: List<String> = emptyList(),
+    val bed_types: List<String> = emptyList(),
+    val stars: List<Int> = emptyList(),
+    val nearby_attractions: List<Long> = emptyList(),
+    val family_options: List<String> = emptyList(),
+    val beach_options: List<String> = emptyList(),
+)
+
+data class ChatCopilotConstraints(
+    val sort: String? = null,
+    val min_guest_rating: Double? = null,
+    val min_location_rating: Double? = null,
+    val max_distance_m: Int? = null,
+    val bedrooms: Int? = null,
+)
+
+data class ChatCopilotOrchestrateData(
+    val answer: String,
+    val actions: List<ChatCopilotAction>,
+    val evidence: List<ChatCopilotEvidence>,
+    val confidence: Double,
+    val session_state: ChatCopilotSessionState,
+    val tool_trace: List<ChatCopilotToolTrace> = emptyList(),
+    val degraded: Boolean = false,
+    val request_id: String,
+    val trace_id: String,
+)
+
+data class ChatCopilotAction(
+    val type: String,
+    val label: String,
+    val payload: Map<String, Any?> = emptyMap(),
+)
+
+data class ChatCopilotEvidence(
+    val subject: String,
+    val why_recommended: List<String>,
+    val cautions: List<String>,
+    val source_refs: List<ChatCopilotSourceRef>,
+)
+
+data class ChatCopilotSourceRef(
+    val source_type: String,
+    val source_id: String,
+    val title: String,
+    val value: String? = null,
+)
+
+data class ChatCopilotToolTrace(
+    val tool: String,
+    val status: String,
+    val took_ms: Long,
+    val detail: Map<String, Any?> = emptyMap(),
+)

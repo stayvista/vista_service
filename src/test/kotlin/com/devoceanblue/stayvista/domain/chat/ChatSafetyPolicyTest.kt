@@ -1,6 +1,7 @@
 package com.devoceanblue.stayvista.domain.chat
 
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry
+import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -69,5 +70,90 @@ class ChatSafetyPolicyTest {
         val guarded = policy.enforceOutputPolicy(result)
         assertFalse(guarded.llm_used)
         assertTrue(guarded.context_used.containsKey("prompt_injection_guard"))
+    }
+
+    @Test
+    fun `enforceCopilotOutputPolicy rewrites overclaim and fills missing evidence slots`() {
+        val result = ChatCopilotOrchestrateData(
+            answer = "예약 확정 보장입니다.",
+            actions = listOf(
+                ChatCopilotAction(
+                    type = "open_property",
+                    label = "상세 보기",
+                    payload = mapOf("property_id" to 1001L),
+                ),
+            ),
+            evidence = listOf(
+                ChatCopilotEvidence(
+                    subject = "테스트",
+                    why_recommended = emptyList(),
+                    cautions = emptyList(),
+                    source_refs = emptyList(),
+                ),
+            ),
+            confidence = 0.8,
+            session_state = ChatCopilotSessionState(destination = "Seoul"),
+            tool_trace = listOf(
+                ChatCopilotToolTrace(
+                    tool = "check_availability",
+                    status = "success",
+                    took_ms = 10,
+                    detail = mapOf("available_room_types" to 0),
+                ),
+            ),
+            degraded = false,
+            request_id = "req-1",
+            trace_id = "trace-1",
+        )
+
+        val guarded = policy.enforceCopilotOutputPolicy(result)
+        assertTrue(guarded.degraded)
+        assertFalse(guarded.answer.contains("확정"))
+        assertFalse(guarded.answer.contains("보장"))
+        assertTrue(guarded.answer.contains("가능성"))
+        assertTrue(guarded.evidence.first().why_recommended.isNotEmpty())
+        assertTrue(guarded.evidence.first().cautions.isNotEmpty())
+        assertTrue(guarded.evidence.first().source_refs.isNotEmpty())
+        assertTrue(guarded.confidence < 0.8)
+    }
+
+    @Test
+    fun `enforceCopilotOutputPolicy should downgrade reservation claim when availability is zero`() {
+        val result = ChatCopilotOrchestrateData(
+            answer = "지금 예약 가능하며 무료 취소입니다.",
+            actions = listOf(
+                ChatCopilotAction(
+                    type = "apply_filters",
+                    label = "검색",
+                    payload = emptyMap(),
+                ),
+            ),
+            evidence = listOf(
+                ChatCopilotEvidence(
+                    subject = "테스트 숙소",
+                    why_recommended = listOf("추천 근거"),
+                    cautions = listOf("주의"),
+                    source_refs = listOf(
+                        ChatCopilotSourceRef(
+                            source_type = "check_availability",
+                            source_id = "property:1001",
+                            title = "재고 조회",
+                            value = "available_room_types=0",
+                        ),
+                    ),
+                ),
+            ),
+            confidence = 0.7,
+            session_state = ChatCopilotSessionState(destination = "Seoul"),
+            tool_trace = emptyList(),
+            degraded = false,
+            request_id = "req-2",
+            trace_id = "trace-2",
+        )
+
+        val guarded = policy.enforceCopilotOutputPolicy(result)
+        assertTrue(guarded.answer.contains("예약 가능 여부 확인 필요"))
+        assertTrue(guarded.degraded)
+        assertEquals(1, guarded.actions.size)
     }
 }

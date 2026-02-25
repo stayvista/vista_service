@@ -16,6 +16,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter
 @RequestMapping("/v1/chat")
 class ChatController(
     private val chatService: ChatService,
+    private val chatCopilotOrchestratorService: ChatCopilotOrchestratorService,
 ) {
     @PostMapping("/recommend")
     fun recommend(@Valid @RequestBody request: ChatRecommendRequest) = ApiResponses.ok(
@@ -64,6 +65,11 @@ class ChatController(
 
         return emitter
     }
+
+    @PostMapping("/copilot/orchestrate")
+    fun orchestrate(@Valid @RequestBody request: ChatCopilotOrchestrateRequest) = ApiResponses.ok(
+        chatCopilotOrchestratorService.orchestrate(request),
+    )
 
     private fun sendEvent(
         emitter: SseEmitter,

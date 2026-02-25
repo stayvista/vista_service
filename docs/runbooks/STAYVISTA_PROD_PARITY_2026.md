@@ -12,8 +12,17 @@
    - `services/loadtest/grafana/search_parity_dashboard.json`
 2. Chat/AI SLO dashboard 확인
    - `services/loadtest/grafana/chat_slo_dashboard.json`
+   - Copilot latency: `chat_copilot_orchestrator_latency_ms_seconds_bucket` (p95/p99)
+   - Funnel: `ai_copilot_funnel_step_total`
+   - Action apply success: `ai_copilot_action_apply_total`
+   - Quality: `ai_copilot_quality_event_total`
+   - Degrade/no-result: `chat_copilot_orchestrator_requests_total`, `chat_copilot_orchestrator_no_result_total`
 3. 알람 룰 점검
    - `services/loadtest/alerts/chat_slo_burn_rate_rules.yml`
+   - `CopilotOrchestratorLatencyP95High`
+   - `CopilotOrchestratorLatencyP99High`
+   - `CopilotWidgetErrorRateHigh`
+   - `CopilotActionApplySuccessRateLow`
 4. 필터/Facet 메트릭 확인
    - `search_facets_requests_total`
    - `search_facets_latency_ms`
@@ -64,8 +73,26 @@ k6 run services/loadtest/k6/full_funnel.js
 - AI Copilot 실패 시: 기본 facet 기반 추천만 노출
 - 환율 조회 실패 시: 정적 fallback rate로 변환
 - Price calendar 집계 비어있으면 property 기반 fallback 사용
+- 강제 Degrade 기준:
+  - 10분 이상 `CopilotOrchestratorLatencyP99High` 경보 지속
+  - 10분 이상 fallback/no-result 비율(`ai_copilot_quality_event_total`)이 `0.25` 초과
+  - 15분 이상 action apply success(`ai_copilot_action_apply_total`)가 `0.85` 미만
+- 강제 Degrade 조치:
+  - UI에서는 `retry_with_patch`/`apply_filters` 액션만 노출
+  - `open_property` 액션은 클릭형 deep-link로만 유지
+  - 추천 문구는 근거/주의사항 포함 템플릿 응답으로 축소
 
 ## 6) 롤백
 1. 직전 안정 커밋으로 애플리케이션 롤백
 2. 읽기 전용 API 정상성 확인: `/v1/search/properties`, `/v1/search/facets`, `/v1/prices/calendar`
 3. 트래픽 단계적 복귀 후 SLI 확인
+
+## 7) 배포 전후 회귀 판단(7일 이동평균)
+1. `StayVista AI Copilot SLO` 대시보드에서 `conversion_7d_ma` 패널 확인
+2. 배포 전 7일 평균 대비 배포 후 7일 평균 비교
+3. 회귀 판정 기준(둘 중 하나 만족 시 회귀):
+   - widget→booking_confirm 전환율 15% 이상 하락
+   - degrade_ratio 2배 이상 상승
+4. 회귀 시 즉시 조치:
+   - Copilot 오케스트레이터 트래픽을 템플릿 경로로 강등
+   - 원인 툴(`chat_copilot_orchestrator_tool_total{status="failed"}`) 상위 1개부터 복구

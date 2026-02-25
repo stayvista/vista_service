@@ -163,7 +163,12 @@ class TrafficGuardFilter(
         if (method == "POST" && path.matches(Regex("/v1/packages/.+/confirm"))) {
             return RatePolicy("package_confirm", packageConfirmPerMinute)
         }
-        if (method == "POST" && (path == "/v1/chat/recommend" || path == "/v1/chat/recommend:stream")) {
+        if (
+            method == "POST" &&
+            (path == "/v1/chat/recommend" ||
+                path == "/v1/chat/recommend:stream" ||
+                path == "/v1/chat/copilot/orchestrate")
+        ) {
             return RatePolicy("chat", chatPerMinute)
         }
         if (method == "POST" && path == "/v1/telemetry/events") {

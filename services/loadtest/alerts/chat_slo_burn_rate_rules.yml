@@ -57,3 +57,59 @@ groups:
         annotations:
           summary: "Chat latency p95 above SLO"
           description: "chat_latency_seconds p95 exceeded 1.2s for 10m."
+
+      - alert: CopilotOrchestratorLatencyP95High
+        expr: |
+          histogram_quantile(0.95, sum(rate(chat_copilot_orchestrator_latency_ms_seconds_bucket[5m])) by (le)) > 0.8
+        for: 10m
+        labels:
+          severity: ticket
+          service: chat
+          component: copilot
+        annotations:
+          summary: "Copilot orchestrator p95 latency above SLO"
+          description: "chat_copilot_orchestrator p95 latency exceeded 800ms for 10m."
+
+      - alert: CopilotOrchestratorLatencyP99High
+        expr: |
+          histogram_quantile(0.99, sum(rate(chat_copilot_orchestrator_latency_ms_seconds_bucket[5m])) by (le)) > 1.2
+        for: 10m
+        labels:
+          severity: page
+          service: chat
+          component: copilot
+        annotations:
+          summary: "Copilot orchestrator p99 latency above SLO"
+          description: "chat_copilot_orchestrator p99 latency exceeded 1.2s for 10m."
+
+      - alert: CopilotWidgetErrorRateHigh
+        expr: |
+          (
+            sum(rate(ai_widget_event_total{event=~"ai_widget_orchestrator_fallback|ai_widget_search_blocked"}[10m]))
+            /
+            clamp_min(sum(rate(ai_widget_event_total{event="ai_widget_prompt_submit"}[10m])), 1)
+          ) > 0.20
+        for: 10m
+        labels:
+          severity: ticket
+          service: chat
+          component: copilot
+        annotations:
+          summary: "Copilot widget error/fallback ratio high"
+          description: "Fallback+blocked ratio exceeded 20% of prompt_submit for 10m."
+
+      - alert: CopilotActionApplySuccessRateLow
+        expr: |
+          (
+            sum(rate(ai_copilot_action_apply_total{result="success"}[10m]))
+            /
+            clamp_min(sum(rate(ai_copilot_action_apply_total[10m])), 1)
+          ) < 0.85
+        for: 15m
+        labels:
+          severity: ticket
+          service: chat
+          component: copilot
+        annotations:
+          summary: "Copilot action apply success rate low"
+          description: "Action apply success rate stayed below 85% for 15m."

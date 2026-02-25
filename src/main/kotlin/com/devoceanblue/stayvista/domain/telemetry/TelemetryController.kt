@@ -180,6 +180,12 @@ class TelemetryController(
                 message = "block_reason is required for ai_widget_search_blocked",
             )
         }
+        if (eventName == "ai_widget_action_apply" && request.action_apply_success == null) {
+            throw DomainException(
+                errorCode = ErrorCode.VALIDATION_ERROR,
+                message = "action_apply_success is required for ai_widget_action_apply",
+            )
+        }
         val visibleCardCount = request.visible_card_count
         if (visibleCardCount != null && visibleCardCount !in 0..12) {
             throw DomainException(
@@ -294,6 +300,8 @@ class TelemetryController(
         recordCardListToggleMetrics(eventName, cardListState, sourceTypeScope, visibleCardCount)
         recordCardSaveMetrics(eventName, cardSaveState, targetSourceType, sourceTypeScope, savedCardCount)
         recordCardFollowupMetrics(eventName, targetSourceType, sourceTypeScope, source)
+        recordCopilotFunnelMetrics(eventName, request, source, route, sourceTypeScope)
+        recordCopilotQualityMetrics(eventName)
 
         return TelemetryEventResponse(
             accepted = true,
@@ -688,6 +696,65 @@ class TelemetryController(
         ).increment()
     }
 
+    private fun recordCopilotFunnelMetrics(
+        eventName: String,
+        request: TelemetryEventRequest,
+        source: String,
+        route: String,
+        sourceTypeScope: String,
+    ) {
+        val funnelStep = when (eventName) {
+            "ai_widget_open" -> "widget_open"
+            "ai_widget_prompt_submit" -> "prompt_submit"
+            "ai_widget_action_apply", "ai_widget_filter_apply", "ai_widget_search_handoff" -> "action_apply"
+            "ai_widget_search_result_click", "ai_widget_view_results", "ai_widget_card_followup_click" -> "search_result_click"
+            "ai_widget_booking_hold" -> "booking_hold"
+            "ai_widget_booking_confirm" -> "booking_confirm"
+            else -> null
+        } ?: return
+
+        meterRegistry.counter(
+            "ai_copilot_funnel_step_total",
+            "step",
+            funnelStep,
+            "source",
+            source,
+            "route",
+            route,
+        ).increment()
+        meterRegistry.counter(
+            "ai_copilot_funnel_scope_total",
+            "step",
+            funnelStep,
+            "scope",
+            sourceTypeScope,
+        ).increment()
+
+        if (eventName == "ai_widget_action_apply") {
+            val result = if (request.action_apply_success == true) "success" else "failed"
+            meterRegistry.counter("ai_copilot_action_apply_total", "result", result).increment()
+        } else if (eventName == "ai_widget_filter_apply" || eventName == "ai_widget_search_handoff") {
+            meterRegistry.counter("ai_copilot_action_apply_total", "result", "success").increment()
+        }
+    }
+
+    private fun recordCopilotQualityMetrics(eventName: String) {
+        when (eventName) {
+            "ai_widget_clarify_click", "ai_widget_clarify_action_click" -> {
+                meterRegistry.counter("ai_copilot_quality_event_total", "metric", "clarify").increment()
+            }
+            "ai_widget_error_recovery_click" -> {
+                meterRegistry.counter("ai_copilot_quality_event_total", "metric", "recovery").increment()
+            }
+            "ai_widget_search_blocked" -> {
+                meterRegistry.counter("ai_copilot_quality_event_total", "metric", "no_result").increment()
+            }
+            "ai_widget_orchestrator_fallback" -> {
+                meterRegistry.counter("ai_copilot_quality_event_total", "metric", "fallback").increment()
+            }
+        }
+    }
+
     private fun normalizeSource(source: String?): String {
         val normalized = source?.trim()?.lowercase().orEmpty()
         return if (normalized in ALLOWED_SOURCES) normalized else "unknown"
@@ -841,6 +908,10 @@ class TelemetryController(
             "ai_widget_sort_hint_click",
             "ai_widget_scope_hint_click",
             "ai_widget_filter_apply",
+            "ai_widget_action_apply",
+            "ai_widget_search_result_click",
+            "ai_widget_booking_hold",
+            "ai_widget_booking_confirm",
             "ai_widget_search_handoff",
             "ai_widget_view_results",
             "ai_widget_answer_feedback",
@@ -855,6 +926,7 @@ class TelemetryController(
             "ai_widget_filter_bulk_apply",
             "ai_widget_generation_cancel",
             "ai_widget_error_recovery_click",
+            "ai_widget_orchestrator_fallback",
         )
 
         private val ALLOWED_SOURCES = setOf(
@@ -1002,6 +1074,7 @@ data class TelemetryEventRequest(
     val card_save_state: String? = null,
     val saved_card_count: Int? = null,
     val block_reason: String? = null,
+    val action_apply_success: Boolean? = null,
 )
 
 data class TelemetryEventResponse(

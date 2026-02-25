@@ -1188,4 +1188,93 @@ class TelemetryControllerTest {
 
         assertEquals(ErrorCode.VALIDATION_ERROR, exception.errorCode)
     }
+
+    @Test
+    fun `ingest should accept action apply event and record funnel success`() {
+        val response = controller.ingest(
+            TelemetryEventRequest(
+                event_name = "ai_widget_action_apply",
+                source = "results_cta",
+                route = "LLM",
+                source_type_scope = "PROPERTY",
+                action_apply_success = true,
+            ),
+        )
+
+        assertTrue(response.data.accepted)
+        assertEquals(
+            1.0,
+            meterRegistry.get("ai_copilot_funnel_step_total")
+                .tag("step", "action_apply")
+                .tag("source", "results_cta")
+                .tag("route", "llm")
+                .counter()
+                .count(),
+        )
+        assertEquals(
+            1.0,
+            meterRegistry.get("ai_copilot_action_apply_total")
+                .tag("result", "success")
+                .counter()
+                .count(),
+        )
+    }
+
+    @Test
+    fun `ingest should reject action apply without success flag`() {
+        val exception = assertThrows<DomainException> {
+            controller.ingest(
+                TelemetryEventRequest(
+                    event_name = "ai_widget_action_apply",
+                    source = "results_cta",
+                ),
+            )
+        }
+
+        assertEquals(ErrorCode.VALIDATION_ERROR, exception.errorCode)
+    }
+
+    @Test
+    fun `ingest should accept booking confirm funnel event`() {
+        val response = controller.ingest(
+            TelemetryEventRequest(
+                event_name = "ai_widget_booking_confirm",
+                source = "results_cta",
+                route = "LLM",
+                source_type_scope = "PROPERTY",
+            ),
+        )
+
+        assertTrue(response.data.accepted)
+        assertEquals(
+            1.0,
+            meterRegistry.get("ai_copilot_funnel_step_total")
+                .tag("step", "booking_confirm")
+                .tag("source", "results_cta")
+                .tag("route", "llm")
+                .counter()
+                .count(),
+        )
+    }
+
+    @Test
+    fun `ingest should accept orchestrator fallback event and record quality metric`() {
+        val response = controller.ingest(
+            TelemetryEventRequest(
+                event_name = "ai_widget_orchestrator_fallback",
+                source = "error_panel",
+                route = "LLM",
+                source_type_scope = "PROPERTY",
+            ),
+        )
+
+        assertTrue(response.data.accepted)
+        assertEquals(
+            1.0,
+            meterRegistry.get("ai_copilot_quality_event_total")
+                .tag("metric", "fallback")
+                .counter()
+                .count(),
+        )
+    }
 }
