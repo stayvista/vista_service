@@ -308,3 +308,50 @@ groups:
         annotations:
           summary: "Search handoff clarify-action slot skew high"
           description: "One clarify_action slot occupied over 75% for 30m. Check slot detector bias."
+
+      - alert: ChatSourceScopeIntentMismatchHigh
+        expr: |
+          max(
+            abs(
+              sum(rate(ai_widget_source_scope_total{event="ai_widget_prompt_submit"}[20m])) by (scope)
+              -
+              sum(rate(ai_widget_source_scope_total{event="ai_widget_search_handoff"}[20m])) by (scope)
+            )
+            /
+            clamp_min(
+              sum(rate(ai_widget_source_scope_total{event="ai_widget_prompt_submit"}[20m])) by (scope),
+              0.0001
+            )
+          ) > 0.35
+          and
+          (
+            sum(rate(ai_widget_source_scope_total{event="ai_widget_prompt_submit"}[20m])) > 0.05
+          )
+        for: 20m
+        labels:
+          severity: ticket
+          service: chat
+          component: handoff
+        annotations:
+          summary: "AI source scope intent mismatch high"
+          description: "Prompt-submit vs handoff scope mismatch exceeded 35% for 20m."
+
+      - alert: ChatSortHintClickThroughLow
+        expr: |
+          (
+            sum(rate(ai_widget_sort_hint_total[20m]))
+            /
+            clamp_min(sum(rate(chat_search_handoff_sort_hint_total[20m])), 1)
+          ) < 0.30
+          and
+          (
+            sum(rate(chat_search_handoff_sort_hint_total[20m])) > 0.03
+          )
+        for: 20m
+        labels:
+          severity: ticket
+          service: chat
+          component: handoff
+        annotations:
+          summary: "AI sort hint click-through low"
+          description: "Sort hint click-through stayed below 30% for 20m."

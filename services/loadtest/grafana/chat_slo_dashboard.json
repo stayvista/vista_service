@@ -298,6 +298,11 @@
           "expr": "sum(rate(ai_widget_source_scope_total{event=\"ai_widget_prompt_submit\"}[5m])) by (scope)",
           "legendFormat": "prompt_submit_scope_{{scope}}",
           "refId": "B"
+        },
+        {
+          "expr": "sum(rate(ai_widget_source_scope_total{event=\"ai_widget_clarify_action_click\"}[5m])) by (scope)",
+          "legendFormat": "clarify_action_scope_{{scope}}",
+          "refId": "C"
         }
       ]
     },
@@ -371,6 +376,50 @@
           "refId": "C"
         }
       ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Scope Intent Match (Prompt → Handoff)",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 80},
+      "targets": [
+        {
+          "expr": "sum(rate(ai_widget_source_scope_total{event=\"ai_widget_prompt_submit\"}[15m])) by (scope)",
+          "legendFormat": "prompt_scope_{{scope}}",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(ai_widget_source_scope_total{event=\"ai_widget_search_handoff\"}[15m])) by (scope)",
+          "legendFormat": "handoff_scope_{{scope}}",
+          "refId": "B"
+        },
+        {
+          "expr": "abs(sum(rate(ai_widget_source_scope_total{event=\"ai_widget_prompt_submit\"}[15m])) by (scope) - sum(rate(ai_widget_source_scope_total{event=\"ai_widget_search_handoff\"}[15m])) by (scope)) / clamp_min(sum(rate(ai_widget_source_scope_total{event=\"ai_widget_prompt_submit\"}[15m])) by (scope), 0.0001)",
+          "legendFormat": "intent_mismatch_ratio_{{scope}}",
+          "refId": "C"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Sort Hint Suggestion vs Click",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 80},
+      "targets": [
+        {
+          "expr": "sum(rate(chat_search_handoff_sort_hint_total[15m])) by (sort)",
+          "legendFormat": "advisor_sort_{{sort}}",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(ai_widget_sort_hint_total[15m])) by (sort)",
+          "legendFormat": "click_sort_{{sort}}",
+          "refId": "B"
+        },
+        {
+          "expr": "sum(rate(ai_widget_sort_hint_total[15m])) by (sort) / clamp_min(sum(rate(chat_search_handoff_sort_hint_total[15m])) by (sort), 0.0001)",
+          "legendFormat": "sort_ctr_{{sort}}",
+          "refId": "C"
+        }
+      ]
     }
   ],
   "refresh": "30s",
@@ -383,6 +432,6 @@
   "timezone": "",
   "title": "StayVista AI Copilot SLO",
   "uid": "stayvista-chat-slo",
-  "version": 5,
+  "version": 6,
   "weekStart": ""
 }

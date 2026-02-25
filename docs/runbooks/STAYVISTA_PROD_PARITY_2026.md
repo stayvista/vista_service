@@ -19,9 +19,11 @@
    - Handoff detail: `ai_widget_handoff_filter_count`, `ai_widget_handoff_confidence`, `ai_widget_handoff_scope_total`
    - Handoff scope quality: `ai_widget_handoff_filter_count_by_scope`, `ai_widget_handoff_confidence_by_scope`
    - Scope event distribution: `ai_widget_source_scope_total{event=*}`
+   - Scope intent match: `ai_widget_source_scope_total{event=ai_widget_prompt_submit}`, `ai_widget_source_scope_total{event=ai_widget_search_handoff}`
    - Clarify loop: `chat_search_handoff_clarify_suggested_total`, `ai_widget_clarify_click_total`, `chat_search_handoff_clarify_question_count`
    - Clarify required/action: `chat_search_handoff_clarify_required_total`, `chat_search_handoff_missing_slot_count`, `chat_search_handoff_clarify_action_count`, `chat_search_handoff_clarify_action_total`, `ai_widget_clarify_action_slot_total`
    - Clarify impact: `ai_widget_handoff_confidence_by_clarify`, `ai_widget_handoff_filter_count_by_clarify`, `ai_widget_handoff_clarify_click_state_total`
+   - Sort hint: `chat_search_handoff_sort_hint_total`, `ai_widget_sort_hint_total`
    - Quality: `ai_copilot_quality_event_total`
    - Degrade/no-result: `chat_copilot_orchestrator_requests_total`, `chat_copilot_orchestrator_no_result_total`
 3. 알람 룰 점검
@@ -40,6 +42,8 @@
    - `ChatSearchHandoffMissingSlotCountHigh`
    - `ChatSearchHandoffClarifyActionClickLow`
    - `ChatSearchHandoffClarifyActionSlotSkewHigh`
+   - `ChatSourceScopeIntentMismatchHigh`
+   - `ChatSortHintClickThroughLow`
 4. 필터/Facet 메트릭 확인
    - `search_facets_requests_total`
    - `search_facets_latency_ms`
@@ -112,6 +116,8 @@ k6 run services/loadtest/k6/full_funnel.js
    - `confidence_clicked - confidence_not_clicked`
    - `filter_count_clicked - filter_count_not_clicked`
    - 두 지표가 연속 1일 역전 시 프롬프트/칩 문구 튜닝 티켓 생성
+9. `intent_mismatch_ratio(scope)` > 0.35이면 prompt scope extractor 회귀 점검 및 normalize 계약 재검증
+10. `sort_ctr` < 0.30이면 sort 힌트 라벨/기본 정렬 추천 규칙을 intent별로 재조정
 
 ## 6) 롤백
 1. 직전 안정 커밋으로 애플리케이션 롤백

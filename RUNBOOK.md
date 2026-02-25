@@ -131,6 +131,10 @@
    - `ai_widget_handoff_profile_applied_total{applied=*}`
    - `ai_widget_handoff_scope_total{scope=*}`
    - `ai_widget_source_scope_total{event=ai_widget_search_handoff,scope=*}`
+   - `ai_widget_source_scope_total{event=ai_widget_prompt_submit,scope=*}`
+   - `ai_widget_source_scope_total{event=ai_widget_clarify_action_click,scope=*}`
+   - `chat_search_handoff_sort_hint_total{sort=*}`
+   - `ai_widget_sort_hint_total{sort=*}`
    - `chat_search_handoff_clarify_suggested_total`
    - `chat_search_handoff_clarify_required_total{required=*}`
    - `chat_search_handoff_missing_slot_count`
@@ -150,6 +154,8 @@
    - `ChatSearchHandoffMissingSlotCountHigh`
    - `ChatSearchHandoffClarifyActionClickLow`
    - `ChatSearchHandoffClarifyActionSlotSkewHigh`
+   - `ChatSourceScopeIntentMismatchHigh`
+   - `ChatSortHintClickThroughLow`
 3) 1차 대응 순서
    - `clarify_suggested_ratio` 상승 + `clarify_ctr` 하락 동시 발생 시:
      - 슬롯 추출 규칙(`city/days/companions/budget/preferences`) 민감도 완화
@@ -165,12 +171,19 @@
      - `ai_widget_source_scope_total{event=ai_widget_search_handoff}`와 `ai_widget_handoff_scope_total`를 scope별 비교
      - 프론트 payload `source_type_scope` 직렬화 형식(`PROPERTY+POI`) 불일치 여부 확인
      - route별 fallback 비율(`ai_widget_event_total{event=ai_widget_orchestrator_fallback}`) 급증 여부 확인
+   - `intent_mismatch_ratio` 상승 시:
+     - `ai_widget_source_scope_total{event=ai_widget_prompt_submit}` vs `{event=ai_widget_search_handoff}`를 scope별 비교
+     - `Prompt source scope extractor` 키워드 규칙(숙소/패키지/티켓/POI) 회귀 여부 확인
+     - clarify action 클릭 후 scope 전환(`ai_widget_source_scope_total{event=ai_widget_clarify_action_click}`)이 정상적으로 줄어드는지 확인
    - `clarify clicked` 대비 `not_clicked` 품질 역전 시:
       - `ai_widget_handoff_confidence_by_clarify`와 `ai_widget_handoff_filter_count_by_clarify` 비교
       - clarify 문구를 액션형(버튼/칩)으로 단순화하고 질문 수 상한(권장 2개) 적용
    - `clarify_action_click` 저조 또는 slot 편중 시:
      - `ai_widget_clarify_action_slot_total`와 `chat_search_handoff_clarify_action_total` 비교해 프론트 누락 여부 확인
      - 특정 slot 편중(`>75%`)이면 해당 slot 추출 키워드 가중치 하향 및 다른 slot 힌트 보강
+   - `sort_hint_ctr` 저하 시:
+     - `chat_search_handoff_sort_hint_total{sort=*}` 대비 `ai_widget_sort_hint_total{sort=*}` 비율 확인
+     - 특정 sort 클릭 저조가 지속되면 해당 intent의 sort 추천 우선순위/라벨 문구 수정
 4) 재발 방지
    - 주간 리뷰에서 scope별(`PROPERTY/TICKET/PACKAGE/POI`) clarify 제안율/CTR 비교
    - `ai_widget_search_handoff` 샘플 이벤트 50건을 추출해 누락 슬롯/과다질문 케이스 점검
