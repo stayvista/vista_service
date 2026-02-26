@@ -217,7 +217,21 @@
    - `ai_widget_prompt_autopatch_field_count`
    - `ai_widget_prompt_reuse_click_total`
    - `ai_widget_prompt_reuse_rank_total{rank=*}`
+   - `ai_widget_prompt_reuse_action_total{action=*}`
    - `ai_widget_prompt_reuse_scope_total{scope=*}`
+   - `ai_widget_prompt_submit_method_total{method=*}`
+   - `ai_widget_prompt_submit_scope_total{method=*,scope=*}`
+   - `ai_widget_error_recovery_click_total`
+   - `ai_widget_error_recovery_action_total{action=*}`
+   - `ai_widget_error_recovery_scope_total{action=*,scope=*}`
+   - `ai_widget_context_insert_click_total`
+   - `ai_widget_context_insert_field_total{field=*}`
+   - `ai_widget_context_insert_scope_total{field=*,scope=*}`
+   - `ai_widget_context_sync_click_total`
+   - `ai_widget_context_sync_mode_total{mode=*}`
+   - `ai_widget_context_sync_scope_total{mode=*,scope=*}`
+   - `ai_widget_search_block_reason_total{reason=*}`
+   - `ai_widget_search_block_scope_total{reason=*,scope=*}`
    - `ai_widget_card_type_filter_click_total`
    - `ai_widget_card_type_filter_target_total{target=*}`
    - `ai_widget_card_type_filter_scope_total{scope=*}`
@@ -248,6 +262,12 @@
    - `ChatWidgetCardListExpandedRatioLow`
    - `ChatWidgetCardSaveUnsavedRatioHigh`
    - `ChatWidgetSavedCardFollowupRatioLow`
+   - `ChatWidgetPromptReuseSubmitRatioLow`
+   - `ChatWidgetSubmitMethodSkewHigh`
+   - `ChatWidgetErrorRecoveryDismissRatioHigh`
+   - `ChatWidgetContextInsertToHandoffLow`
+   - `ChatWidgetContextSyncRerunRatioLow`
+   - `ChatWidgetSearchBlockedContextDriftRatioHigh`
 3) 1차 대응 순서
    - `session_restore` 실패율 급증:
      - 인증 토큰 전달(`Authorization`) 유무 확인
@@ -280,10 +300,29 @@
    - `saved_card_followup_ratio_low`:
      - 저장 카드 탭 CTA 가시성/문구 점검
      - saved_card origin follow-up 클릭 후 결과 생성 실패율 동반 상승 여부 확인
+   - `prompt_reuse_submit_ratio_low`:
+     - `ai_widget_prompt_reuse_action_total{action=submit}`과 `{action=draft}` 비율을 먼저 확인
+     - 최근 요청 재사용 UI에서 즉시 실행 버튼 비노출/disable 회귀 여부 점검
+   - `submit_method_skew_high`:
+     - `submit_method` 단일 편중(`button` 또는 `keyboard_enter`) 시 입력 이벤트 누락 회귀 확인
+     - IME 엔터 안정화 배포 이후 `keyboard_enter` 비율 급락 여부 확인
+   - `error_recovery_dismiss_ratio_high`:
+     - 오류 패널에서 `retry/restore_draft/reset_scope` 액션 노출 여부 점검
+     - dismiss 이후 재질문/재검색 전환(`prompt_submit/search_handoff`) 동반 하락 여부 확인
+   - `context_insert_to_handoff_low`:
+     - `context_field(city/dates/guests/budget/scope)` 클릭 로그는 있으나 handoff 전환이 낮은지 확인
+     - 삽입 칩이 프롬프트 본문에 실제 반영되는지 payload 샘플 점검
+   - `context_sync_rerun_ratio_low`:
+     - `sync_mode=context_only` 편중 시 `rerun_last_prompt` CTA 가시성/문구 회귀 여부 확인
+     - 조건 변경 배너 노출 대비 동기화 클릭률 하락이 동반되는지 확인
+   - `search_blocked_context_drift_ratio_high`:
+     - `block_reason=context_drift` 편중 시 검색폼/AI 세션 상태 불일치 회귀 여부 우선 점검
+     - `scope`별(`PROPERTY/TICKET/PACKAGE/POI`) 드리프트 집중 구간을 분리 확인
 4) 재발 방지
    - 일일 점검에서 `quick_prompt_ctr`, `enter_submit_ratio`, `handoff_apply_rate` 추세를 비교
    - 주간 회고에서 `autopatch_count(0/1/2/3)` 분포와 전환(`search_handoff`, `view_results`) 상관 분석
    - 저장 카드/후속질문(`saved_card`) 전환, 카드 타입 필터 사용률, 카드 토글 확장 비율을 함께 리뷰
+   - 재사용/제출/복구/컨텍스트 삽입·동기화/차단 사유를 한 묶음 퍼널로 주간 비교한다
 
 ## 3) Local LLM 운영 절차 (Ollama)
 

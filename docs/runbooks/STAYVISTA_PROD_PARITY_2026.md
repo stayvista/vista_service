@@ -32,7 +32,11 @@
    - Cancel/Bulk: `ai_widget_generation_cancel_total`, `ai_widget_generation_cancel_scope_total`, `ai_widget_filter_bulk_action_total`
    - Quick fix/copy: `ai_widget_quick_fix_click_total`, `ai_widget_quick_fix_slot_total`, `ai_widget_answer_copy_click_total`
    - Auto-patch: `ai_widget_prompt_autopatch_total`, `ai_widget_prompt_autopatch_count_total`, `ai_widget_prompt_autopatch_field_count`
-   - Prompt history: `ai_widget_prompt_reuse_click_total`, `ai_widget_prompt_reuse_rank_total`, `ai_widget_prompt_reuse_scope_total`, `ai_widget_prompt_submit_method_total{method=history_submit}`
+   - Prompt history: `ai_widget_prompt_reuse_click_total`, `ai_widget_prompt_reuse_rank_total`, `ai_widget_prompt_reuse_action_total`, `ai_widget_prompt_reuse_scope_total`
+   - Prompt submit method: `ai_widget_prompt_submit_method_total`, `ai_widget_prompt_submit_scope_total`
+   - Error recovery: `ai_widget_error_recovery_click_total`, `ai_widget_error_recovery_action_total`, `ai_widget_error_recovery_scope_total`
+   - Context insert/sync: `ai_widget_context_insert_click_total`, `ai_widget_context_insert_field_total`, `ai_widget_context_insert_scope_total`, `ai_widget_context_sync_click_total`, `ai_widget_context_sync_mode_total`, `ai_widget_context_sync_scope_total`
+   - Search blocked reason: `ai_widget_search_block_reason_total`, `ai_widget_search_block_scope_total`
    - Card type filter: `ai_widget_card_type_filter_click_total`, `ai_widget_card_type_filter_target_total`, `ai_widget_card_type_filter_scope_total`, `ai_widget_card_type_visible_count`
    - Card list toggle: `ai_widget_card_list_toggle_click_total`, `ai_widget_card_list_state_total`, `ai_widget_card_list_scope_total`, `ai_widget_card_list_visible_count`
    - Saved card: `ai_widget_card_save_click_total`, `ai_widget_card_save_state_total`, `ai_widget_card_save_source_type_total`, `ai_widget_card_save_scope_total`, `ai_widget_card_save_count`
@@ -69,6 +73,12 @@
    - `ChatWidgetCardListExpandedRatioLow`
    - `ChatWidgetCardSaveUnsavedRatioHigh`
    - `ChatWidgetSavedCardFollowupRatioLow`
+   - `ChatWidgetPromptReuseSubmitRatioLow`
+   - `ChatWidgetSubmitMethodSkewHigh`
+   - `ChatWidgetErrorRecoveryDismissRatioHigh`
+   - `ChatWidgetContextInsertToHandoffLow`
+   - `ChatWidgetContextSyncRerunRatioLow`
+   - `ChatWidgetSearchBlockedContextDriftRatioHigh`
 4. 필터/Facet 메트릭 확인
    - `search_facets_requests_total`
    - `search_facets_latency_ms`
@@ -172,3 +182,9 @@ k6 run services/loadtest/k6/full_funnel.js
 10. `expanded_ratio` 하락 시 카드 더보기 토글 노출 조건과 visible card count 분포를 확인한다.
 11. `unsaved_ratio` 급증 시 저장 카드 관련성(중복/품질)과 source_type 편중을 점검한다.
 12. `saved_card` origin follow-up 비중 하락 시 저장 카드 탭 CTA 가시성과 후속질문 실패율을 확인한다.
+13. `reuse_submit_ratio` 하락 시 `reuse_action=draft/submit` 분포와 즉시실행 CTA 노출 여부를 점검한다.
+14. `submit_method` 단일 편중이 90%를 넘으면 IME 엔터/히스토리 즉시실행 입력 경로 회귀를 점검한다.
+15. `error_recovery dismiss_ratio` 급증 시 복구 액션(`retry/restore_draft/reset_scope`) 가시성과 성공 전환을 점검한다.
+16. `context_insert_to_handoff` 전환 저하 시 삽입 칩이 프롬프트 payload에 반영되는지 샘플 로그로 검증한다.
+17. `context_sync rerun_ratio` 하락 시 검색조건 변경 배너 노출/클릭과 `sync_mode` 분포를 함께 점검한다.
+18. `search_block_reason=context_drift` 편중 시 검색폼 상태와 AI 세션 상태 동기화 회귀를 우선 점검한다.

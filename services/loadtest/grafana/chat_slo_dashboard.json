@@ -816,6 +816,139 @@
           "refId": "F"
         }
       ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Prompt Reuse Action & Submit Method",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 136},
+      "targets": [
+        {
+          "expr": "sum(rate(ai_widget_prompt_reuse_action_total[15m])) by (action)",
+          "legendFormat": "reuse_action_{{action}}",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(ai_widget_prompt_submit_method_total[15m])) by (method)",
+          "legendFormat": "submit_method_{{method}}",
+          "refId": "B"
+        },
+        {
+          "expr": "sum(rate(ai_widget_prompt_submit_scope_total[15m])) by (method, scope)",
+          "legendFormat": "{{method}}/{{scope}}",
+          "refId": "C"
+        },
+        {
+          "expr": "sum(rate(ai_widget_prompt_autopatch_total[15m])) / clamp_min(sum(rate(ai_widget_prompt_submit_method_total{method=\"history_submit\"}[15m])), 0.0001)",
+          "legendFormat": "autopatch_per_history_submit",
+          "refId": "D"
+        },
+        {
+          "expr": "sum(rate(ai_widget_search_handoff_total[15m])) / clamp_min(sum(rate(ai_widget_prompt_submit_method_total{method=\"history_submit\"}[15m])), 0.0001)",
+          "legendFormat": "handoff_per_history_submit",
+          "refId": "E"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Error Recovery Action & Recovery Funnel",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 144},
+      "targets": [
+        {
+          "expr": "sum(rate(ai_widget_error_recovery_click_total[15m]))",
+          "legendFormat": "error_recovery_click_rate",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(ai_widget_error_recovery_action_total[15m])) by (action)",
+          "legendFormat": "action_{{action}}",
+          "refId": "B"
+        },
+        {
+          "expr": "sum(rate(ai_widget_error_recovery_scope_total[15m])) by (action, scope)",
+          "legendFormat": "{{action}}/{{scope}}",
+          "refId": "C"
+        },
+        {
+          "expr": "sum(rate(ai_widget_search_handoff_total[15m])) / clamp_min(sum(rate(ai_widget_error_recovery_click_total[15m])), 0.0001)",
+          "legendFormat": "handoff_per_recovery_click",
+          "refId": "D"
+        },
+        {
+          "expr": "sum(rate(ai_widget_prompt_submit_total[15m])) / clamp_min(sum(rate(ai_widget_error_recovery_click_total[15m])), 0.0001)",
+          "legendFormat": "prompt_submit_per_recovery_click",
+          "refId": "E"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Context Insert/Sync & Blocked Reason",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 144},
+      "targets": [
+        {
+          "expr": "sum(rate(ai_widget_context_insert_field_total[15m])) by (field)",
+          "legendFormat": "insert_field_{{field}}",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(ai_widget_context_insert_scope_total[15m])) by (field, scope)",
+          "legendFormat": "insert_{{field}}/{{scope}}",
+          "refId": "B"
+        },
+        {
+          "expr": "sum(rate(ai_widget_context_sync_mode_total[15m])) by (mode)",
+          "legendFormat": "sync_mode_{{mode}}",
+          "refId": "C"
+        },
+        {
+          "expr": "sum(rate(ai_widget_context_sync_scope_total[15m])) by (mode, scope)",
+          "legendFormat": "sync_{{mode}}/{{scope}}",
+          "refId": "D"
+        },
+        {
+          "expr": "sum(rate(ai_widget_search_block_reason_total[15m])) by (reason)",
+          "legendFormat": "blocked_reason_{{reason}}",
+          "refId": "E"
+        },
+        {
+          "expr": "sum(rate(ai_widget_search_block_scope_total[15m])) by (reason, scope)",
+          "legendFormat": "blocked_{{reason}}/{{scope}}",
+          "refId": "F"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Blocked → Re-entry Recovery",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 152},
+      "targets": [
+        {
+          "expr": "sum(rate(ai_widget_search_blocked_total[15m])) / clamp_min(sum(rate(ai_widget_prompt_submit_total[15m])), 0.0001)",
+          "legendFormat": "search_blocked_ratio",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(ai_widget_context_sync_click_total[15m])) / clamp_min(sum(rate(ai_widget_search_blocked_total[15m])), 0.0001)",
+          "legendFormat": "context_sync_per_blocked",
+          "refId": "B"
+        },
+        {
+          "expr": "sum(rate(ai_widget_quick_fix_click_total[15m])) / clamp_min(sum(rate(ai_widget_search_blocked_total[15m])), 0.0001)",
+          "legendFormat": "quick_fix_per_blocked",
+          "refId": "C"
+        },
+        {
+          "expr": "sum(rate(ai_widget_clarify_action_click_total[15m])) / clamp_min(sum(rate(ai_widget_search_blocked_total[15m])), 0.0001)",
+          "legendFormat": "clarify_action_per_blocked",
+          "refId": "D"
+        },
+        {
+          "expr": "sum(rate(ai_widget_view_results_total[15m])) / clamp_min(sum(rate(ai_widget_search_blocked_total[15m])), 0.0001)",
+          "legendFormat": "view_results_per_blocked",
+          "refId": "E"
+        }
+      ]
     }
   ],
   "refresh": "30s",
@@ -828,6 +961,6 @@
   "timezone": "",
   "title": "StayVista AI Copilot SLO",
   "uid": "stayvista-chat-slo",
-  "version": 8,
+  "version": 9,
   "weekStart": ""
 }

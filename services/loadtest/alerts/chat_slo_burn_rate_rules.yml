@@ -587,3 +587,123 @@ groups:
         annotations:
           summary: "AI widget saved-card follow-up ratio low"
           description: "saved_card origin follow-up ratio stayed below 15% for 30m."
+
+      - alert: ChatWidgetPromptReuseSubmitRatioLow
+        expr: |
+          (
+            sum(rate(ai_widget_prompt_reuse_action_total{action="submit"}[30m]))
+            /
+            clamp_min(sum(rate(ai_widget_prompt_reuse_action_total[30m])), 1)
+          ) < 0.35
+          and
+          (
+            sum(rate(ai_widget_prompt_reuse_click_total[30m])) > 0.02
+          )
+        for: 30m
+        labels:
+          severity: ticket
+          service: chat
+          component: widget
+        annotations:
+          summary: "AI widget prompt reuse submit ratio low"
+          description: "Prompt reuse action=submit ratio stayed below 35% for 30m while reuse traffic is present."
+
+      - alert: ChatWidgetSubmitMethodSkewHigh
+        expr: |
+          (
+            max(sum(rate(ai_widget_prompt_submit_method_total[30m])) by (method))
+            /
+            clamp_min(sum(rate(ai_widget_prompt_submit_method_total[30m])), 1)
+          ) > 0.90
+          and
+          (
+            sum(rate(ai_widget_prompt_submit_total[30m])) > 0.05
+          )
+        for: 30m
+        labels:
+          severity: ticket
+          service: chat
+          component: widget
+        annotations:
+          summary: "AI widget prompt submit method skew high"
+          description: "One submit method occupied over 90% of submissions for 30m."
+
+      - alert: ChatWidgetErrorRecoveryDismissRatioHigh
+        expr: |
+          (
+            sum(rate(ai_widget_error_recovery_action_total{action="dismiss"}[30m]))
+            /
+            clamp_min(sum(rate(ai_widget_error_recovery_action_total[30m])), 1)
+          ) > 0.45
+          and
+          (
+            sum(rate(ai_widget_error_recovery_click_total[30m])) > 0.02
+          )
+        for: 30m
+        labels:
+          severity: ticket
+          service: chat
+          component: widget
+        annotations:
+          summary: "AI widget error recovery dismiss ratio high"
+          description: "error_recovery dismiss ratio exceeded 45% for 30m."
+
+      - alert: ChatWidgetContextInsertToHandoffLow
+        expr: |
+          (
+            sum(rate(ai_widget_search_handoff_total[30m]))
+            /
+            clamp_min(sum(rate(ai_widget_context_insert_click_total[30m])), 1)
+          ) < 0.25
+          and
+          (
+            sum(rate(ai_widget_context_insert_click_total[30m])) > 0.03
+          )
+        for: 30m
+        labels:
+          severity: ticket
+          service: chat
+          component: widget
+        annotations:
+          summary: "AI widget context insert to handoff conversion low"
+          description: "search_handoff per context insert stayed below 0.25 for 30m."
+
+      - alert: ChatWidgetContextSyncRerunRatioLow
+        expr: |
+          (
+            sum(rate(ai_widget_context_sync_mode_total{mode="rerun_last_prompt"}[30m]))
+            /
+            clamp_min(sum(rate(ai_widget_context_sync_mode_total[30m])), 1)
+          ) < 0.30
+          and
+          (
+            sum(rate(ai_widget_context_sync_click_total[30m])) > 0.02
+          )
+        for: 30m
+        labels:
+          severity: ticket
+          service: chat
+          component: widget
+        annotations:
+          summary: "AI widget context sync rerun ratio low"
+          description: "rerun_last_prompt ratio stayed below 30% for 30m while context sync traffic is present."
+
+      - alert: ChatWidgetSearchBlockedContextDriftRatioHigh
+        expr: |
+          (
+            sum(rate(ai_widget_search_block_reason_total{reason="context_drift"}[30m]))
+            /
+            clamp_min(sum(rate(ai_widget_search_block_reason_total[30m])), 1)
+          ) > 0.55
+          and
+          (
+            sum(rate(ai_widget_search_blocked_total[30m])) > 0.02
+          )
+        for: 30m
+        labels:
+          severity: ticket
+          service: chat
+          component: widget
+        annotations:
+          summary: "AI widget search blocked context-drift ratio high"
+          description: "context_drift occupied over 55% of blocked reasons for 30m."
