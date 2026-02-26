@@ -215,6 +215,26 @@
    - `ai_widget_prompt_autopatch_total`
    - `ai_widget_prompt_autopatch_count_total{count=*}`
    - `ai_widget_prompt_autopatch_field_count`
+   - `ai_widget_prompt_reuse_click_total`
+   - `ai_widget_prompt_reuse_rank_total{rank=*}`
+   - `ai_widget_prompt_reuse_scope_total{scope=*}`
+   - `ai_widget_card_type_filter_click_total`
+   - `ai_widget_card_type_filter_target_total{target=*}`
+   - `ai_widget_card_type_filter_scope_total{scope=*}`
+   - `ai_widget_card_type_visible_count`
+   - `ai_widget_card_list_toggle_click_total`
+   - `ai_widget_card_list_state_total{state=*}`
+   - `ai_widget_card_list_scope_total{scope=*}`
+   - `ai_widget_card_list_visible_count`
+   - `ai_widget_card_save_click_total`
+   - `ai_widget_card_save_state_total{state=*}`
+   - `ai_widget_card_save_source_type_total{source_type=*}`
+   - `ai_widget_card_save_scope_total{scope=*}`
+   - `ai_widget_card_save_count`
+   - `ai_widget_card_followup_click_total`
+   - `ai_widget_card_followup_source_type_total{source_type=*}`
+   - `ai_widget_card_followup_scope_total{scope=*}`
+   - `ai_widget_card_followup_origin_total{origin=*}`
 2) 알람 기준
    - `ChatWidgetSessionRestoreFailureRatioHigh`
    - `ChatWidgetFirstResponseLatencyHigh`
@@ -223,6 +243,11 @@
    - `ChatWidgetGenerationCancelRatioHigh`
    - `ChatWidgetBulkClearRatioHigh`
    - `ChatWidgetAutopatchUsageLow`
+   - `ChatWidgetPromptReuseEngagementLow`
+   - `ChatWidgetCardTypeFilterConversionLow`
+   - `ChatWidgetCardListExpandedRatioLow`
+   - `ChatWidgetCardSaveUnsavedRatioHigh`
+   - `ChatWidgetSavedCardFollowupRatioLow`
 3) 1차 대응 순서
    - `session_restore` 실패율 급증:
      - 인증 토큰 전달(`Authorization`) 유무 확인
@@ -240,9 +265,25 @@
    - `autopatch_usage_low`:
      - 컨텍스트 삽입(`city/dates/guests`) 누락 여부 점검
      - 최근 프론트 event payload 회귀/필드명 변경 여부 확인
+   - `prompt_reuse_engagement_low`:
+     - `prompt_history` 노출 여부와 최근 요청 리스트 생성(최대 5건) 동작 확인
+     - `ai_widget_prompt_submit_method_total{method="history_submit"}`가 함께 하락하는지 확인
+   - `card_type_filter_conversion_low`:
+     - 추천 카드 타입 필터와 `view_results/search_handoff` CTA 배치 회귀 여부 확인
+     - `target=ALL` 편중 시 타입 라벨/정렬 힌트 문구 조정
+   - `card_list_expanded_ratio_low`:
+     - 카드 수가 4개 이하로 고정되는 데이터 회귀 여부 확인
+     - 더보기/접기 토글 버튼 노출 조건 및 클릭 영역 점검
+   - `card_unsave_ratio_high`:
+     - 저장 카드 품질(중복/관련성) 저하 여부 점검
+     - source_type별(`PROPERTY/PACKAGE/TICKET/POI`) 저장 편중 확인
+   - `saved_card_followup_ratio_low`:
+     - 저장 카드 탭 CTA 가시성/문구 점검
+     - saved_card origin follow-up 클릭 후 결과 생성 실패율 동반 상승 여부 확인
 4) 재발 방지
    - 일일 점검에서 `quick_prompt_ctr`, `enter_submit_ratio`, `handoff_apply_rate` 추세를 비교
    - 주간 회고에서 `autopatch_count(0/1/2/3)` 분포와 전환(`search_handoff`, `view_results`) 상관 분석
+   - 저장 카드/후속질문(`saved_card`) 전환, 카드 타입 필터 사용률, 카드 토글 확장 비율을 함께 리뷰
 
 ## 3) Local LLM 운영 절차 (Ollama)
 

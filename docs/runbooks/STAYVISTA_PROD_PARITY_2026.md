@@ -32,6 +32,11 @@
    - Cancel/Bulk: `ai_widget_generation_cancel_total`, `ai_widget_generation_cancel_scope_total`, `ai_widget_filter_bulk_action_total`
    - Quick fix/copy: `ai_widget_quick_fix_click_total`, `ai_widget_quick_fix_slot_total`, `ai_widget_answer_copy_click_total`
    - Auto-patch: `ai_widget_prompt_autopatch_total`, `ai_widget_prompt_autopatch_count_total`, `ai_widget_prompt_autopatch_field_count`
+   - Prompt history: `ai_widget_prompt_reuse_click_total`, `ai_widget_prompt_reuse_rank_total`, `ai_widget_prompt_reuse_scope_total`, `ai_widget_prompt_submit_method_total{method=history_submit}`
+   - Card type filter: `ai_widget_card_type_filter_click_total`, `ai_widget_card_type_filter_target_total`, `ai_widget_card_type_filter_scope_total`, `ai_widget_card_type_visible_count`
+   - Card list toggle: `ai_widget_card_list_toggle_click_total`, `ai_widget_card_list_state_total`, `ai_widget_card_list_scope_total`, `ai_widget_card_list_visible_count`
+   - Saved card: `ai_widget_card_save_click_total`, `ai_widget_card_save_state_total`, `ai_widget_card_save_source_type_total`, `ai_widget_card_save_scope_total`, `ai_widget_card_save_count`
+   - Card follow-up: `ai_widget_card_followup_click_total`, `ai_widget_card_followup_source_type_total`, `ai_widget_card_followup_scope_total`, `ai_widget_card_followup_origin_total`
    - Quality: `ai_copilot_quality_event_total`
    - Degrade/no-result: `chat_copilot_orchestrator_requests_total`, `chat_copilot_orchestrator_no_result_total`
 3. 알람 룰 점검
@@ -59,6 +64,11 @@
    - `ChatWidgetGenerationCancelRatioHigh`
    - `ChatWidgetBulkClearRatioHigh`
    - `ChatWidgetAutopatchUsageLow`
+   - `ChatWidgetPromptReuseEngagementLow`
+   - `ChatWidgetCardTypeFilterConversionLow`
+   - `ChatWidgetCardListExpandedRatioLow`
+   - `ChatWidgetCardSaveUnsavedRatioHigh`
+   - `ChatWidgetSavedCardFollowupRatioLow`
 4. 필터/Facet 메트릭 확인
    - `search_facets_requests_total`
    - `search_facets_latency_ms`
@@ -157,3 +167,8 @@ k6 run services/loadtest/k6/full_funnel.js
 5. `avg_missing_slots`/`search_blocked_rate`가 상승하면 슬롯 추출 규칙(city/days/companions/budget/preferences)을 우선 검토한다.
 6. `generation_cancel_ratio` 또는 `bulk_clear_all_ratio` 급증 시 추천 필터 품질과 clarify 문구를 즉시 점검한다.
 7. `autopatch_usage_ratio` 급락 시 컨텍스트 삽입/동기화 이벤트 누락 회귀를 확인한다.
+8. `prompt_reuse_ratio` 또는 `history_submit_ratio` 하락 시 최근 요청 재사용칩 노출/정렬 회귀를 확인한다.
+9. `card_type_filter` 사용 후 `view_results_per_filter_click` 하락 시 타입 필터 라벨/기본 선택값 회귀를 점검한다.
+10. `expanded_ratio` 하락 시 카드 더보기 토글 노출 조건과 visible card count 분포를 확인한다.
+11. `unsaved_ratio` 급증 시 저장 카드 관련성(중복/품질)과 source_type 편중을 점검한다.
+12. `saved_card` origin follow-up 비중 하락 시 저장 카드 탭 CTA 가시성과 후속질문 실패율을 확인한다.

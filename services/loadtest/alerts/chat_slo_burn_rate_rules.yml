@@ -487,3 +487,103 @@ groups:
         annotations:
           summary: "AI widget autopatch usage low"
           description: "Auto-patch usage ratio stayed below 15% for 30m while prompt traffic is present."
+
+      - alert: ChatWidgetPromptReuseEngagementLow
+        expr: |
+          (
+            sum(rate(ai_widget_prompt_reuse_click_total[30m]))
+            /
+            clamp_min(sum(rate(ai_widget_prompt_submit_total[30m])), 1)
+          ) < 0.08
+          and
+          (
+            sum(rate(ai_widget_prompt_submit_total[30m])) > 0.05
+          )
+        for: 30m
+        labels:
+          severity: ticket
+          service: chat
+          component: widget
+        annotations:
+          summary: "AI widget prompt history reuse engagement low"
+          description: "Prompt history reuse ratio stayed below 8% for 30m while prompt traffic is present."
+
+      - alert: ChatWidgetCardTypeFilterConversionLow
+        expr: |
+          (
+            sum(rate(ai_widget_view_results_total[30m]))
+            /
+            clamp_min(sum(rate(ai_widget_card_type_filter_click_total[30m])), 1)
+          ) < 0.30
+          and
+          (
+            sum(rate(ai_widget_card_type_filter_click_total[30m])) > 0.03
+          )
+        for: 30m
+        labels:
+          severity: ticket
+          service: chat
+          component: widget
+        annotations:
+          summary: "AI widget card type filter conversion low"
+          description: "view_results per card type filter click stayed below 0.30 for 30m."
+
+      - alert: ChatWidgetCardListExpandedRatioLow
+        expr: |
+          (
+            sum(rate(ai_widget_card_list_state_total{state="expanded"}[30m]))
+            /
+            clamp_min(sum(rate(ai_widget_card_list_state_total[30m])), 1)
+          ) < 0.20
+          and
+          (
+            sum(rate(ai_widget_card_list_toggle_click_total[30m])) > 0.02
+          )
+        for: 30m
+        labels:
+          severity: ticket
+          service: chat
+          component: widget
+        annotations:
+          summary: "AI widget card list expanded ratio low"
+          description: "Card list expanded ratio stayed below 20% for 30m while toggle traffic is present."
+
+      - alert: ChatWidgetCardSaveUnsavedRatioHigh
+        expr: |
+          (
+            sum(rate(ai_widget_card_save_state_total{state="unsaved"}[30m]))
+            /
+            clamp_min(sum(rate(ai_widget_card_save_state_total[30m])), 1)
+          ) > 0.60
+          and
+          (
+            sum(rate(ai_widget_card_save_click_total[30m])) > 0.03
+          )
+        for: 30m
+        labels:
+          severity: ticket
+          service: chat
+          component: widget
+        annotations:
+          summary: "AI widget card unsave ratio high"
+          description: "Card unsave ratio exceeded 60% for 30m, indicating low save quality."
+
+      - alert: ChatWidgetSavedCardFollowupRatioLow
+        expr: |
+          (
+            sum(rate(ai_widget_card_followup_origin_total{origin="saved_card"}[30m]))
+            /
+            clamp_min(sum(rate(ai_widget_card_followup_click_total[30m])), 1)
+          ) < 0.15
+          and
+          (
+            sum(rate(ai_widget_card_followup_click_total[30m])) > 0.02
+          )
+        for: 30m
+        labels:
+          severity: ticket
+          service: chat
+          component: widget
+        annotations:
+          summary: "AI widget saved-card follow-up ratio low"
+          description: "saved_card origin follow-up ratio stayed below 15% for 30m."

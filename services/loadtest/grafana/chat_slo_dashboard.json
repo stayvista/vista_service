@@ -641,6 +641,181 @@
           "refId": "E"
         }
       ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Prompt History Reuse & Conversion",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 120},
+      "targets": [
+        {
+          "expr": "sum(rate(ai_widget_prompt_reuse_click_total[15m]))",
+          "legendFormat": "prompt_reuse_click_rate",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(ai_widget_prompt_submit_method_total{method=\"history_submit\"}[15m])) / clamp_min(sum(rate(ai_widget_prompt_submit_total[15m])), 0.0001)",
+          "legendFormat": "history_submit_ratio",
+          "refId": "B"
+        },
+        {
+          "expr": "sum(rate(ai_widget_prompt_reuse_rank_total[15m])) by (rank)",
+          "legendFormat": "rank_{{rank}}",
+          "refId": "C"
+        },
+        {
+          "expr": "sum(rate(ai_widget_prompt_reuse_scope_total[15m])) by (scope)",
+          "legendFormat": "scope_{{scope}}",
+          "refId": "D"
+        },
+        {
+          "expr": "sum(rate(ai_widget_search_handoff_total[15m])) / clamp_min(sum(rate(ai_widget_prompt_submit_method_total{method=\"history_submit\"}[15m])), 0.0001)",
+          "legendFormat": "handoff_per_history_submit",
+          "refId": "E"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Card Type Filter Usage & Conversion",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 120},
+      "targets": [
+        {
+          "expr": "sum(rate(ai_widget_card_type_filter_click_total[15m]))",
+          "legendFormat": "card_type_filter_click_rate",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(ai_widget_card_type_filter_target_total[15m])) by (target)",
+          "legendFormat": "target_{{target}}",
+          "refId": "B"
+        },
+        {
+          "expr": "sum(rate(ai_widget_card_type_visible_count_sum[15m])) / clamp_min(sum(rate(ai_widget_card_type_visible_count_count[15m])), 0.0001)",
+          "legendFormat": "avg_visible_cards",
+          "refId": "C"
+        },
+        {
+          "expr": "sum(rate(ai_widget_view_results_total[15m])) / clamp_min(sum(rate(ai_widget_card_type_filter_click_total[15m])), 0.0001)",
+          "legendFormat": "view_results_per_filter_click",
+          "refId": "D"
+        },
+        {
+          "expr": "sum(rate(ai_widget_search_handoff_total[15m])) / clamp_min(sum(rate(ai_widget_card_type_filter_click_total[15m])), 0.0001)",
+          "legendFormat": "handoff_per_filter_click",
+          "refId": "E"
+        },
+        {
+          "expr": "sum(rate(ai_widget_card_type_filter_scope_total[15m])) by (scope)",
+          "legendFormat": "scope_{{scope}}",
+          "refId": "F"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Card List Toggle Usage",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 128},
+      "targets": [
+        {
+          "expr": "sum(rate(ai_widget_card_list_toggle_click_total[15m]))",
+          "legendFormat": "card_list_toggle_click_rate",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(ai_widget_card_list_state_total{state=\"expanded\"}[15m])) / clamp_min(sum(rate(ai_widget_card_list_state_total[15m])), 0.0001)",
+          "legendFormat": "expanded_ratio",
+          "refId": "B"
+        },
+        {
+          "expr": "sum(rate(ai_widget_card_list_state_total[15m])) by (state)",
+          "legendFormat": "state_{{state}}",
+          "refId": "C"
+        },
+        {
+          "expr": "sum(rate(ai_widget_card_list_visible_count_sum[15m])) / clamp_min(sum(rate(ai_widget_card_list_visible_count_count[15m])), 0.0001)",
+          "legendFormat": "avg_visible_cards",
+          "refId": "D"
+        },
+        {
+          "expr": "sum(rate(ai_widget_card_list_scope_total[15m])) by (scope)",
+          "legendFormat": "scope_{{scope}}",
+          "refId": "E"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Saved Card Adoption",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 128},
+      "targets": [
+        {
+          "expr": "sum(rate(ai_widget_card_save_click_total[15m]))",
+          "legendFormat": "card_save_click_rate",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(ai_widget_card_save_state_total{state=\"saved\"}[15m])) / clamp_min(sum(rate(ai_widget_card_save_state_total[15m])), 0.0001)",
+          "legendFormat": "saved_ratio",
+          "refId": "B"
+        },
+        {
+          "expr": "sum(rate(ai_widget_card_save_state_total{state=\"unsaved\"}[15m])) / clamp_min(sum(rate(ai_widget_card_save_state_total[15m])), 0.0001)",
+          "legendFormat": "unsaved_ratio",
+          "refId": "C"
+        },
+        {
+          "expr": "sum(rate(ai_widget_card_save_source_type_total[15m])) by (source_type)",
+          "legendFormat": "source_type_{{source_type}}",
+          "refId": "D"
+        },
+        {
+          "expr": "sum(rate(ai_widget_card_save_count_sum[15m])) / clamp_min(sum(rate(ai_widget_card_save_count_count[15m])), 0.0001)",
+          "legendFormat": "avg_saved_card_count",
+          "refId": "E"
+        },
+        {
+          "expr": "sum(rate(ai_widget_card_save_scope_total[15m])) by (scope)",
+          "legendFormat": "scope_{{scope}}",
+          "refId": "F"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Card Follow-up Origin & Conversion",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 136},
+      "targets": [
+        {
+          "expr": "sum(rate(ai_widget_card_followup_click_total[15m]))",
+          "legendFormat": "card_followup_click_rate",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(ai_widget_card_followup_origin_total[15m])) by (origin)",
+          "legendFormat": "origin_{{origin}}",
+          "refId": "B"
+        },
+        {
+          "expr": "sum(rate(ai_widget_card_followup_source_type_total[15m])) by (source_type)",
+          "legendFormat": "source_type_{{source_type}}",
+          "refId": "C"
+        },
+        {
+          "expr": "sum(rate(ai_widget_card_followup_scope_total[15m])) by (scope)",
+          "legendFormat": "scope_{{scope}}",
+          "refId": "D"
+        },
+        {
+          "expr": "sum(rate(ai_widget_search_handoff_total[15m])) / clamp_min(sum(rate(ai_widget_card_followup_click_total[15m])), 0.0001)",
+          "legendFormat": "handoff_per_followup_click",
+          "refId": "E"
+        },
+        {
+          "expr": "sum(rate(ai_widget_view_results_total[15m])) / clamp_min(sum(rate(ai_widget_card_followup_click_total[15m])), 0.0001)",
+          "legendFormat": "view_results_per_followup_click",
+          "refId": "F"
+        }
+      ]
     }
   ],
   "refresh": "30s",
@@ -653,6 +828,6 @@
   "timezone": "",
   "title": "StayVista AI Copilot SLO",
   "uid": "stayvista-chat-slo",
-  "version": 7,
+  "version": 8,
   "weekStart": ""
 }
