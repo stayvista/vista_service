@@ -269,6 +269,12 @@ export function CheckoutBookingPage() {
       moveToLogin();
       return false;
     }
+    if (state !== "authenticated") {
+      setStatus("세션 확인 필요");
+      setError("세션 확인에 실패했습니다. 다시 로그인 후 시도해 주세요.");
+      moveToLogin();
+      return false;
+    }
     return true;
   }
 
@@ -518,7 +524,7 @@ export function CheckoutBookingPage() {
 
   const isExpired = remainingSeconds === 0;
   const statusDescriptor = describeStatus(status, Boolean(error));
-  const primaryCtaLabel = !bookingId || isExpired ? "요금 다시 확인하기" : "지금 예약하기";
+  const primaryCtaLabel = !bookingId || isExpired ? "예약 가능 여부 확인" : "지금 예약하기";
   const shouldShowBackToRooms = propertyId > 0 && status.includes("재고 마감");
   const backToRoomsLink = useMemo(() => {
     if (propertyId <= 0) return null;

@@ -249,9 +249,9 @@ export function CheckoutPackagePage() {
 
   async function ensureServerSession(): Promise<boolean> {
     const state = await verifyServerSession();
-    if (state === "unauthorized") {
-      setStatus("로그인 필요");
-      setError("세션이 만료되어 다시 로그인해 주세요.");
+    if (state !== "authenticated") {
+      setStatus("세션 확인 필요");
+      setError("세션 확인에 실패했습니다. 다시 로그인 후 시도해 주세요.");
       moveToLogin();
       return false;
     }

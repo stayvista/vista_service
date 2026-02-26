@@ -489,11 +489,11 @@ export function PropertyPage() {
       const specs = content?.features?.length
         ? content.features
         : buildRoomSpecsFromType(room);
-      const hasAvailabilitySignal = room.is_available != null;
+      const hasAvailabilitySignal = room.is_available != null && room.available_rooms != null;
       const soldOut = room.is_available === false || ((room.available_rooms ?? 0) <= 0 && room.available_rooms != null);
       const lowStock = !soldOut && room.available_rooms != null && room.available_rooms <= 3;
       const availability: RoomAvailability = !hasAvailabilitySignal
-        ? { tone: "low", label: "재고 확인 필요", detail: "실시간 재고를 다시 조회해 주세요." }
+        ? { tone: "low", label: "재고 동기화 중", detail: "잠시 후 다시 확인해 주세요." }
         : soldOut
           ? { tone: "soldout", label: "판매 완료", detail: "선택한 일정의 잔여 객실 없음" }
           : lowStock
@@ -527,7 +527,8 @@ export function PropertyPage() {
         availability,
         isBookable: hasAvailabilitySignal
           && room.is_available === true
-          && (room.available_rooms == null || room.available_rooms >= requestedRooms),
+          && room.available_rooms != null
+          && room.available_rooms >= requestedRooms,
         media,
         specs,
         plans,
@@ -704,8 +705,8 @@ export function PropertyPage() {
       return;
     }
     const sessionState = await verifyServerSession();
-    if (sessionState === "unauthorized") {
-      setHoldErrorMessage("세션이 만료되어 다시 로그인해 주세요.");
+    if (sessionState !== "authenticated") {
+      setHoldErrorMessage("세션 확인에 실패했습니다. 다시 로그인 후 시도해 주세요.");
       navigate(`/login?next=${encodeURIComponent(currentPathWithQuery)}`);
       return;
     }
@@ -721,7 +722,8 @@ export function PropertyPage() {
         const latestRoom = latestRoomTypes.find((room) => room.room_type_id === offer.room.room_type_id);
         const latestAvailableRooms = latestRoom?.available_rooms;
         const latestBookable = latestRoom?.is_available === true
-          && (latestAvailableRooms == null || latestAvailableRooms >= requestedRooms);
+          && latestAvailableRooms != null
+          && latestAvailableRooms >= requestedRooms;
         if (!latestBookable) {
           setHoldErrorMessage("선택 시점에 재고가 마감되었습니다. 다른 객실/날짜로 다시 확인해 주세요.");
           return;
@@ -773,25 +775,27 @@ export function PropertyPage() {
       const soldOutByCode = err.code === "BOOKING_OVERBOOKED";
       const soldOutByMessage = (err.message ?? "").toLowerCase().includes("inventory");
       if (soldOutByCode || soldOutByMessage) {
+        let latestConfirmedSoldOut = true;
         try {
           const latestRoomTypes = await fetchRoomTypesSnapshot();
           if (latestRoomTypes.length > 0) {
             setRoomTypes(latestRoomTypes);
-          } else {
-            setRoomTypes((prev) => prev.map((room) => (
-              room.room_type_id === offer.room.room_type_id
-                ? { ...room, is_available: false, available_rooms: 0 }
-                : room
-            )));
+            const latestRoom = latestRoomTypes.find((room) => room.room_type_id === offer.room.room_type_id);
+            const latestAvailableRooms = latestRoom?.available_rooms;
+            latestConfirmedSoldOut = !(
+              latestRoom?.is_available === true
+              && latestAvailableRooms != null
+              && latestAvailableRooms >= requestedRooms
+            );
           }
         } catch {
-          setRoomTypes((prev) => prev.map((room) => (
-            room.room_type_id === offer.room.room_type_id
-              ? { ...room, is_available: false, available_rooms: 0 }
-              : room
-          )));
+          latestConfirmedSoldOut = true;
         }
-        setHoldErrorMessage("방금 다른 고객이 먼저 결제를 완료해 선택한 객실이 마감되었습니다. 다른 객실을 선택해 주세요.");
+        if (latestConfirmedSoldOut) {
+          setHoldErrorMessage("방금 다른 고객이 먼저 결제를 완료해 선택한 객실이 마감되었습니다. 다른 객실을 선택해 주세요.");
+        } else {
+          setHoldErrorMessage("재고가 빠르게 변동되어 예약에 실패했습니다. 같은 객실로 다시 시도해 주세요.");
+        }
       } else {
         setHoldErrorMessage("예약 준비 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.");
       }
