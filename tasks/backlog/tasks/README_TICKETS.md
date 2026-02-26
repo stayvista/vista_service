@@ -31,7 +31,6 @@
 - `U-0989` AI 위젯 검색조건 변경 감지/재추천 동기화 UX v1
 - `U-0990` AI 위젯 재추천 전 검색 차단 UX v1
 - `U-0991` AI 위젯 검색 차단 복구 액션 UX v1
-- `U-0992` 예약 진입 전 세션 유효성 사전검증 UX v1
 - `U-0994` AI 여행도우미 플로팅 챗봇 UX v3
 - `B-0960` Chat Context Enrichment v2 (search context aware)
 - `B-0961` AI Widget Telemetry Ingest API v2
@@ -45,5 +44,4 @@
 - `B-0969` AI handoff clarify actions schema v1
 - `B-0970` Prompt source scope extractor v1
 - `B-0971` AI handoff sort recommendation policy v1
-- `B-0990` Booking Hold 재사용 및 만료 Hold 즉시정리 v1
 - `I-0960` AI 컨시어지 퍼널 관측성 v1
