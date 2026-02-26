@@ -262,6 +262,32 @@ class TelemetryController(
                 message = "target_source_type is required for ai_widget_card_followup_click",
             )
         }
+        val sessionRestoreResult = normalizeSessionRestoreResult(request.session_restore_result)
+        if (eventName == "ai_widget_session_restore" && sessionRestoreResult == "invalid") {
+            throw DomainException(
+                errorCode = ErrorCode.VALIDATION_ERROR,
+                message = "session_restore_result must be success, empty, schema_mismatch, request_failed, or auth_missing",
+            )
+        }
+        if (eventName == "ai_widget_session_restore" && sessionRestoreResult == "none") {
+            throw DomainException(
+                errorCode = ErrorCode.VALIDATION_ERROR,
+                message = "session_restore_result is required for ai_widget_session_restore",
+            )
+        }
+        val timeToFirstResponseMs = request.time_to_first_response_ms
+        if (timeToFirstResponseMs != null && (timeToFirstResponseMs < 0.0 || timeToFirstResponseMs > 60000.0)) {
+            throw DomainException(
+                errorCode = ErrorCode.VALIDATION_ERROR,
+                message = "time_to_first_response_ms must be between 0 and 60000",
+            )
+        }
+        if (eventName == "ai_widget_first_response" && timeToFirstResponseMs == null) {
+            throw DomainException(
+                errorCode = ErrorCode.VALIDATION_ERROR,
+                message = "time_to_first_response_ms is required for ai_widget_first_response",
+            )
+        }
 
         meterRegistry.counter("${eventName}_total").increment()
         meterRegistry.counter(
@@ -300,6 +326,8 @@ class TelemetryController(
         recordCardListToggleMetrics(eventName, cardListState, sourceTypeScope, visibleCardCount)
         recordCardSaveMetrics(eventName, cardSaveState, targetSourceType, sourceTypeScope, savedCardCount)
         recordCardFollowupMetrics(eventName, targetSourceType, sourceTypeScope, source)
+        recordSessionRestoreMetrics(eventName, sessionRestoreResult)
+        recordFirstResponseMetrics(eventName, timeToFirstResponseMs, sourceTypeScope)
         recordCopilotFunnelMetrics(eventName, request, source, route, sourceTypeScope)
         recordCopilotQualityMetrics(eventName)
 
@@ -506,6 +534,32 @@ class TelemetryController(
             "scope",
             sourceTypeScope,
         ).increment()
+        if (submitMethod == "keyboard_enter") {
+            meterRegistry.counter("ai_widget_enter_submit_total").increment()
+        }
+    }
+
+    private fun recordSessionRestoreMetrics(eventName: String, sessionRestoreResult: String) {
+        if (eventName != "ai_widget_session_restore" || sessionRestoreResult == "none") {
+            return
+        }
+        meterRegistry.counter(
+            "ai_widget_session_restore_total",
+            "result",
+            sessionRestoreResult,
+        ).increment()
+    }
+
+    private fun recordFirstResponseMetrics(eventName: String, timeToFirstResponseMs: Double?, sourceTypeScope: String) {
+        if (eventName != "ai_widget_first_response" || timeToFirstResponseMs == null) {
+            return
+        }
+        meterRegistry.summary("ai_widget_time_to_first_response_ms").record(timeToFirstResponseMs)
+        meterRegistry.summary(
+            "ai_widget_time_to_first_response_ms_by_scope",
+            "scope",
+            sourceTypeScope,
+        ).record(timeToFirstResponseMs)
     }
 
     private fun recordPromptReuseMetrics(
@@ -923,9 +977,20 @@ class TelemetryController(
         return if (normalized in ALLOWED_BLOCK_REASONS) normalized else "invalid"
     }
 
+    private fun normalizeSessionRestoreResult(rawSessionRestoreResult: String?): String {
+        val normalized = rawSessionRestoreResult?.trim()?.lowercase().orEmpty()
+        if (normalized.isBlank()) {
+            return "none"
+        }
+        return if (normalized in ALLOWED_SESSION_RESTORE_RESULTS) normalized else "invalid"
+    }
+
     companion object {
         private val ALLOWED_EVENTS = setOf(
             "ai_widget_open",
+            "ai_widget_session_restore",
+            "ai_widget_reset",
+            "ai_widget_first_response",
             "ai_widget_prompt_submit",
             "ai_widget_prompt_autopatch",
             "ai_widget_context_insert_click",
@@ -977,6 +1042,8 @@ class TelemetryController(
             "saved_card",
             "error_panel",
             "context_sync",
+            "stream",
+            "done",
         )
 
         private val ALLOWED_SOURCE_TYPES = setOf(
@@ -1073,6 +1140,14 @@ class TelemetryController(
             "missing_slots",
             "context_drift",
         )
+
+        private val ALLOWED_SESSION_RESTORE_RESULTS = setOf(
+            "success",
+            "empty",
+            "schema_mismatch",
+            "request_failed",
+            "auth_missing",
+        )
     }
 }
 
@@ -1106,6 +1181,8 @@ data class TelemetryEventRequest(
     val saved_card_count: Int? = null,
     val block_reason: String? = null,
     val action_apply_success: Boolean? = null,
+    val session_restore_result: String? = null,
+    val time_to_first_response_ms: Double? = null,
 )
 
 data class TelemetryEventResponse(

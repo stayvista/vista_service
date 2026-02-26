@@ -355,3 +355,135 @@ groups:
         annotations:
           summary: "AI sort hint click-through low"
           description: "Sort hint click-through stayed below 30% for 20m."
+
+      - alert: ChatWidgetSessionRestoreFailureRatioHigh
+        expr: |
+          (
+            sum(rate(ai_widget_session_restore_total{result!="success"}[15m]))
+            /
+            clamp_min(sum(rate(ai_widget_session_restore_total[15m])), 1)
+          ) > 0.40
+          and
+          (
+            sum(rate(ai_widget_session_restore_total[15m])) > 0.05
+          )
+        for: 15m
+        labels:
+          severity: ticket
+          service: chat
+          component: widget
+        annotations:
+          summary: "AI widget session restore failure ratio high"
+          description: "Session restore failure ratio stayed above 40% for 15m."
+
+      - alert: ChatWidgetFirstResponseLatencyHigh
+        expr: |
+          max_over_time(ai_widget_time_to_first_response_ms_max[10m]) > 3000
+        for: 10m
+        labels:
+          severity: ticket
+          service: chat
+          component: widget
+        annotations:
+          summary: "AI widget time-to-first-response high"
+          description: "time_to_first_response max stayed above 3000ms for 10m."
+
+      - alert: ChatWidgetNegativeFeedbackRatioHigh
+        expr: |
+          (
+            sum(rate(ai_widget_answer_feedback_total{feedback="negative"}[20m]))
+            /
+            clamp_min(sum(rate(ai_widget_answer_feedback_total[20m])), 1)
+          ) > 0.45
+          and
+          (
+            sum(rate(ai_widget_answer_feedback_total[20m])) > 0.03
+          )
+        for: 20m
+        labels:
+          severity: ticket
+          service: chat
+          component: quality
+        annotations:
+          summary: "AI widget negative feedback ratio high"
+          description: "Negative feedback ratio exceeded 45% for 20m."
+
+      - alert: ChatWidgetRegenerateRatioHigh
+        expr: |
+          (
+            sum(rate(ai_widget_regenerate_click_total[20m]))
+            /
+            clamp_min(sum(rate(ai_widget_prompt_submit_total[20m])), 1)
+          ) > 0.60
+          and
+          (
+            sum(rate(ai_widget_prompt_submit_total[20m])) > 0.05
+          )
+        for: 20m
+        labels:
+          severity: ticket
+          service: chat
+          component: quality
+        annotations:
+          summary: "AI widget regenerate ratio high"
+          description: "Regenerate ratio stayed above 60% for 20m."
+
+      - alert: ChatWidgetGenerationCancelRatioHigh
+        expr: |
+          (
+            sum(rate(ai_widget_generation_cancel_total[20m]))
+            /
+            clamp_min(sum(rate(ai_widget_prompt_submit_total[20m])), 1)
+          ) > 0.35
+          and
+          (
+            sum(rate(ai_widget_prompt_submit_total[20m])) > 0.05
+          )
+        for: 20m
+        labels:
+          severity: ticket
+          service: chat
+          component: widget
+        annotations:
+          summary: "AI widget generation cancel ratio high"
+          description: "Generation cancel ratio stayed above 35% for 20m."
+
+      - alert: ChatWidgetBulkClearRatioHigh
+        expr: |
+          (
+            sum(rate(ai_widget_filter_bulk_action_total{action="clear_all"}[20m]))
+            /
+            clamp_min(sum(rate(ai_widget_filter_bulk_apply_total[20m])), 1)
+          ) > 0.70
+          and
+          (
+            sum(rate(ai_widget_filter_bulk_apply_total[20m])) > 0.03
+          )
+        for: 20m
+        labels:
+          severity: ticket
+          service: chat
+          component: widget
+        annotations:
+          summary: "AI widget bulk clear ratio high"
+          description: "bulk clear_all ratio exceeded 70% for 20m, indicating weak filter quality."
+
+      - alert: ChatWidgetAutopatchUsageLow
+        expr: |
+          (
+            sum(rate(ai_widget_prompt_autopatch_total[30m]))
+            /
+            clamp_min(sum(rate(ai_widget_prompt_submit_total[30m])), 1)
+          ) < 0.15
+          and
+          (
+            sum(rate(ai_widget_prompt_submit_total[30m])) > 0.05
+          )
+        for: 30m
+        labels:
+          severity: ticket
+          service: chat
+          component: widget
+        annotations:
+          summary: "AI widget autopatch usage low"
+          description: "Auto-patch usage ratio stayed below 15% for 30m while prompt traffic is present."

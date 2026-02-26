@@ -385,6 +385,121 @@ class TelemetryControllerTest {
                 .counter()
                 .count(),
         )
+        assertEquals(
+            1.0,
+            meterRegistry.get("ai_widget_enter_submit_total")
+                .counter()
+                .count(),
+        )
+    }
+
+    @Test
+    fun `ingest should accept session restore telemetry event`() {
+        val response = controller.ingest(
+            TelemetryEventRequest(
+                event_name = "ai_widget_session_restore",
+                source = "desktop",
+                route = "TEMPLATE",
+                session_restore_result = "success",
+            ),
+        )
+
+        assertTrue(response.data.accepted)
+        assertEquals("ai_widget_session_restore", response.data.event_name)
+        assertEquals(1.0, meterRegistry.get("ai_widget_session_restore_total").counter().count())
+        assertEquals(
+            1.0,
+            meterRegistry.get("ai_widget_session_restore_total")
+                .tag("result", "success")
+                .counter()
+                .count(),
+        )
+    }
+
+    @Test
+    fun `ingest should reject session restore without result`() {
+        val exception = assertThrows<DomainException> {
+            controller.ingest(
+                TelemetryEventRequest(
+                    event_name = "ai_widget_session_restore",
+                    source = "desktop",
+                ),
+            )
+        }
+
+        assertEquals(ErrorCode.VALIDATION_ERROR, exception.errorCode)
+    }
+
+    @Test
+    fun `ingest should reject invalid session restore result`() {
+        val exception = assertThrows<DomainException> {
+            controller.ingest(
+                TelemetryEventRequest(
+                    event_name = "ai_widget_session_restore",
+                    source = "desktop",
+                    session_restore_result = "migrated",
+                ),
+            )
+        }
+
+        assertEquals(ErrorCode.VALIDATION_ERROR, exception.errorCode)
+    }
+
+    @Test
+    fun `ingest should accept first response telemetry event`() {
+        val response = controller.ingest(
+            TelemetryEventRequest(
+                event_name = "ai_widget_first_response",
+                source = "stream",
+                route = "LLM",
+                source_type_scope = "PROPERTY,POI",
+                time_to_first_response_ms = 182.0,
+            ),
+        )
+
+        assertTrue(response.data.accepted)
+        assertEquals("ai_widget_first_response", response.data.event_name)
+        assertEquals(1.0, meterRegistry.get("ai_widget_first_response_total").counter().count())
+        assertTrue(meterRegistry.get("ai_widget_time_to_first_response_ms").summary().count() >= 1)
+        assertTrue(
+            meterRegistry.get("ai_widget_time_to_first_response_ms_by_scope")
+                .tag("scope", "PROPERTY+POI")
+                .summary()
+                .count() >= 1,
+        )
+    }
+
+    @Test
+    fun `ingest should reject first response without latency`() {
+        val exception = assertThrows<DomainException> {
+            controller.ingest(
+                TelemetryEventRequest(
+                    event_name = "ai_widget_first_response",
+                    source = "done",
+                    route = "LLM",
+                    source_type_scope = "PROPERTY",
+                ),
+            )
+        }
+
+        assertEquals(ErrorCode.VALIDATION_ERROR, exception.errorCode)
+    }
+
+    @Test
+    fun `ingest should reject out of range first response latency`() {
+        val exception = assertThrows<DomainException> {
+            controller.ingest(
+                TelemetryEventRequest(
+                    event_name = "ai_widget_first_response",
+                    source = "done",
+                    route = "LLM",
+                    source_type_scope = "PROPERTY",
+                    time_to_first_response_ms = 999999.0,
+                ),
+            )
+        }
+
+        assertEquals(ErrorCode.VALIDATION_ERROR, exception.errorCode)
     }
 
     @Test

@@ -24,6 +24,14 @@
    - Clarify required/action: `chat_search_handoff_clarify_required_total`, `chat_search_handoff_missing_slot_count`, `chat_search_handoff_clarify_action_count`, `chat_search_handoff_clarify_action_total`, `ai_widget_clarify_action_slot_total`
    - Clarify impact: `ai_widget_handoff_confidence_by_clarify`, `ai_widget_handoff_filter_count_by_clarify`, `ai_widget_handoff_clarify_click_state_total`
    - Sort hint: `chat_search_handoff_sort_hint_total`, `ai_widget_sort_hint_total`
+   - Session restore/reset: `ai_widget_session_restore_total`, `ai_widget_reset_total`
+   - First response latency: `ai_widget_time_to_first_response_ms`, `ai_widget_time_to_first_response_ms_by_scope`
+   - Prompt UX: `ai_widget_enter_submit_total`, `ai_widget_event_total{event=ai_widget_prompt_submit,source=quick_prompt}`
+   - Feedback quality: `ai_widget_answer_feedback_total`, `ai_widget_regenerate_click_total`, `ai_widget_search_blocked_total`, `ai_widget_scope_hint_click_total`
+   - Slot completion: `ai_widget_slot_chip_click_total`, `ai_widget_clarify_action_slot_total`, `ai_widget_handoff_missing_slot_count`
+   - Cancel/Bulk: `ai_widget_generation_cancel_total`, `ai_widget_generation_cancel_scope_total`, `ai_widget_filter_bulk_action_total`
+   - Quick fix/copy: `ai_widget_quick_fix_click_total`, `ai_widget_quick_fix_slot_total`, `ai_widget_answer_copy_click_total`
+   - Auto-patch: `ai_widget_prompt_autopatch_total`, `ai_widget_prompt_autopatch_count_total`, `ai_widget_prompt_autopatch_field_count`
    - Quality: `ai_copilot_quality_event_total`
    - Degrade/no-result: `chat_copilot_orchestrator_requests_total`, `chat_copilot_orchestrator_no_result_total`
 3. 알람 룰 점검
@@ -44,6 +52,13 @@
    - `ChatSearchHandoffClarifyActionSlotSkewHigh`
    - `ChatSourceScopeIntentMismatchHigh`
    - `ChatSortHintClickThroughLow`
+   - `ChatWidgetSessionRestoreFailureRatioHigh`
+   - `ChatWidgetFirstResponseLatencyHigh`
+   - `ChatWidgetNegativeFeedbackRatioHigh`
+   - `ChatWidgetRegenerateRatioHigh`
+   - `ChatWidgetGenerationCancelRatioHigh`
+   - `ChatWidgetBulkClearRatioHigh`
+   - `ChatWidgetAutopatchUsageLow`
 4. 필터/Facet 메트릭 확인
    - `search_facets_requests_total`
    - `search_facets_latency_ms`
@@ -133,3 +148,12 @@ k6 run services/loadtest/k6/full_funnel.js
 4. 회귀 시 즉시 조치:
    - Copilot 오케스트레이터 트래픽을 템플릿 경로로 강등
    - 원인 툴(`chat_copilot_orchestrator_tool_total{status="failed"}`) 상위 1개부터 복구
+
+## 9) AI Widget UX 품질 운영 체크 (일일)
+1. `restore_success_ratio`가 0.6 미만이면 `session_restore_result` 분포(`auth_missing/request_failed/schema_mismatch`)를 먼저 확인한다.
+2. `ttfr_avg_ms`와 `ttfr_max_ms`가 동시 상승하면 LLM 대기열/route별 지연을 점검한다.
+3. `ai_widget_quick_prompt_ctr`, `enter_submit_ratio`, `ai_widget_handoff_apply_rate`를 함께 비교해 입력 UX 회귀 여부를 판단한다.
+4. `negative_feedback_ratio` 상승과 `regenerate_ratio` 상승이 같이 발생하면 추천 품질 회귀로 간주한다.
+5. `avg_missing_slots`/`search_blocked_rate`가 상승하면 슬롯 추출 규칙(city/days/companions/budget/preferences)을 우선 검토한다.
+6. `generation_cancel_ratio` 또는 `bulk_clear_all_ratio` 급증 시 추천 필터 품질과 clarify 문구를 즉시 점검한다.
+7. `autopatch_usage_ratio` 급락 시 컨텍스트 삽입/동기화 이벤트 누락 회귀를 확인한다.

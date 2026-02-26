@@ -188,6 +188,62 @@
    - 주간 리뷰에서 scope별(`PROPERTY/TICKET/PACKAGE/POI`) clarify 제안율/CTR 비교
    - `ai_widget_search_handoff` 샘플 이벤트 50건을 추출해 누락 슬롯/과다질문 케이스 점검
 
+### 2.10 AI widget UX 품질/피드백/오토패치 회귀
+1) 주요 지표 확인 (Grafana: `StayVista AI Copilot SLO`)
+   - `ai_widget_session_restore_total{result=*}`
+   - `ai_widget_reset_total`
+   - `ai_widget_time_to_first_response_ms`
+   - `ai_widget_time_to_first_response_ms_by_scope{scope=*}`
+   - `ai_widget_enter_submit_total`
+   - `ai_widget_prompt_submit_total`
+   - `ai_widget_event_total{event="ai_widget_prompt_submit",source="quick_prompt"}`
+   - `ai_widget_answer_feedback_total{feedback=*}`
+   - `ai_widget_regenerate_click_total`
+   - `ai_widget_search_blocked_total`
+   - `ai_widget_scope_hint_click_total`
+   - `ai_widget_slot_chip_click_total`
+   - `ai_widget_clarify_action_slot_total{slot=*}`
+   - `ai_widget_generation_cancel_total`
+   - `ai_widget_generation_cancel_scope_total{scope=*}`
+   - `ai_widget_filter_bulk_apply_total`
+   - `ai_widget_filter_bulk_action_total{action=*}`
+   - `ai_widget_quick_fix_click_total`
+   - `ai_widget_quick_fix_slot_total{slot=*}`
+   - `ai_widget_quick_fix_scope_total{scope=*}`
+   - `ai_widget_answer_copy_click_total`
+   - `ai_widget_answer_copy_scope_total{scope=*}`
+   - `ai_widget_prompt_autopatch_total`
+   - `ai_widget_prompt_autopatch_count_total{count=*}`
+   - `ai_widget_prompt_autopatch_field_count`
+2) 알람 기준
+   - `ChatWidgetSessionRestoreFailureRatioHigh`
+   - `ChatWidgetFirstResponseLatencyHigh`
+   - `ChatWidgetNegativeFeedbackRatioHigh`
+   - `ChatWidgetRegenerateRatioHigh`
+   - `ChatWidgetGenerationCancelRatioHigh`
+   - `ChatWidgetBulkClearRatioHigh`
+   - `ChatWidgetAutopatchUsageLow`
+3) 1차 대응 순서
+   - `session_restore` 실패율 급증:
+     - 인증 토큰 전달(`Authorization`) 유무 확인
+     - `/v1/chat/widget-snapshot` 401/5xx 비율 확인
+     - `schema_mismatch` 급증 시 프론트/백엔드 스키마 버전 동기화 확인
+   - `time_to_first_response` 지연:
+     - `chat_copilot_orchestrator_latency_ms_seconds_bucket`/`llm_queue_depth`/`llm_queue_wait_ms`와 함께 확인
+     - LLM degrade 또는 템플릿 경로 우선 라우팅 임시 적용
+   - 부정 피드백/재생성 급증:
+     - `scope_hint_click`/`search_blocked` 동반 상승 여부 확인
+     - 특정 scope(route/source) 편중 시 최근 프롬프트/정책 변경 롤백 우선
+   - `generation_cancel`/`bulk clear_all` 급증:
+     - 추천 필터 품질 저하로 간주하고 handoff 기본 필터 개수 축소
+     - clarify 질문 개수 상한(2개) 및 문구 단순화 적용
+   - `autopatch_usage_low`:
+     - 컨텍스트 삽입(`city/dates/guests`) 누락 여부 점검
+     - 최근 프론트 event payload 회귀/필드명 변경 여부 확인
+4) 재발 방지
+   - 일일 점검에서 `quick_prompt_ctr`, `enter_submit_ratio`, `handoff_apply_rate` 추세를 비교
+   - 주간 회고에서 `autopatch_count(0/1/2/3)` 분포와 전환(`search_handoff`, `view_results`) 상관 분석
+
 ## 3) Local LLM 운영 절차 (Ollama)
 
 ### 3.1 서비스 기동

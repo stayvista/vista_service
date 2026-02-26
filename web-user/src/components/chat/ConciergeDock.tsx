@@ -114,6 +114,9 @@ type WidgetSnapshotLoadData = {
 };
 type TelemetryEventName =
   | "ai_widget_open"
+  | "ai_widget_session_restore"
+  | "ai_widget_reset"
+  | "ai_widget_first_response"
   | "ai_widget_prompt_submit"
   | "ai_widget_prompt_autopatch"
   | "ai_widget_context_insert_click"
@@ -150,6 +153,7 @@ type ErrorRecoveryAction = "retry" | "restore_draft" | "reset_scope" | "dismiss"
 type ContextInsertField = "city" | "dates" | "guests" | "budget" | "scope";
 type ContextSyncMode = "rerun_last_prompt" | "context_only";
 type SearchBlockedReason = "missing_slots" | "context_drift";
+type SessionRestoreResult = "success" | "empty" | "schema_mismatch" | "request_failed" | "auth_missing";
 
 type ConciergeDockState = {
   open: boolean;
@@ -701,6 +705,9 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
     let cancelled = false;
     const token = getAuthBearerToken();
     if (!token) {
+      track("ai_widget_session_restore", "desktop", {
+        session_restore_result: "auth_missing",
+      });
       setSnapshotLoadDone(true);
       return () => {
         cancelled = true;
@@ -722,9 +729,19 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
           const restored = parseConciergeDockState(snapshot.state as Partial<ConciergeDockState>);
           hydrateDockState(restored);
           snapshotHydratedRef.current = true;
+          track("ai_widget_session_restore", "desktop", {
+            session_restore_result: "success",
+          });
+          return;
         }
+        track("ai_widget_session_restore", "desktop", {
+          session_restore_result: snapshot.has_snapshot ? "schema_mismatch" : "empty",
+        });
       } catch {
         // Server snapshot load is best-effort and must not block local fallback.
+        track("ai_widget_session_restore", "desktop", {
+          session_restore_result: "request_failed",
+        });
       } finally {
         if (!cancelled) {
           setSnapshotLoadDone(true);
@@ -768,6 +785,9 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
   }, [snapshotLoadDone, persistedDockState]);
 
   function resetConversation() {
+    track("ai_widget_reset", "results_cta", {
+      source_type_scope: sourceTypeScope(activeSourceTypes),
+    });
     setMessage("");
     setLastPrompt("");
     setAnswerFeedback(null);
@@ -812,6 +832,20 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
     abortRef.current = controller;
     const normalizedSourceTypes = normalizeSourceTypes(sourceTypes);
     const contextForRequest = searchContextOverride ?? searchContext;
+    const requestStartedAt = typeof performance !== "undefined" ? performance.now() : Date.now();
+    let firstResponseTracked = false;
+    const trackFirstResponse = (source: "stream" | "done") => {
+      if (firstResponseTracked) {
+        return;
+      }
+      firstResponseTracked = true;
+      const elapsedMsRaw = (typeof performance !== "undefined" ? performance.now() : Date.now()) - requestStartedAt;
+      const elapsedMs = Math.max(0, Math.round(elapsedMsRaw));
+      track("ai_widget_first_response", source, {
+        source_type_scope: sourceTypeScope(normalizedSourceTypes),
+        time_to_first_response_ms: elapsedMs,
+      });
+    };
     setActiveSourceTypes(normalizedSourceTypes);
     setLastContextSnapshot(buildContextSnapshot(contextForRequest));
     setLoading(true);
@@ -857,6 +891,9 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
         if (event === "token") {
           const tokenText = typeof data?.text === "string" ? data.text : "";
           setStreamingAnswer((prev) => `${prev}${tokenText}`);
+          if (tokenText.trim().length > 0) {
+            trackFirstResponse("stream");
+          }
           return;
         }
         if (event === "done") {
@@ -867,6 +904,7 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
       if (!donePayload) {
         donePayload = await recommend(payload, controller.signal);
       }
+      trackFirstResponse("done");
 
       const finalAnswer = donePayload.assistant_text ?? donePayload.answer;
       const handoff = extractSearchHandoff(donePayload.context_used);
@@ -1365,6 +1403,8 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
       context_field?: ContextInsertField;
       sync_mode?: ContextSyncMode;
       block_reason?: SearchBlockedReason;
+      session_restore_result?: SessionRestoreResult;
+      time_to_first_response_ms?: number;
     },
   ) {
     const payload = {
@@ -3017,6 +3057,8 @@ async function sendWidgetTelemetry(payload: {
   context_field?: ContextInsertField;
   sync_mode?: ContextSyncMode;
   block_reason?: SearchBlockedReason;
+  session_restore_result?: SessionRestoreResult;
+  time_to_first_response_ms?: number;
 }) {
   const token = getAuthBearerToken();
   try {

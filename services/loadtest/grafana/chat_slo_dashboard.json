@@ -420,6 +420,227 @@
           "refId": "C"
         }
       ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Session Restore Quality & Reset",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 88},
+      "targets": [
+        {
+          "expr": "sum(rate(ai_widget_session_restore_total{result=\"success\"}[15m])) / clamp_min(sum(rate(ai_widget_session_restore_total[15m])), 0.0001)",
+          "legendFormat": "restore_success_ratio",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(ai_widget_session_restore_total{result!=\"success\"}[15m])) / clamp_min(sum(rate(ai_widget_session_restore_total[15m])), 0.0001)",
+          "legendFormat": "restore_failure_ratio",
+          "refId": "B"
+        },
+        {
+          "expr": "sum(rate(ai_widget_reset_total[15m]))",
+          "legendFormat": "reset_rate",
+          "refId": "C"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Time To First Response (ms)",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 88},
+      "targets": [
+        {
+          "expr": "sum(rate(ai_widget_time_to_first_response_ms_sum[15m])) / clamp_min(sum(rate(ai_widget_time_to_first_response_ms_count[15m])), 0.0001)",
+          "legendFormat": "ttfr_avg_ms",
+          "refId": "A"
+        },
+        {
+          "expr": "max_over_time(ai_widget_time_to_first_response_ms_max[15m])",
+          "legendFormat": "ttfr_max_ms",
+          "refId": "B"
+        },
+        {
+          "expr": "sum(rate(ai_widget_time_to_first_response_ms_by_scope_sum[15m])) by (scope) / clamp_min(sum(rate(ai_widget_time_to_first_response_ms_by_scope_count[15m])) by (scope), 0.0001)",
+          "legendFormat": "ttfr_avg_{{scope}}",
+          "refId": "C"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Prompt UX: Quick Prompt / Enter / Handoff Apply",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 96},
+      "targets": [
+        {
+          "expr": "sum(rate(ai_widget_event_total{event=\"ai_widget_prompt_submit\",source=\"quick_prompt\"}[15m])) / clamp_min(sum(rate(ai_widget_event_total{event=\"ai_widget_open\"}[15m])), 0.0001)",
+          "legendFormat": "ai_widget_quick_prompt_ctr",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(ai_widget_enter_submit_total[15m])) / clamp_min(sum(rate(ai_widget_prompt_submit_total[15m])), 0.0001)",
+          "legendFormat": "enter_submit_ratio",
+          "refId": "B"
+        },
+        {
+          "expr": "sum(rate(ai_copilot_action_apply_total{result=\"success\"}[15m])) / clamp_min(sum(rate(ai_widget_prompt_submit_total[15m])), 0.0001)",
+          "legendFormat": "ai_widget_handoff_apply_rate",
+          "refId": "C"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Feedback Quality: Positive/Negative/Regenerate/Blocked",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 96},
+      "targets": [
+        {
+          "expr": "sum(rate(ai_widget_answer_feedback_total{feedback=\"positive\"}[15m])) / clamp_min(sum(rate(ai_widget_answer_feedback_total[15m])), 0.0001)",
+          "legendFormat": "positive_feedback_ratio",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(ai_widget_answer_feedback_total{feedback=\"negative\"}[15m])) / clamp_min(sum(rate(ai_widget_answer_feedback_total[15m])), 0.0001)",
+          "legendFormat": "negative_feedback_ratio",
+          "refId": "B"
+        },
+        {
+          "expr": "sum(rate(ai_widget_regenerate_click_total[15m])) / clamp_min(sum(rate(ai_widget_prompt_submit_total[15m])), 0.0001)",
+          "legendFormat": "regenerate_ratio",
+          "refId": "C"
+        },
+        {
+          "expr": "sum(rate(ai_widget_search_blocked_total[15m])) / clamp_min(sum(rate(ai_widget_prompt_submit_total[15m])), 0.0001)",
+          "legendFormat": "search_blocked_ratio",
+          "refId": "D"
+        },
+        {
+          "expr": "sum(rate(ai_widget_scope_hint_click_total[15m])) / clamp_min(sum(rate(ai_widget_prompt_submit_total[15m])), 0.0001)",
+          "legendFormat": "scope_hint_click_ratio",
+          "refId": "E"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Slot Completion Bottleneck",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 104},
+      "targets": [
+        {
+          "expr": "sum(rate(ai_widget_slot_chip_click_total[15m]))",
+          "legendFormat": "slot_chip_click_rate",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(ai_widget_clarify_action_slot_total[15m])) by (slot)",
+          "legendFormat": "clarify_action_slot_{{slot}}",
+          "refId": "B"
+        },
+        {
+          "expr": "sum(rate(ai_widget_handoff_missing_slot_count_sum[15m])) / clamp_min(sum(rate(ai_widget_handoff_missing_slot_count_count[15m])), 0.0001)",
+          "legendFormat": "avg_missing_slots",
+          "refId": "C"
+        },
+        {
+          "expr": "sum(rate(ai_widget_search_blocked_total[15m]))",
+          "legendFormat": "search_blocked_rate",
+          "refId": "D"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Generation Cancel & Bulk Filter",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 104},
+      "targets": [
+        {
+          "expr": "sum(rate(ai_widget_generation_cancel_total[15m])) / clamp_min(sum(rate(ai_widget_prompt_submit_total[15m])), 0.0001)",
+          "legendFormat": "generation_cancel_ratio",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(ai_widget_generation_cancel_scope_total[15m])) by (scope)",
+          "legendFormat": "generation_cancel_scope_{{scope}}",
+          "refId": "B"
+        },
+        {
+          "expr": "sum(rate(ai_widget_filter_bulk_action_total{action=\"select_all\"}[15m])) / clamp_min(sum(rate(ai_widget_filter_bulk_apply_total[15m])), 0.0001)",
+          "legendFormat": "bulk_select_all_ratio",
+          "refId": "C"
+        },
+        {
+          "expr": "sum(rate(ai_widget_filter_bulk_action_total{action=\"clear_all\"}[15m])) / clamp_min(sum(rate(ai_widget_filter_bulk_apply_total[15m])), 0.0001)",
+          "legendFormat": "bulk_clear_all_ratio",
+          "refId": "D"
+        },
+        {
+          "expr": "sum(rate(ai_widget_search_handoff_total[15m])) / clamp_min(sum(rate(ai_widget_filter_bulk_apply_total[15m])), 0.0001)",
+          "legendFormat": "bulk_to_handoff_rate",
+          "refId": "E"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Quick Fix & Answer Copy",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 112},
+      "targets": [
+        {
+          "expr": "sum(rate(ai_widget_quick_fix_click_total[15m]))",
+          "legendFormat": "quick_fix_click_rate",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(ai_widget_quick_fix_slot_total[15m])) by (slot)",
+          "legendFormat": "quick_fix_slot_{{slot}}",
+          "refId": "B"
+        },
+        {
+          "expr": "sum(rate(ai_widget_quick_fix_scope_total[15m])) by (scope)",
+          "legendFormat": "quick_fix_scope_{{scope}}",
+          "refId": "C"
+        },
+        {
+          "expr": "sum(rate(ai_widget_answer_copy_click_total[15m]))",
+          "legendFormat": "answer_copy_click_rate",
+          "refId": "D"
+        },
+        {
+          "expr": "sum(rate(ai_widget_answer_copy_scope_total[15m])) by (scope)",
+          "legendFormat": "answer_copy_scope_{{scope}}",
+          "refId": "E"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Prompt Auto-Patch Utilization",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 112},
+      "targets": [
+        {
+          "expr": "sum(rate(ai_widget_prompt_autopatch_total[15m])) / clamp_min(sum(rate(ai_widget_prompt_submit_total[15m])), 0.0001)",
+          "legendFormat": "autopatch_usage_ratio",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(ai_widget_prompt_autopatch_count_total[15m])) by (count)",
+          "legendFormat": "autopatch_count_{{count}}",
+          "refId": "B"
+        },
+        {
+          "expr": "sum(rate(ai_widget_prompt_autopatch_field_count_sum[15m])) / clamp_min(sum(rate(ai_widget_prompt_autopatch_field_count_count[15m])), 0.0001)",
+          "legendFormat": "autopatch_avg_field_count",
+          "refId": "C"
+        },
+        {
+          "expr": "sum(rate(ai_widget_search_handoff_total[15m])) / clamp_min(sum(rate(ai_widget_prompt_autopatch_total[15m])), 0.0001)",
+          "legendFormat": "autopatch_to_handoff_rate",
+          "refId": "D"
+        },
+        {
+          "expr": "sum(rate(ai_widget_view_results_total[15m])) / clamp_min(sum(rate(ai_widget_prompt_autopatch_total[15m])), 0.0001)",
+          "legendFormat": "autopatch_to_view_results_rate",
+          "refId": "E"
+        }
+      ]
     }
   ],
   "refresh": "30s",
@@ -432,6 +653,6 @@
   "timezone": "",
   "title": "StayVista AI Copilot SLO",
   "uid": "stayvista-chat-slo",
-  "version": 6,
+  "version": 7,
   "weekStart": ""
 }
