@@ -24,7 +24,7 @@ body,
 #root {
   min-height: 100%;
   width: 100%;
-  overflow-x: clip;
+  overflow-x: hidden;
 }
 
 body {
@@ -105,7 +105,7 @@ button:disabled {
   display: flex;
   flex-direction: column;
   width: 100%;
-  overflow-x: clip;
+  overflow-x: hidden;
 }
 
 .site-header {
@@ -302,7 +302,7 @@ button:disabled {
   border: none;
   padding: 22px;
   min-height: 372px;
-  overflow: visible;
+  overflow: hidden;
   color: #fff;
   background:
     linear-gradient(135deg, rgba(7, 17, 37, 0.72) 0%, rgba(8, 31, 67, 0.4) 60%, rgba(11, 52, 117, 0.2) 100%),
