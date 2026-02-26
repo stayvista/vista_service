@@ -188,3 +188,22 @@ k6 run services/loadtest/k6/full_funnel.js
 16. `context_insert_to_handoff` 전환 저하 시 삽입 칩이 프롬프트 payload에 반영되는지 샘플 로그로 검증한다.
 17. `context_sync rerun_ratio` 하락 시 검색조건 변경 배너 노출/클릭과 `sync_mode` 분포를 함께 점검한다.
 18. `search_block_reason=context_drift` 편중 시 검색폼 상태와 AI 세션 상태 동기화 회귀를 우선 점검한다.
+
+## 10) 예약 인증/재고 드리프트 운영 체크
+1. Search parity 대시보드(`services/loadtest/grafana/search_parity_dashboard.json`)에서 아래 지표를 함께 확인한다.
+   - `auth_guard_reject_total{reason=*,path_group=*}`
+   - `booking_hold_reused_total`
+   - `booking_hold_expired_released_total`
+   - `booking_overbooked_total{stage=*}`
+   - `booking_confirm_inventory_conflict_total`
+2. 알람 기준(`services/loadtest/alerts/chat_slo_burn_rate_rules.yml`)
+   - `BookingAuthRejectBookingsRatioHigh`
+   - `MeSessionProbeAuthRejectSpike`
+   - `BookingOverbookedHoldRatioHigh`
+   - `BookingExpiredReleaseOverbookedCorrelationHigh`
+3. `bookings` 인증 실패 급증 시
+   - `/v1/me/session` 호출 실패율과 `path_group=me` 추이를 함께 확인한다.
+   - 클라이언트 토큰 만료/동기화 누락 여부를 우선 점검한다.
+4. `booking_overbooked_total{stage="hold"}` 급증 시
+   - `booking_hold_expired_released_total` 동반 상승 여부를 확인한다.
+   - 상세 재고 표시 캐시 TTL 및 hold 직전 검증 경로를 점검한다.

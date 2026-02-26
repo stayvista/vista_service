@@ -45,8 +45,5 @@
 - `B-0969` AI handoff clarify actions schema v1
 - `B-0970` Prompt source scope extractor v1
 - `B-0971` AI handoff sort recommendation policy v1
-- `B-0989` Me Session Probe API & Auth Reject Metric v1
 - `B-0990` Booking Hold 재사용 및 만료 Hold 즉시정리 v1
 - `I-0960` AI 컨시어지 퍼널 관측성 v1
-- `I-0987` 예약 인증 드리프트 관측성 v1
-- `I-0988` 예약 재고 표시-확정 드리프트 관측성 v1

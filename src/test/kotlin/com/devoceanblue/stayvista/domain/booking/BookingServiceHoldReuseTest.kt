@@ -2,6 +2,7 @@ package com.devoceanblue.stayvista.domain.booking
 
 import com.devoceanblue.stayvista.common.api.DomainException
 import com.devoceanblue.stayvista.common.api.ErrorCode
+import io.micrometer.core.instrument.MeterRegistry
 import java.sql.Timestamp
 import java.time.Instant
 import java.time.LocalDate
@@ -22,6 +23,9 @@ class BookingServiceHoldReuseTest {
 
     @Autowired
     lateinit var jdbcTemplate: JdbcTemplate
+
+    @Autowired
+    lateinit var meterRegistry: MeterRegistry
 
     @BeforeEach
     fun setup() {
@@ -277,10 +281,23 @@ class BookingServiceHoldReuseTest {
             ),
         )
 
+        val beforeOverbooked = meterRegistry
+            .find("booking_overbooked_total")
+            .tag("stage", "hold")
+            .counter()
+            ?.count()
+            ?: 0.0
         val overbooked = assertThrows(DomainException::class.java) {
             bookingService.createHold(1001L, "hold-reuse-confirm-3", request)
         }
         assertEquals(ErrorCode.BOOKING_OVERBOOKED, overbooked.errorCode)
+        val afterOverbooked = meterRegistry
+            .find("booking_overbooked_total")
+            .tag("stage", "hold")
+            .counter()
+            ?.count()
+            ?: 0.0
+        assertEquals(beforeOverbooked + 1.0, afterOverbooked, 0.000001)
     }
 
     private fun holdRequest(): BookingHoldRequest {

@@ -216,6 +216,7 @@ class BookingService(
             )
             if (affected != 1) {
                 meterRegistry.counter("inventory_update_failed_total").increment()
+                meterRegistry.counter("booking_overbooked_total", "stage", "hold").increment()
                 throw DomainException(
                     ErrorCode.BOOKING_OVERBOOKED,
                     "Not enough inventory",
@@ -397,6 +398,7 @@ class BookingService(
             )
             if (affected != 1) {
                 meterRegistry.counter("booking_confirm_inventory_conflict_total").increment()
+                meterRegistry.counter("booking_overbooked_total", "stage", "confirm").increment()
                 throw DomainException(
                     ErrorCode.BOOKING_OVERBOOKED,
                     "Room no longer available during confirm",

@@ -1,5 +1,8 @@
 package com.devoceanblue.stayvista.common.web
 
+import com.devoceanblue.stayvista.domain.auth.RedisSessionService
+import io.micrometer.core.instrument.MeterRegistry
+import kotlin.test.assertEquals
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
@@ -17,8 +20,20 @@ class AuthGuardFilterTest {
     @Autowired
     lateinit var mockMvc: MockMvc
 
+    @Autowired
+    lateinit var redisSessionService: RedisSessionService
+
+    @Autowired
+    lateinit var meterRegistry: MeterRegistry
+
     @Test
     fun `booking hold should fail when bearer token is missing`() {
+        val before = meterRegistry
+            .find("auth_guard_reject_total")
+            .tags("reason", "missing_or_invalid_token", "path_group", "bookings")
+            .counter()
+            ?.count()
+            ?: 0.0
         mockMvc.perform(
             post("/v1/bookings/holds")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -39,6 +54,13 @@ class AuthGuardFilterTest {
             .andExpect(status().isUnauthorized)
             .andExpect(jsonPath("$.error.code").value("UNAUTHORIZED"))
             .andExpect(jsonPath("$.request_id").isNotEmpty)
+        val after = meterRegistry
+            .find("auth_guard_reject_total")
+            .tags("reason", "missing_or_invalid_token", "path_group", "bookings")
+            .counter()
+            ?.count()
+            ?: 0.0
+        assertEquals(before + 1.0, after, 0.000001)
     }
 
     @Test
@@ -72,6 +94,25 @@ class AuthGuardFilterTest {
             .andExpect(status().isUnauthorized)
             .andExpect(jsonPath("$.error.code").value("UNAUTHORIZED"))
             .andExpect(jsonPath("$.request_id").isNotEmpty)
+    }
+
+    @Test
+    fun `me session should return principal when bearer token is valid`() {
+        val token = redisSessionService
+            .createSession(
+                userId = 1001L,
+                email = "demo-user-1001@stayvista.com",
+                name = "Demo User #1001",
+            )
+            .accessToken
+        mockMvc.perform(
+            get("/v1/me/session")
+                .header("Authorization", "Bearer $token"),
+        )
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$.data.user_id").value(1001))
+            .andExpect(jsonPath("$.data.email").value("demo-user-1001@stayvista.com"))
+            .andExpect(jsonPath("$.data.name").value("Demo User #1001"))
     }
 
     @Test

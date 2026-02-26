@@ -707,3 +707,72 @@ groups:
         annotations:
           summary: "AI widget search blocked context-drift ratio high"
           description: "context_drift occupied over 55% of blocked reasons for 30m."
+
+      - alert: BookingAuthRejectBookingsRatioHigh
+        expr: |
+          (
+            sum(rate(auth_guard_reject_total{path_group="bookings"}[15m]))
+            /
+            clamp_min(
+              sum(rate(auth_guard_reject_total{path_group="bookings"}[15m])) + sum(rate(booking_hold_requests_total[15m])),
+              1
+            )
+          ) > 0.12
+          and
+          (
+            sum(rate(auth_guard_reject_total{path_group="bookings"}[15m])) > 0.02
+          )
+        for: 15m
+        labels:
+          severity: ticket
+          service: booking
+          component: auth
+        annotations:
+          summary: "Booking auth reject ratio high"
+          description: "auth_guard_reject_total(path_group=bookings) ratio exceeded 12% for 15m."
+
+      - alert: MeSessionProbeAuthRejectSpike
+        expr: |
+          sum(rate(auth_guard_reject_total{path_group="me"}[15m])) > 0.05
+        for: 10m
+        labels:
+          severity: ticket
+          service: booking
+          component: auth
+        annotations:
+          summary: "Me session probe auth reject spike"
+          description: "auth_guard_reject_total(path_group=me) stayed above 0.05 rps for 10m."
+
+      - alert: BookingOverbookedHoldRatioHigh
+        expr: |
+          (
+            sum(rate(booking_overbooked_total{stage="hold"}[15m]))
+            /
+            clamp_min(sum(rate(booking_hold_requests_total[15m])), 1)
+          ) > 0.10
+          and
+          (
+            sum(rate(booking_hold_requests_total[15m])) > 0.05
+          )
+        for: 15m
+        labels:
+          severity: page
+          service: booking
+          component: inventory
+        annotations:
+          summary: "Booking hold overbooked ratio high"
+          description: "booking_overbooked_total(stage=hold) exceeded 10% of hold requests for 15m."
+
+      - alert: BookingExpiredReleaseOverbookedCorrelationHigh
+        expr: |
+          sum(rate(booking_hold_expired_released_total[30m])) > 0.10
+          and
+          sum(rate(booking_overbooked_total{stage="hold"}[30m])) > 0.02
+        for: 20m
+        labels:
+          severity: ticket
+          service: booking
+          component: inventory
+        annotations:
+          summary: "Booking expired-release and overbooked correlation high"
+          description: "Expired hold release and hold overbooked rates are simultaneously elevated for 20m."

@@ -324,6 +324,33 @@
    - 저장 카드/후속질문(`saved_card`) 전환, 카드 타입 필터 사용률, 카드 토글 확장 비율을 함께 리뷰
    - 재사용/제출/복구/컨텍스트 삽입·동기화/차단 사유를 한 묶음 퍼널로 주간 비교한다
 
+### 2.11 예약 인증/재고 드리프트
+1) 주요 지표 확인 (Grafana: `StayVista Search Parity v1`)
+   - `auth_guard_reject_total{reason=*,path_group=*}`
+   - `booking_hold_requests_total{result=*}`
+   - `booking_hold_reused_total`
+   - `booking_hold_expired_released_total`
+   - `booking_overbooked_total{stage=*}`
+   - `booking_confirm_inventory_conflict_total`
+2) 알람 기준
+   - `BookingAuthRejectBookingsRatioHigh`
+   - `MeSessionProbeAuthRejectSpike`
+   - `BookingOverbookedHoldRatioHigh`
+   - `BookingExpiredReleaseOverbookedCorrelationHigh`
+3) 1차 대응 순서
+   - `bookings` auth reject 급증:
+     - `Authorization`/세션 토큰 만료 및 프론트 세션 동기화 호출(`/v1/me/session`) 누락 확인
+     - `path_group=bookings`와 `path_group=me` 추이를 함께 비교해 클라이언트 세션 드리프트 여부 판단
+   - `booking_overbooked_total{stage=hold}` 상승:
+     - 동일 일정/객실의 `booking_hold_expired_released_total` 동반 상승 여부 확인
+     - 상세 화면 재고 표시 캐시 TTL과 hold 생성 직전 검증 쿼리 드리프트 확인
+   - `expired_released + overbooked` 동시 상승:
+     - 만료 hold 정리 배치 지연/락 경합 여부 점검
+     - 필요 시 해당 room_type 판매를 임시 제한하고 만료 정리 배치 수동 실행
+4) 재발 방지
+   - 주간 점검에서 `hold_reused`, `expired_released`, `overbooked(stage=hold|confirm)` 상관 그래프를 함께 리뷰
+   - 세션 프로브(`/v1/me/session`) 실패율 상승 구간은 로그인 UX/토큰 갱신 정책 티켓으로 분리한다
+
 ## 3) Local LLM 운영 절차 (Ollama)
 
 ### 3.1 서비스 기동

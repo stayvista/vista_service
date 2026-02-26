@@ -5,7 +5,7 @@
   "tags": ["stayvista", "search", "autocomplete", "calendar"],
   "timezone": "browser",
   "schemaVersion": 39,
-  "version": 1,
+  "version": 2,
   "refresh": "15s",
   "time": {
     "from": "now-6h",
@@ -105,6 +105,57 @@
           "expr": "sum(increase(booking_funnel_stage_total{stage=\"confirm\",result=\"SUCCESS\"}[15m]))",
           "legendFormat": "confirm_success",
           "refId": "C"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Auth Guard Reject by Path Group (15m)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
+      "targets": [
+        {
+          "expr": "sum(increase(auth_guard_reject_total[15m])) by (path_group, reason)",
+          "legendFormat": "{{path_group}}/{{reason}}",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(increase(auth_guard_reject_total{path_group=\"bookings\"}[15m]))",
+          "legendFormat": "bookings_reject",
+          "refId": "B"
+        },
+        {
+          "expr": "sum(increase(auth_guard_reject_total{path_group=\"me\"}[15m]))",
+          "legendFormat": "me_reject",
+          "refId": "C"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Booking Hold Drift Signals (15m)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 24 },
+      "targets": [
+        {
+          "expr": "sum(increase(booking_hold_reused_total[15m]))",
+          "legendFormat": "hold_reused",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(increase(booking_hold_expired_released_total[15m]))",
+          "legendFormat": "expired_hold_released",
+          "refId": "B"
+        },
+        {
+          "expr": "sum(increase(booking_overbooked_total{stage=\"hold\"}[15m]))",
+          "legendFormat": "overbooked_hold",
+          "refId": "C"
+        },
+        {
+          "expr": "sum(increase(booking_overbooked_total{stage=\"confirm\"}[15m]))",
+          "legendFormat": "overbooked_confirm",
+          "refId": "D"
         }
       ]
     }
