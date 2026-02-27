@@ -38,8 +38,22 @@ class AuthGuardFilter(
             return
         }
 
-        if (isBypassPath(path) || isPublicEndpoint(method, path)) {
+        if (isBypassPath(path)) {
             filterChain.doFilter(request, response)
+            return
+        }
+
+        if (isPublicEndpoint(method, path)) {
+            val principal = resolvePrincipal(request)
+            if (principal == null) {
+                filterChain.doFilter(request, response)
+                return
+            }
+            val wrapped = authenticatedRequest(
+                request = request,
+                principal = principal,
+            )
+            filterChain.doFilter(wrapped, response)
             return
         }
 
@@ -69,13 +83,10 @@ class AuthGuardFilter(
                 writeError(response, ErrorCode.UNAUTHORIZED, "Session access token is required")
                 return
             }
-            val wrapped = AuthenticatedUserRequest(
-                delegate = request,
-                userId = principal.userId,
+            val wrapped = authenticatedRequest(
+                request = request,
+                principal = principal,
             )
-            wrapped.setAttribute("auth.user_id", principal.userId)
-            wrapped.setAttribute("auth.user_email", principal.email)
-            wrapped.setAttribute("auth.user_name", principal.name)
             filterChain.doFilter(wrapped, response)
             return
         }
@@ -149,6 +160,17 @@ class AuthGuardFilter(
             ),
         )
         response.writer.write(objectMapper.writeValueAsString(body))
+    }
+
+    private fun authenticatedRequest(request: HttpServletRequest, principal: AuthPrincipal): HttpServletRequest {
+        val wrapped = AuthenticatedUserRequest(
+            delegate = request,
+            userId = principal.userId,
+        )
+        wrapped.setAttribute("auth.user_id", principal.userId)
+        wrapped.setAttribute("auth.user_email", principal.email)
+        wrapped.setAttribute("auth.user_name", principal.name)
+        return wrapped
     }
 
     private class AuthenticatedUserRequest(

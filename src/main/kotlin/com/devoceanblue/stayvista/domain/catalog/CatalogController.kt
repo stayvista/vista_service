@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.PutMapping
 import org.springframework.web.bind.annotation.RequestBody
+import org.springframework.web.bind.annotation.RequestHeader
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
@@ -86,12 +87,14 @@ class CatalogController(
         @RequestParam(name = "check_in", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) check_in: LocalDate?,
         @RequestParam(name = "check_out", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) check_out: LocalDate?,
         @RequestParam(name = "rooms", required = false, defaultValue = "1") @Min(1) rooms: Int,
+        @RequestHeader(name = "X-User-Id", required = false) userId: Long?,
     ) = ApiResponses.ok(
         catalogService.listRoomTypes(
             propertyId = propertyId,
             checkIn = check_in,
             checkOut = check_out,
             rooms = rooms,
+            userId = userId,
         ),
     )
 

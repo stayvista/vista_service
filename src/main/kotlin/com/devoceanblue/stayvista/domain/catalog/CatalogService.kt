@@ -371,6 +371,7 @@ class CatalogService(
         checkIn: LocalDate? = null,
         checkOut: LocalDate? = null,
         rooms: Int = 1,
+        userId: Long? = null,
     ): RoomTypeListData {
         val availabilityWindow = resolveAvailabilityWindow(checkIn = checkIn, checkOut = checkOut)
         val rows = if (availabilityWindow == null) {
@@ -411,6 +412,8 @@ class CatalogService(
                        rt.bedrooms,
                        inv.available_rooms,
                        inv.covered_nights,
+                       hold.booking_id AS active_hold_booking_id,
+                       hold.expires_at AS active_hold_expires_at,
                        CASE
                          WHEN inv.covered_nights = ? AND inv.available_rooms >= ? THEN 1
                          ELSE 0
@@ -425,6 +428,20 @@ class CatalogService(
                     AND stay_date < ?
                   GROUP BY room_type_id
                 ) inv ON inv.room_type_id = rt.id
+                LEFT JOIN (
+                  SELECT room_type_id,
+                         MAX(id) AS booking_id,
+                         MAX(expires_at) AS expires_at
+                  FROM booking
+                  WHERE ? IS NOT NULL
+                    AND user_id = ?
+                    AND status = 'HOLD'
+                    AND check_in = ?
+                    AND check_out = ?
+                    AND rooms = ?
+                    AND expires_at > NOW(3)
+                  GROUP BY room_type_id
+                ) hold ON hold.room_type_id = rt.id
                 WHERE rt.property_id = ?
                   AND rt.status = 'ACTIVE'
                 ORDER BY rt.id
@@ -432,6 +449,12 @@ class CatalogService(
                 { rs, _ ->
                     val availableRooms = rs.getInt("available_rooms").takeIf { !rs.wasNull() }
                     val isAvailable = rs.getInt("is_available") == 1
+                    val activeHoldBookingId = rs.getLong("active_hold_booking_id")
+                        .takeIf { !rs.wasNull() }
+                        ?.let { toBookingId(it) }
+                    val activeHoldExpiresAt = rs.getTimestamp("active_hold_expires_at")
+                        ?.toInstant()
+                        ?.toString()
                     RoomTypeSummary(
                         room_type_id = rs.getLong("id"),
                         name = rs.getString("name"),
@@ -446,12 +469,19 @@ class CatalogService(
                         bedrooms = rs.getInt("bedrooms").takeIf { !rs.wasNull() },
                         available_rooms = availableRooms,
                         is_available = isAvailable,
+                        active_hold_booking_id = activeHoldBookingId,
+                        active_hold_expires_at = activeHoldExpiresAt,
                     )
                 },
                 availabilityWindow.nights,
                 rooms.coerceAtLeast(1),
                 Date.valueOf(availabilityWindow.checkIn),
                 Date.valueOf(availabilityWindow.checkOut),
+                userId,
+                userId,
+                Date.valueOf(availabilityWindow.checkIn),
+                Date.valueOf(availabilityWindow.checkOut),
+                rooms.coerceAtLeast(1),
                 propertyId,
             )
         }
@@ -478,6 +508,8 @@ class CatalogService(
             nights = nights.size,
         )
     }
+
+    private fun toBookingId(id: Long): String = "bkg_$id"
 
     fun listPropertyReviews(
         propertyId: Long,
@@ -749,6 +781,8 @@ data class RoomTypeSummary(
     val bedrooms: Int?,
     val available_rooms: Int? = null,
     val is_available: Boolean? = null,
+    val active_hold_booking_id: String? = null,
+    val active_hold_expires_at: String? = null,
 )
 
 data class RoomTypeListData(

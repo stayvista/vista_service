@@ -26,6 +26,7 @@ class CatalogServiceRoomTypeAvailabilityTest {
     @BeforeEach
     fun setup() {
         jdbcTemplate.execute("DROP TABLE IF EXISTS inventory_night")
+        jdbcTemplate.execute("DROP TABLE IF EXISTS booking")
         jdbcTemplate.execute("DROP TABLE IF EXISTS room_type")
 
         jdbcTemplate.execute(
@@ -52,6 +53,20 @@ class CatalogServiceRoomTypeAvailabilityTest {
               hold INT NOT NULL DEFAULT 0,
               sold INT NOT NULL DEFAULT 0,
               PRIMARY KEY (room_type_id, stay_date)
+            )
+            """.trimIndent(),
+        )
+        jdbcTemplate.execute(
+            """
+            CREATE TABLE booking (
+              id BIGINT PRIMARY KEY,
+              user_id BIGINT NOT NULL,
+              room_type_id BIGINT NOT NULL,
+              check_in DATE NOT NULL,
+              check_out DATE NOT NULL,
+              rooms INT NOT NULL,
+              status VARCHAR(20) NOT NULL,
+              expires_at TIMESTAMP(3) NOT NULL
             )
             """.trimIndent(),
         )
@@ -83,6 +98,7 @@ class CatalogServiceRoomTypeAvailabilityTest {
     @AfterEach
     fun cleanup() {
         jdbcTemplate.execute("DROP TABLE IF EXISTS inventory_night")
+        jdbcTemplate.execute("DROP TABLE IF EXISTS booking")
         jdbcTemplate.execute("DROP TABLE IF EXISTS room_type")
     }
 
@@ -107,6 +123,35 @@ class CatalogServiceRoomTypeAvailabilityTest {
     }
 
     @Test
+    fun `listRoomTypes should include active hold metadata for requesting user`() {
+        jdbcTemplate.update("UPDATE inventory_night SET hold = 1 WHERE room_type_id = 501 AND stay_date IN (DATE '2026-04-01', DATE '2026-04-02')")
+        jdbcTemplate.update(
+            """
+            INSERT INTO booking(id, user_id, room_type_id, check_in, check_out, rooms, status, expires_at)
+            VALUES (91001, 7001, 501, DATE '2026-04-01', DATE '2026-04-03', 1, 'HOLD', TIMESTAMP '2099-01-01 00:00:00')
+            """.trimIndent(),
+        )
+
+        val result = catalogService.listRoomTypes(
+            propertyId = 9001L,
+            checkIn = LocalDate.parse("2026-04-01"),
+            checkOut = LocalDate.parse("2026-04-03"),
+            rooms = 1,
+            userId = 7001L,
+        )
+
+        val deluxe = result.items.first { it.room_type_id == 501L }
+        assertEquals(0, deluxe.available_rooms)
+        assertFalse(deluxe.is_available ?: true)
+        assertEquals("bkg_91001", deluxe.active_hold_booking_id)
+        assertTrue((deluxe.active_hold_expires_at ?: "").contains("T"))
+
+        val family = result.items.first { it.room_type_id == 502L }
+        assertNull(family.active_hold_booking_id)
+        assertNull(family.active_hold_expires_at)
+    }
+
+    @Test
     fun `listRoomTypes should return null availability fields without date range`() {
         val result = catalogService.listRoomTypes(propertyId = 9001L)
         val deluxe = result.items.first { it.room_type_id == 501L }
@@ -127,4 +172,3 @@ class CatalogServiceRoomTypeAvailabilityTest {
         assertEquals(ErrorCode.VALIDATION_ERROR.code, ex.errorCode.code)
     }
 }
-

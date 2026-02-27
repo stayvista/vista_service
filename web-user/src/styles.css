@@ -5203,6 +5203,10 @@ button:disabled {
   color: #b13a3a;
 }
 
+.room-plan-status.holding {
+  color: #1f56b4;
+}
+
 .room-availability-label {
   margin: 4px 0 0;
   font-size: 0.9rem;
@@ -5219,6 +5223,10 @@ button:disabled {
 
 .room-availability-label.soldout {
   color: #b13a3a;
+}
+
+.room-availability-label.holding {
+  color: #1f56b4;
 }
 
 .review-overview-grid {

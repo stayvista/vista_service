@@ -157,4 +157,24 @@ class AuthGuardFilterTest {
             .andExpect(status().isBadRequest)
             .andExpect(jsonPath("$.error.code").value("VALIDATION_ERROR"))
     }
+
+    @Test
+    fun `public endpoint should keep working with valid bearer token`() {
+        val token = redisSessionService
+            .createSession(
+                userId = 1001L,
+                email = "demo-user-1001@stayvista.com",
+                name = "Demo User #1001",
+            )
+            .accessToken
+
+        mockMvc.perform(
+            get("/v1/locale")
+                .header("Authorization", "Bearer $token"),
+        )
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$.request_id").isNotEmpty)
+            .andExpect(jsonPath("$.data.country").isString)
+            .andExpect(jsonPath("$.data.currency").isString)
+    }
 }

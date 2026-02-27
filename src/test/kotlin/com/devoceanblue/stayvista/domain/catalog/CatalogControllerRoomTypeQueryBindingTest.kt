@@ -36,6 +36,7 @@ class CatalogControllerRoomTypeQueryBindingTest {
                 checkIn = LocalDate.parse("2026-03-02"),
                 checkOut = LocalDate.parse("2026-03-03"),
                 rooms = 2,
+                userId = null,
             ),
         ).willReturn(RoomTypeListData(items = emptyList()))
 
@@ -54,6 +55,39 @@ class CatalogControllerRoomTypeQueryBindingTest {
             checkIn = LocalDate.parse("2026-03-02"),
             checkOut = LocalDate.parse("2026-03-03"),
             rooms = 2,
+            userId = null,
+        )
+    }
+
+    @Test
+    fun `list room types should pass authenticated user id when provided`() {
+        given(
+            catalogService.listRoomTypes(
+                propertyId = 100001L,
+                checkIn = LocalDate.parse("2026-03-02"),
+                checkOut = LocalDate.parse("2026-03-03"),
+                rooms = 1,
+                userId = 1001L,
+            ),
+        ).willReturn(RoomTypeListData(items = emptyList()))
+
+        mockMvc.perform(
+            get("/v1/properties/100001/room-types")
+                .param("check_in", "2026-03-02")
+                .param("check_out", "2026-03-03")
+                .param("rooms", "1")
+                .header("X-User-Id", "1001"),
+        )
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$.request_id").isNotEmpty)
+            .andExpect(jsonPath("$.data.items.length()").value(0))
+
+        then(catalogService).should().listRoomTypes(
+            propertyId = 100001L,
+            checkIn = LocalDate.parse("2026-03-02"),
+            checkOut = LocalDate.parse("2026-03-03"),
+            rooms = 1,
+            userId = 1001L,
         )
     }
 }
