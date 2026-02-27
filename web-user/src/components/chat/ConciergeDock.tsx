@@ -1076,6 +1076,9 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
   }
 
   function submitAnswerFeedback(feedback: "positive" | "negative") {
+    if (answerFeedback === feedback) {
+      return;
+    }
     setAnswerFeedback(feedback);
     track("ai_widget_answer_feedback", "feedback", {
       feedback_value: feedback,
@@ -1950,6 +1953,7 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
                 <button
                   type="button"
                   className={answerFeedback === "positive" ? "chip-btn active" : "chip-btn"}
+                  disabled={answerFeedback === "positive"}
                   onClick={() => submitAnswerFeedback("positive")}
                 >
                   👍 도움됐어요
@@ -1957,6 +1961,7 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
                 <button
                   type="button"
                   className={answerFeedback === "negative" ? "chip-btn active" : "chip-btn"}
+                  disabled={answerFeedback === "negative"}
                   onClick={() => submitAnswerFeedback("negative")}
                 >
                   👎 아쉬워요
