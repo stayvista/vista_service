@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { apiGet, apiPost } from "../api/client";
-import { getAuthUser } from "../auth/session";
+import { getAuthBearerToken, getAuthUser } from "../auth/session";
 import { verifyServerSession } from "../auth/serverSession";
 import { useLocale } from "../components/locale/LocaleContext";
 
@@ -747,13 +747,18 @@ export function PropertyPage() {
 
   async function handleBookNow(offer: RoomOffer, plan: RoomPlan) {
     if (!offer.isBookable || !property) return;
-    if (!getAuthUser()) {
+    if (!getAuthBearerToken() || !getAuthUser()) {
+      setHoldErrorMessage("로그인이 필요합니다. 로그인 후 다시 시도해 주세요.");
       navigate(`/login?next=${encodeURIComponent(currentPathWithQuery)}`);
       return;
     }
     const sessionState = await verifyServerSession();
     if (sessionState !== "authenticated") {
-      setHoldErrorMessage("세션 확인에 실패했습니다. 다시 로그인 후 시도해 주세요.");
+      if (sessionState === "unauthorized") {
+        setHoldErrorMessage("세션이 만료되어 다시 로그인이 필요합니다.");
+      } else {
+        setHoldErrorMessage("세션 확인에 실패했습니다. 다시 로그인 후 시도해 주세요.");
+      }
       navigate(`/login?next=${encodeURIComponent(currentPathWithQuery)}`);
       return;
     }

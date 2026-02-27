@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { apiGet, apiPost } from "../api/client";
+import { getAuthBearerToken } from "../auth/session";
 import { verifyServerSession } from "../auth/serverSession";
 import { toFriendlyCheckoutError, type CheckoutApiError } from "./checkoutErrorMessage";
 
@@ -236,6 +237,12 @@ export function CheckoutTicketPage() {
   }
 
   async function ensureServerSession(): Promise<boolean> {
+    if (!getAuthBearerToken()) {
+      setStatus("로그인 필요");
+      setError("로그인이 필요합니다. 다시 로그인해 주세요.");
+      moveToLogin();
+      return false;
+    }
     const state = await verifyServerSession();
     if (state !== "authenticated") {
       setStatus("세션 확인 필요");

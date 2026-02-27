@@ -539,6 +539,11 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
     });
     return counts;
   }, [cards]);
+  const distinctCardTypeCount = useMemo(
+    () => CARD_TYPE_FILTER_ORDER.filter((type) => type !== "ALL" && cardTypeCounts[type] > 0).length,
+    [cardTypeCounts],
+  );
+  const shouldShowCardTypeFilter = distinctCardTypeCount >= 2;
   const availableCardTypes = useMemo(
     () => CARD_TYPE_FILTER_ORDER.filter((type) => (type === "ALL" ? cards.length > 0 : cardTypeCounts[type] > 0)),
     [cards.length, cardTypeCounts],
@@ -686,14 +691,14 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
   }, [autopatchNotice]);
 
   useEffect(() => {
-    if (selectedCardType === "ALL") {
+    if (!shouldShowCardTypeFilter || selectedCardType === "ALL") {
       return;
     }
     if (cardTypeCounts[selectedCardType] > 0) {
       return;
     }
     setSelectedCardType("ALL");
-  }, [selectedCardType, cardTypeCounts]);
+  }, [selectedCardType, cardTypeCounts, shouldShowCardTypeFilter]);
 
   useEffect(() => {
     if (expandedCards && visibleCards.length <= 4) {
@@ -1316,13 +1321,7 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
   }
 
   function insertContextSnippet(field: ContextInsertField, snippet: string) {
-    setMessage((prev) => {
-      const normalized = prev.trimEnd();
-      if (normalized.includes(snippet)) {
-        return prev;
-      }
-      return normalized.length > 0 ? `${normalized}\n${snippet}` : snippet;
-    });
+    setMessage((prev) => appendUniqueContextSnippet(prev, snippet));
     setError(null);
     requestAnimationFrame(() => {
       const composer = composerRef.current;
@@ -1348,12 +1347,8 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
 
     if (mode === "context_only") {
       setMessage((prev) => {
-        const normalized = prev.trimEnd();
         const snippet = `최신 조건: ${summary}`;
-        if (normalized.includes(snippet)) {
-          return prev;
-        }
-        return normalized.length > 0 ? `${normalized}\n${snippet}` : snippet;
+        return appendUniqueContextSnippet(prev, snippet);
       });
       setError(null);
       requestAnimationFrame(() => {
@@ -2019,18 +2014,20 @@ export function ConciergeDock({ searchContext, onSearch }: Props) {
 
         {cards.length > 0 && (
           <section className="concierge-cards-panel">
-            <div className="concierge-card-filter-row">
-              {availableCardTypes.map((type) => (
-                <button
-                  key={`card-type-${type}`}
-                  type="button"
-                  className={selectedCardType === type ? "chip-btn active" : "chip-btn"}
-                  onClick={() => selectCardType(type)}
-                >
-                  {CARD_TYPE_FILTER_LABELS[type]} ({cardTypeCounts[type]})
-                </button>
-              ))}
-            </div>
+            {shouldShowCardTypeFilter && (
+              <div className="concierge-card-filter-row">
+                {availableCardTypes.map((type) => (
+                  <button
+                    key={`card-type-${type}`}
+                    type="button"
+                    className={selectedCardType === type ? "chip-btn active" : "chip-btn"}
+                    onClick={() => selectCardType(type)}
+                  >
+                    {CARD_TYPE_FILTER_LABELS[type]} ({cardTypeCounts[type]})
+                  </button>
+                ))}
+              </div>
+            )}
             <p className="concierge-card-filter-meta">표시 {visibleCards.length}개 / 전체 {cards.length}개</p>
             <ul className="concierge-card-list">
               {renderedCards.map((card, index) => (
@@ -2141,6 +2138,32 @@ function buildCardFollowupPrompt(card: ChatCard, sourceType: CardTypeFilter, cit
     default:
       return `${cityLabel} 여행 추천을 다시 정리해줘`;
   }
+}
+
+function appendUniqueContextSnippet(previous: string, snippet: string): string {
+  const trimmedSnippet = snippet.trim();
+  if (!trimmedSnippet) {
+    return previous;
+  }
+  const normalized = previous.trimEnd();
+  if (containsNormalizedLine(normalized, trimmedSnippet)) {
+    return previous;
+  }
+  return normalized.length > 0 ? `${normalized}\n${trimmedSnippet}` : trimmedSnippet;
+}
+
+function containsNormalizedLine(source: string, candidate: string): boolean {
+  const normalizedCandidate = normalizeSnippetLine(candidate);
+  if (!normalizedCandidate) {
+    return true;
+  }
+  return source
+    .split(/\r?\n/)
+    .some((line) => normalizeSnippetLine(line) === normalizedCandidate);
+}
+
+function normalizeSnippetLine(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
 }
 
 function buildChatContext(searchContext: StaySearchInput, sourceTypes: readonly string[]): Record<string, unknown> {
