@@ -15,6 +15,7 @@ import { CheckoutTicketPage } from "./pages/CheckoutTicketPage";
 import { CheckoutPackagePage } from "./pages/CheckoutPackagePage";
 import { LoginPage } from "./pages/LoginPage";
 import { MyReservationsPage } from "./pages/MyReservationsPage";
+import { SupportPage } from "./pages/SupportPage";
 import { RequireAuth } from "./components/RequireAuth";
 import { clearAuthSession, getAuthUser, subscribeAuthChange } from "./auth/session";
 import { apiPost } from "./api/client";
@@ -199,7 +200,7 @@ export function App() {
                 <option value="ja">日本語</option>
               </select>
             </label>
-            <button type="button">고객센터</button>
+            <Link to="/support" className="utility-link">고객센터</Link>
           </div>
         </div>
         <div className="top-nav">
@@ -247,6 +248,7 @@ export function App() {
           <Route path="/chat" element={<ChatPage />} />
           <Route path="/nearby" element={<NearbyPage />} />
           <Route path="/login" element={<LoginPage />} />
+          <Route path="/support" element={<RequireAuth><SupportPage /></RequireAuth>} />
           <Route path="/my/reservations" element={<RequireAuth><MyReservationsPage /></RequireAuth>} />
           <Route path="/checkout/booking" element={<RequireAuth><CheckoutBookingPage /></RequireAuth>} />
           <Route path="/checkout/ticket" element={<RequireAuth><CheckoutTicketPage /></RequireAuth>} />

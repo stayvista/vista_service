@@ -2201,3 +2201,36 @@ ON DUPLICATE KEY UPDATE
   popularity_score = VALUES(popularity_score),
   rating_score = VALUES(rating_score),
   active = VALUES(active);
+
+-- 1:1 customer inquiry sample rows for demo user
+INSERT INTO customer_inquiry(
+  id, user_id, inquiry_type, title, content, status, answer_content, created_at, updated_at, answered_at
+)
+SELECT
+  910001,
+  1001,
+  '주문/배송',
+  '반품 진행 상태 문의',
+  '반품 신청 이후 진행 상태가 업데이트되지 않아 확인 요청드립니다.',
+  'ANSWERED',
+  '반품 접수는 완료되었고 택배사 집하 대기 상태입니다. 집하 후 환불 완료까지 영업일 기준 2~3일 소요됩니다.',
+  '2026-02-20 13:20:00',
+  '2026-02-20 16:05:00',
+  '2026-02-20 16:05:00'
+WHERE EXISTS (SELECT 1 FROM user_account WHERE id = 1001)
+  AND NOT EXISTS (SELECT 1 FROM customer_inquiry WHERE id = 910001);
+
+INSERT INTO customer_inquiry(
+  id, user_id, inquiry_type, title, content, status, created_at, updated_at
+)
+SELECT
+  910002,
+  1001,
+  '쿠폰/혜택',
+  '이벤트 쿠폰 적용 문의',
+  '이벤트 쿠폰이 결제 화면에서 적용되지 않습니다. 적용 조건을 확인 부탁드립니다.',
+  'IN_PROGRESS',
+  '2026-02-22 18:00:00',
+  '2026-02-22 18:00:00'
+WHERE EXISTS (SELECT 1 FROM user_account WHERE id = 1001)
+  AND NOT EXISTS (SELECT 1 FROM customer_inquiry WHERE id = 910002);
