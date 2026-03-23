@@ -3,12 +3,14 @@ package com.devoceanblue.stayvista.domain.geo
 import com.devoceanblue.stayvista.common.cache.SimpleTtlCache
 import com.devoceanblue.stayvista.common.api.DomainException
 import com.devoceanblue.stayvista.common.api.ErrorCode
-import org.springframework.jdbc.core.JdbcTemplate
+import org.apache.ibatis.annotations.Mapper
+import org.apache.ibatis.annotations.Param
+import org.apache.ibatis.annotations.Select
 import org.springframework.stereotype.Service
 
 @Service
 class GeoService(
-    private val jdbcTemplate: JdbcTemplate,
+    private val mapper: GeoMapper,
     private val cache: SimpleTtlCache,
 ) {
     fun nearbyPois(request: NearbyPoiRequest): NearbyPoiData {
@@ -18,30 +20,11 @@ class GeoService(
         val cacheKey = "geo:${request.lat}:${request.lng}:${request.radius_m}:${request.category}:${request.limit}"
         cache.get<NearbyPoiData>(cacheKey)?.let { return it }
 
-        val params = mutableListOf<Any?>()
-        val where = mutableListOf<String>()
-        if (!request.category.isNullOrBlank()) {
-            where += "category = ?"
-            params += request.category
+        val pois = if (request.category.isNullOrBlank()) {
+            mapper.listPois(limit = 1000)
+        } else {
+            mapper.listPoisByCategory(category = request.category, limit = 1000)
         }
-        val sql = buildString {
-            append("SELECT id, name, category, lat, lng FROM poi")
-            if (where.isNotEmpty()) {
-                append(" WHERE ")
-                append(where.joinToString(" AND "))
-            }
-            append(" LIMIT 1000")
-        }
-
-        val pois = jdbcTemplate.query(sql, { rs, _ ->
-            PoiRow(
-                id = rs.getLong("id"),
-                name = rs.getString("name"),
-                category = rs.getString("category"),
-                lat = rs.getBigDecimal("lat").toDouble(),
-                lng = rs.getBigDecimal("lng").toDouble(),
-            )
-        }, *params.toTypedArray())
 
         val filtered = pois
             .map { poi ->
@@ -103,10 +86,35 @@ data class PoiLocation(
     val lng: Double,
 )
 
-private data class PoiRow(
+data class PoiRow(
     val id: Long,
     val name: String,
     val category: String?,
     val lat: Double,
     val lng: Double,
 )
+
+@Mapper
+interface GeoMapper {
+    @Select(
+        """
+        SELECT id, name, category, lat, lng
+        FROM poi
+        LIMIT #{limit}
+        """,
+    )
+    fun listPois(@Param("limit") limit: Int): List<PoiRow>
+
+    @Select(
+        """
+        SELECT id, name, category, lat, lng
+        FROM poi
+        WHERE category = #{category}
+        LIMIT #{limit}
+        """,
+    )
+    fun listPoisByCategory(
+        @Param("category") category: String,
+        @Param("limit") limit: Int,
+    ): List<PoiRow>
+}

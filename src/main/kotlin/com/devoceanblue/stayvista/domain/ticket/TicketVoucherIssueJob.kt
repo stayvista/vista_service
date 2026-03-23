@@ -2,48 +2,29 @@ package com.devoceanblue.stayvista.domain.ticket
 
 import io.micrometer.core.instrument.MeterRegistry
 import java.util.UUID
-import org.springframework.jdbc.core.JdbcTemplate
+import org.apache.ibatis.annotations.Insert
+import org.apache.ibatis.annotations.Mapper
+import org.apache.ibatis.annotations.Param
+import org.apache.ibatis.annotations.Select
+import org.apache.ibatis.annotations.Update
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Component
 import tools.jackson.databind.ObjectMapper
 
 @Component
 class TicketVoucherIssueJob(
-    private val jdbcTemplate: JdbcTemplate,
+    private val mapper: TicketVoucherIssueMapper,
     private val objectMapper: ObjectMapper,
     private val meterRegistry: MeterRegistry,
 ) {
     @Scheduled(fixedDelay = 5000, initialDelay = 12000)
     fun issueRequestedVouchers() {
-        val rows = jdbcTemplate.query(
-            """
-            SELECT id, payload_json
-            FROM outbox_event
-            WHERE event_type = 'VoucherIssueRequested'
-              AND status IN ('PUBLISHED', 'FAILED')
-            ORDER BY id
-            LIMIT 100
-            """.trimIndent(),
-            { rs, _ ->
-                VoucherIssueOutboxRow(
-                    id = rs.getLong("id"),
-                    payloadJson = rs.getString("payload_json"),
-                )
-            },
-        )
+        val rows = mapper.findRequestedRows(limit = 100)
 
         rows.forEach { row ->
             try {
                 processOne(row)
-                jdbcTemplate.update(
-                    """
-                    UPDATE outbox_event
-                    SET status='CONSUMED',
-                        published_at=COALESCE(published_at, NOW(3))
-                    WHERE id=?
-                    """.trimIndent(),
-                    row.id,
-                )
+                mapper.markConsumed(row.id)
                 meterRegistry.counter("voucher_issue_total", "result", "success").increment()
             } catch (_: Exception) {
                 meterRegistry.counter("voucher_issue_total", "result", "failed").increment()
@@ -61,34 +42,68 @@ class TicketVoucherIssueJob(
             throw IllegalArgumentException("Invalid voucher issue payload")
         }
 
-        val existingCount = jdbcTemplate.queryForObject(
-            "SELECT COUNT(*) FROM voucher WHERE order_id = ?",
-            Int::class.java,
-            orderId,
-        ) ?: 0
+        val existingCount = mapper.countVouchers(orderId)
         if (existingCount >= quantity) {
             meterRegistry.counter("voucher_issue_total", "result", "skipped").increment()
             return
         }
 
         for (sequence in (existingCount + 1)..quantity) {
-            jdbcTemplate.update(
-                """
-                INSERT INTO voucher(order_id, user_id, event_id, sequence_no, status, qr_payload)
-                VALUES (?, ?, ?, ?, 'ISSUED', ?)
-                ON DUPLICATE KEY UPDATE id=id
-                """.trimIndent(),
-                orderId,
-                userId,
-                eventId,
-                sequence,
-                UUID.randomUUID().toString(),
+            mapper.insertVoucher(
+                orderId = orderId,
+                userId = userId,
+                eventId = eventId,
+                sequenceNo = sequence,
+                qrPayload = UUID.randomUUID().toString(),
             )
         }
     }
 }
 
-private data class VoucherIssueOutboxRow(
+data class VoucherIssueOutboxRow(
     val id: Long,
     val payloadJson: String,
 )
+
+@Mapper
+interface TicketVoucherIssueMapper {
+    @Select(
+        """
+        SELECT id, payload_json AS payloadJson
+        FROM outbox_event
+        WHERE event_type = 'VoucherIssueRequested'
+          AND status IN ('PUBLISHED', 'FAILED')
+        ORDER BY id
+        LIMIT #{limit}
+        """,
+    )
+    fun findRequestedRows(@Param("limit") limit: Int): List<VoucherIssueOutboxRow>
+
+    @Update(
+        """
+        UPDATE outbox_event
+        SET status='CONSUMED',
+            published_at=COALESCE(published_at, NOW(3))
+        WHERE id=#{id}
+        """,
+    )
+    fun markConsumed(@Param("id") id: Long): Int
+
+    @Select("SELECT COUNT(*) FROM voucher WHERE order_id = #{orderId}")
+    fun countVouchers(@Param("orderId") orderId: Long): Int
+
+    @Insert(
+        """
+        INSERT INTO voucher(order_id, user_id, event_id, sequence_no, status, qr_payload)
+        VALUES (#{orderId}, #{userId}, #{eventId}, #{sequenceNo}, 'ISSUED', #{qrPayload})
+        ON DUPLICATE KEY UPDATE id=id
+        """,
+    )
+    fun insertVoucher(
+        @Param("orderId") orderId: Long,
+        @Param("userId") userId: Long,
+        @Param("eventId") eventId: Long,
+        @Param("sequenceNo") sequenceNo: Int,
+        @Param("qrPayload") qrPayload: String,
+    ): Int
+}

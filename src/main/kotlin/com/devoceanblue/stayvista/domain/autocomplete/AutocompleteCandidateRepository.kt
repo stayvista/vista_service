@@ -1,12 +1,14 @@
 package com.devoceanblue.stayvista.domain.autocomplete
 
 import com.devoceanblue.stayvista.domain.common.PlaceType
-import org.springframework.jdbc.core.JdbcTemplate
+import org.apache.ibatis.annotations.Mapper
+import org.apache.ibatis.annotations.Param
+import org.apache.ibatis.annotations.Select
 import org.springframework.stereotype.Repository
 
 @Repository
 class AutocompleteCandidateRepository(
-    private val jdbcTemplate: JdbcTemplate,
+    private val mapper: AutocompleteCandidateMapper,
 ) {
     fun searchDatabaseCandidates(
         normalizedQ: String,
@@ -72,197 +74,32 @@ class AutocompleteCandidateRepository(
 
     fun resolvePoiCity(canonicalId: String): String? {
         val poiId = canonicalId.toLongOrNull() ?: return null
-        return jdbcTemplate.query(
-            """
-            SELECT city
-            FROM poi
-            WHERE id = ?
-            """.trimIndent(),
-            { rs, _ -> rs.getString("city") },
-            poiId,
-        ).firstOrNull()
+        return mapper.findPoiCity(poiId)
             ?.takeIf { it.isNotBlank() }
     }
 
     private fun searchCities(sqlLike: String, size: Int): List<AutocompleteCandidate> {
-        return jdbcTemplate.query(
-            """
-            SELECT city, COUNT(*) AS popularity
-            FROM (
-                SELECT city
-                FROM property
-                WHERE status = 'ACTIVE'
-                  AND city IS NOT NULL
-                  AND city <> ''
-                UNION ALL
-                SELECT city
-                FROM poi
-                WHERE city IS NOT NULL
-                  AND city <> ''
-            ) c
-            WHERE LOWER(c.city) LIKE ?
-            GROUP BY city
-            ORDER BY popularity DESC, city ASC
-            LIMIT ?
-            """.trimIndent(),
-            { rs, _ ->
-                AutocompleteCandidate(
-                    type = PlaceType.CITY,
-                    canonicalId = rs.getString("city"),
-                    display = rs.getString("city"),
-                    subtitle = "City",
-                    score = rs.getLong("popularity").toDouble(),
-                    source = "db",
-                )
-            },
-            sqlLike,
-            size.coerceAtLeast(1) * 2,
-        )
+        return mapper.searchCities(sqlLike = sqlLike, limit = size.coerceAtLeast(1) * 2)
     }
 
     private fun searchProperties(sqlLike: String, size: Int): List<AutocompleteCandidate> {
-        return jdbcTemplate.query(
-            """
-            SELECT p.id, p.name, p.city, COALESCE(p.rating, 0) AS rating
-            FROM property p
-            WHERE p.status = 'ACTIVE'
-              AND LOWER(p.name) LIKE ?
-            ORDER BY rating DESC, p.id ASC
-            LIMIT ?
-            """.trimIndent(),
-            { rs, _ ->
-                AutocompleteCandidate(
-                    type = PlaceType.PROPERTY,
-                    canonicalId = rs.getLong("id").toString(),
-                    display = rs.getString("name"),
-                    subtitle = rs.getString("city"),
-                    score = rs.getDouble("rating"),
-                    source = "db",
-                )
-            },
-            sqlLike,
-            size.coerceAtLeast(1) * 2,
-        )
+        return mapper.searchProperties(sqlLike = sqlLike, limit = size.coerceAtLeast(1) * 2)
     }
 
     private fun searchPois(sqlLike: String, size: Int): List<AutocompleteCandidate> {
-        return jdbcTemplate.query(
-            """
-            SELECT id, name, category, city, lat, lng
-            FROM poi
-            WHERE LOWER(name) LIKE ?
-            ORDER BY id ASC
-            LIMIT ?
-            """.trimIndent(),
-            { rs, _ ->
-                val category = rs.getString("category")
-                val city = rs.getString("city")
-                AutocompleteCandidate(
-                    type = PlaceType.POI,
-                    canonicalId = rs.getLong("id").toString(),
-                    display = rs.getString("name"),
-                    subtitle = listOfNotNull(category, city)
-                        .filter { it.isNotBlank() }
-                        .joinToString(" · ")
-                        .takeIf { it.isNotBlank() },
-                    lat = rs.getBigDecimal("lat")?.toDouble(),
-                    lng = rs.getBigDecimal("lng")?.toDouble(),
-                    score = 1.0,
-                    source = "db",
-                )
-            },
-            sqlLike,
-            size.coerceAtLeast(1) * 2,
-        )
+        return mapper.searchPois(sqlLike = sqlLike, limit = size.coerceAtLeast(1) * 2)
     }
 
     private fun popularCities(size: Int): List<AutocompleteCandidate> {
-        return jdbcTemplate.query(
-            """
-            SELECT city, COUNT(*) AS popularity
-            FROM (
-                SELECT city
-                FROM property
-                WHERE status = 'ACTIVE'
-                  AND city IS NOT NULL
-                  AND city <> ''
-                UNION ALL
-                SELECT city
-                FROM poi
-                WHERE city IS NOT NULL
-                  AND city <> ''
-            ) c
-            GROUP BY city
-            ORDER BY popularity DESC, city ASC
-            LIMIT ?
-            """.trimIndent(),
-            { rs, _ ->
-                AutocompleteCandidate(
-                    type = PlaceType.CITY,
-                    canonicalId = rs.getString("city"),
-                    display = rs.getString("city"),
-                    subtitle = "Popular city",
-                    score = rs.getLong("popularity").toDouble(),
-                    source = "popular",
-                    bucket = "popular",
-                )
-            },
-            size,
-        )
+        return mapper.popularCities(size)
     }
 
     private fun popularProperties(size: Int): List<AutocompleteCandidate> {
-        return jdbcTemplate.query(
-            """
-            SELECT p.id, p.name, p.city, COALESCE(p.rating, 0) AS rating
-            FROM property p
-            WHERE p.status = 'ACTIVE'
-            ORDER BY rating DESC, p.id ASC
-            LIMIT ?
-            """.trimIndent(),
-            { rs, _ ->
-                AutocompleteCandidate(
-                    type = PlaceType.PROPERTY,
-                    canonicalId = rs.getLong("id").toString(),
-                    display = rs.getString("name"),
-                    subtitle = rs.getString("city"),
-                    score = rs.getDouble("rating"),
-                    source = "popular",
-                    bucket = "popular",
-                )
-            },
-            size,
-        )
+        return mapper.popularProperties(size)
     }
 
     private fun popularPois(size: Int): List<AutocompleteCandidate> {
-        return jdbcTemplate.query(
-            """
-            SELECT id, name, category, city, lat, lng
-            FROM poi
-            ORDER BY id ASC
-            LIMIT ?
-            """.trimIndent(),
-            { rs, _ ->
-                val category = rs.getString("category")
-                val city = rs.getString("city")
-                AutocompleteCandidate(
-                    type = PlaceType.POI,
-                    canonicalId = rs.getLong("id").toString(),
-                    display = rs.getString("name"),
-                    subtitle = listOfNotNull(category, city)
-                        .filter { it.isNotBlank() }
-                        .joinToString(" · ")
-                        .takeIf { it.isNotBlank() },
-                    lat = rs.getBigDecimal("lat")?.toDouble(),
-                    lng = rs.getBigDecimal("lng")?.toDouble(),
-                    score = 1.0,
-                    source = "popular",
-                    bucket = "popular",
-                )
-            },
-            size,
-        )
+        return mapper.popularPois(size)
     }
 
     private fun filterStatic(sqlLike: String, type: PlaceType): List<AutocompleteCandidate> {
@@ -337,4 +174,156 @@ class AutocompleteCandidateRepository(
             ),
         )
     }
+}
+
+@Mapper
+interface AutocompleteCandidateMapper {
+    @Select("SELECT city FROM poi WHERE id = #{poiId}")
+    fun findPoiCity(@Param("poiId") poiId: Long): String?
+
+    @Select(
+        """
+        SELECT 'CITY' AS type,
+               city AS canonicalId,
+               city AS display,
+               'City' AS subtitle,
+               COUNT(*) * 1.0 AS score,
+               'db' AS source,
+               NULL AS bucket,
+               NULL AS lat,
+               NULL AS lng
+        FROM (
+            SELECT city
+            FROM property
+            WHERE status = 'ACTIVE'
+              AND city IS NOT NULL
+              AND city <> ''
+            UNION ALL
+            SELECT city
+            FROM poi
+            WHERE city IS NOT NULL
+              AND city <> ''
+        ) c
+        WHERE LOWER(c.city) LIKE #{sqlLike}
+        GROUP BY city
+        ORDER BY score DESC, city ASC
+        LIMIT #{limit}
+        """,
+    )
+    fun searchCities(
+        @Param("sqlLike") sqlLike: String,
+        @Param("limit") limit: Int,
+    ): List<AutocompleteCandidate>
+
+    @Select(
+        """
+        SELECT 'PROPERTY' AS type,
+               CAST(p.id AS CHAR) AS canonicalId,
+               p.name AS display,
+               p.city AS subtitle,
+               COALESCE(p.rating, 0) AS score,
+               'db' AS source,
+               NULL AS bucket,
+               NULL AS lat,
+               NULL AS lng
+        FROM property p
+        WHERE p.status = 'ACTIVE'
+          AND LOWER(p.name) LIKE #{sqlLike}
+        ORDER BY score DESC, p.id ASC
+        LIMIT #{limit}
+        """,
+    )
+    fun searchProperties(
+        @Param("sqlLike") sqlLike: String,
+        @Param("limit") limit: Int,
+    ): List<AutocompleteCandidate>
+
+    @Select(
+        """
+        SELECT 'POI' AS type,
+               CAST(id AS CHAR) AS canonicalId,
+               name AS display,
+               TRIM(CONCAT(COALESCE(NULLIF(category, ''), ''), IF(city IS NOT NULL AND city <> '', CONCAT(' · ', city), ''))) AS subtitle,
+               1.0 AS score,
+               'db' AS source,
+               NULL AS bucket,
+               lat,
+               lng
+        FROM poi
+        WHERE LOWER(name) LIKE #{sqlLike}
+        ORDER BY id ASC
+        LIMIT #{limit}
+        """,
+    )
+    fun searchPois(
+        @Param("sqlLike") sqlLike: String,
+        @Param("limit") limit: Int,
+    ): List<AutocompleteCandidate>
+
+    @Select(
+        """
+        SELECT 'CITY' AS type,
+               city AS canonicalId,
+               city AS display,
+               'Popular city' AS subtitle,
+               COUNT(*) * 1.0 AS score,
+               'popular' AS source,
+               'popular' AS bucket,
+               NULL AS lat,
+               NULL AS lng
+        FROM (
+            SELECT city
+            FROM property
+            WHERE status = 'ACTIVE'
+              AND city IS NOT NULL
+              AND city <> ''
+            UNION ALL
+            SELECT city
+            FROM poi
+            WHERE city IS NOT NULL
+              AND city <> ''
+        ) c
+        GROUP BY city
+        ORDER BY score DESC, city ASC
+        LIMIT #{limit}
+        """,
+    )
+    fun popularCities(@Param("limit") limit: Int): List<AutocompleteCandidate>
+
+    @Select(
+        """
+        SELECT 'PROPERTY' AS type,
+               CAST(p.id AS CHAR) AS canonicalId,
+               p.name AS display,
+               p.city AS subtitle,
+               COALESCE(p.rating, 0) AS score,
+               'popular' AS source,
+               'popular' AS bucket,
+               NULL AS lat,
+               NULL AS lng
+        FROM property p
+        WHERE p.status = 'ACTIVE'
+        ORDER BY score DESC, p.id ASC
+        LIMIT #{limit}
+        """,
+    )
+    fun popularProperties(@Param("limit") limit: Int): List<AutocompleteCandidate>
+
+    @Select(
+        """
+        SELECT 'POI' AS type,
+               CAST(id AS CHAR) AS canonicalId,
+               name AS display,
+               TRIM(CONCAT(COALESCE(NULLIF(category, ''), ''), IF(city IS NOT NULL AND city <> '', CONCAT(' · ', city), ''))) AS subtitle,
+               1.0 AS score,
+               'popular' AS source,
+               'popular' AS bucket,
+               lat,
+               lng
+        FROM poi
+        ORDER BY id ASC
+        LIMIT #{limit}
+        """,
+    )
+    fun popularPois(@Param("limit") limit: Int): List<AutocompleteCandidate>
 }

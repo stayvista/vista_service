@@ -1,102 +1,28 @@
 package com.devoceanblue.stayvista.domain.catalog
 
-import org.springframework.jdbc.core.JdbcTemplate
+import org.apache.ibatis.annotations.Mapper
+import org.apache.ibatis.annotations.Param
+import org.apache.ibatis.annotations.Select
 import org.springframework.stereotype.Service
 
 @Service
 class HomeContentService(
-    private val jdbcTemplate: JdbcTemplate,
+    private val mapper: HomeContentMapper,
 ) {
     fun getContent(): HomeContentData {
-        val heroRow = jdbcTemplate.query(
-            """
-            SELECT id, eyebrow_text, title_text, summary_text, background_image_url
-            FROM home_hero
-            WHERE active = 1
-            ORDER BY id ASC
-            LIMIT 1
-            """.trimIndent(),
-            { rs, _ ->
-                HomeHeroRow(
-                    id = rs.getInt("id"),
-                    eyebrowText = rs.getString("eyebrow_text"),
-                    titleText = rs.getString("title_text"),
-                    summaryText = rs.getString("summary_text"),
-                    backgroundImageUrl = rs.getString("background_image_url"),
-                )
-            },
-        ).firstOrNull()
+        val heroRow = mapper.findHeroRow()
 
         val heroMetrics = if (heroRow == null) {
             emptyList()
         } else {
-            jdbcTemplate.query(
-                """
-                SELECT metric_value, metric_label
-                FROM home_hero_metric
-                WHERE hero_id = ?
-                  AND active = 1
-                ORDER BY display_order ASC, id ASC
-                """.trimIndent(),
-                { rs, _ ->
-                    HomeHeroMetricData(
-                        metric_value = rs.getString("metric_value"),
-                        metric_label = rs.getString("metric_label"),
-                    )
-                },
-                heroRow.id,
-            )
+            mapper.listHeroMetrics(heroRow.id)
         }
 
-        val quickFilters = jdbcTemplate.query(
-            """
-            SELECT label, filter_key, filter_value
-            FROM home_quick_filter
-            WHERE active = 1
-            ORDER BY display_order ASC, id ASC
-            """.trimIndent(),
-            { rs, _ ->
-                HomeQuickFilterData(
-                    label = rs.getString("label"),
-                    filter_key = rs.getString("filter_key"),
-                    filter_value = rs.getString("filter_value"),
-                )
-            },
-        )
+        val quickFilters = mapper.listQuickFilters()
 
-        val propertyCountByCity = jdbcTemplate.query(
-            """
-            SELECT city, COUNT(*) AS cnt
-            FROM property
-            WHERE status = 'ACTIVE'
-              AND city IS NOT NULL
-              AND city <> ''
-            GROUP BY city
-            """.trimIndent(),
-            { rs, _ ->
-                rs.getString("city") to rs.getInt("cnt")
-            },
-        ).toMap()
+        val propertyCountByCity = mapper.listPropertyCountByCity().associate { it.city to it.count }
 
-        val destinationRows = jdbcTemplate.query(
-            """
-            SELECT section_code, city, country, label, image_url, highlights, property_count
-            FROM home_destination_card
-            WHERE active = 1
-            ORDER BY section_code ASC, display_order ASC, id ASC
-            """.trimIndent(),
-            { rs, _ ->
-                HomeDestinationCardRow(
-                    sectionCode = rs.getString("section_code"),
-                    city = rs.getString("city"),
-                    country = rs.getString("country"),
-                    label = rs.getString("label"),
-                    imageUrl = rs.getString("image_url"),
-                    highlights = rs.getString("highlights"),
-                    propertyCount = rs.getInt("property_count").takeIf { !rs.wasNull() },
-                )
-            },
-        )
+        val destinationRows = mapper.listDestinationRows()
 
         val destinationSections = destinationRows
             .groupBy { it.sectionCode }
@@ -118,21 +44,7 @@ class HomeContentService(
                 )
             }
 
-        val promotionSections = jdbcTemplate.query(
-            """
-            SELECT section_code, title, subtitle
-            FROM promotion_section
-            WHERE active = 1
-            ORDER BY display_order ASC, section_code ASC
-            """.trimIndent(),
-            { rs, _ ->
-                HomePromotionSectionData(
-                    section_code = rs.getString("section_code"),
-                    title = rs.getString("title"),
-                    subtitle = rs.getString("subtitle"),
-                )
-            },
-        )
+        val promotionSections = mapper.listPromotionSections()
 
         return HomeContentData(
             hero = heroRow?.let {
@@ -197,7 +109,7 @@ data class HomePromotionSectionData(
     val subtitle: String?,
 )
 
-private data class HomeHeroRow(
+data class HomeHeroRow(
     val id: Int,
     val eyebrowText: String,
     val titleText: String,
@@ -205,7 +117,7 @@ private data class HomeHeroRow(
     val backgroundImageUrl: String?,
 )
 
-private data class HomeDestinationCardRow(
+data class HomeDestinationCardRow(
     val sectionCode: String,
     val city: String,
     val country: String?,
@@ -214,3 +126,85 @@ private data class HomeDestinationCardRow(
     val highlights: String?,
     val propertyCount: Int?,
 )
+
+data class HomeCityCountRow(
+    val city: String,
+    val count: Int,
+)
+
+@Mapper
+interface HomeContentMapper {
+    @Select(
+        """
+        SELECT id,
+               eyebrow_text AS eyebrowText,
+               title_text AS titleText,
+               summary_text AS summaryText,
+               background_image_url AS backgroundImageUrl
+        FROM home_hero
+        WHERE active = 1
+        ORDER BY id ASC
+        LIMIT 1
+        """,
+    )
+    fun findHeroRow(): HomeHeroRow?
+
+    @Select(
+        """
+        SELECT metric_value, metric_label
+        FROM home_hero_metric
+        WHERE hero_id = #{heroId}
+          AND active = 1
+        ORDER BY display_order ASC, id ASC
+        """,
+    )
+    fun listHeroMetrics(@Param("heroId") heroId: Int): List<HomeHeroMetricData>
+
+    @Select(
+        """
+        SELECT label, filter_key, filter_value
+        FROM home_quick_filter
+        WHERE active = 1
+        ORDER BY display_order ASC, id ASC
+        """,
+    )
+    fun listQuickFilters(): List<HomeQuickFilterData>
+
+    @Select(
+        """
+        SELECT city, COUNT(*) AS count
+        FROM property
+        WHERE status = 'ACTIVE'
+          AND city IS NOT NULL
+          AND city <> ''
+        GROUP BY city
+        """,
+    )
+    fun listPropertyCountByCity(): List<HomeCityCountRow>
+
+    @Select(
+        """
+        SELECT section_code AS sectionCode,
+               city,
+               country,
+               label,
+               image_url AS imageUrl,
+               highlights,
+               property_count AS propertyCount
+        FROM home_destination_card
+        WHERE active = 1
+        ORDER BY section_code ASC, display_order ASC, id ASC
+        """,
+    )
+    fun listDestinationRows(): List<HomeDestinationCardRow>
+
+    @Select(
+        """
+        SELECT section_code, title, subtitle
+        FROM promotion_section
+        WHERE active = 1
+        ORDER BY display_order ASC, section_code ASC
+        """,
+    )
+    fun listPromotionSections(): List<HomePromotionSectionData>
+}

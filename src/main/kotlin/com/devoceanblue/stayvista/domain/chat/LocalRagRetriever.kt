@@ -4,7 +4,9 @@ import io.micrometer.core.instrument.MeterRegistry
 import java.time.Duration
 import java.time.Instant
 import org.springframework.beans.factory.annotation.Value
-import org.springframework.jdbc.core.JdbcTemplate
+import org.apache.ibatis.annotations.Mapper
+import org.apache.ibatis.annotations.Param
+import org.apache.ibatis.annotations.Select
 import org.springframework.stereotype.Service
 import tools.jackson.core.type.TypeReference
 import tools.jackson.databind.ObjectMapper
@@ -12,7 +14,7 @@ import kotlin.math.sqrt
 
 @Service
 class LocalRagRetriever(
-    private val jdbcTemplate: JdbcTemplate,
+    private val mapper: LocalRagRetrieverMapper,
     private val embedClient: EmbedClient,
     private val modelRegistry: LlmModelRegistry,
     private val chatCurationService: ChatCurationService,
@@ -151,63 +153,11 @@ class LocalRagRetriever(
         poiCategories: Set<String>,
         maxDocs: Int,
     ): List<IndexedDoc> {
-        val params = mutableListOf<Any>()
-        val sql = StringBuilder(
-            """
-            SELECT doc_id, source_type, ref_id, city, title, body, source_updated_at, updated_at
-            FROM travel_doc td
-            WHERE 1=1
-            """.trimIndent(),
-        )
-
-        if (!city.isNullOrBlank()) {
-            sql.append(" AND td.city = ?")
-            params += city
-        }
-
-        if (sourceTypes.isNotEmpty()) {
-            val placeholders = sourceTypes.joinToString(",") { "?" }
-            sql.append(" AND td.source_type IN ($placeholders)")
-            params.addAll(sourceTypes.toList())
-        }
-
-        if (poiCategories.isNotEmpty()) {
-            val placeholders = poiCategories.joinToString(",") { "?" }
-            sql.append(
-                " AND (td.source_type <> 'POI' OR EXISTS (" +
-                    "SELECT 1 FROM poi p WHERE p.id = td.ref_id " +
-                    "AND LOWER(COALESCE(p.category, '')) IN ($placeholders)))",
-            )
-            params.addAll(poiCategories.toList())
-        }
-
-        sql.append(" ORDER BY td.source_updated_at DESC, td.updated_at DESC")
-        sql.append(" LIMIT ?")
-        params += maxDocs
-
-        return jdbcTemplate.query(
-            sql.toString(),
-            { rs, _ ->
-                val docId = rs.getString("doc_id")
-                val sourceType = rs.getString("source_type") ?: "POI"
-                val refId = rs.getLong("ref_id").takeIf { !rs.wasNull() }
-                val docCity = rs.getString("city")
-                val title = rs.getString("title")
-                val body = rs.getString("body") ?: ""
-                val sourceUpdated = rs.getTimestamp("source_updated_at")?.toInstant()
-                    ?: rs.getTimestamp("updated_at")?.toInstant()
-
-                IndexedDoc(
-                    docId = docId,
-                    sourceType = sourceType,
-                    refId = refId,
-                    city = docCity,
-                    title = title,
-                    body = body,
-                    updatedAt = sourceUpdated,
-                )
-            },
-            *params.toTypedArray(),
+        return mapper.listIndexedDocuments(
+            city = city,
+            sourceTypes = sourceTypes.toList(),
+            poiCategories = poiCategories.toList(),
+            limit = maxDocs,
         )
     }
 
@@ -235,35 +185,20 @@ class LocalRagRetriever(
     private fun loadDocumentVectors(docIds: List<String>, model: String): Map<String, List<Double>> {
         if (docIds.isEmpty()) return emptyMap()
 
-        val placeholders = docIds.joinToString(",") { "?" }
-        val sql =
-            """
-            SELECT c.doc_id, v.vector_blob
-            FROM travel_doc_chunk c
-            JOIN travel_doc_vec v ON v.chunk_id = c.chunk_id
-            WHERE v.model = ?
-              AND c.doc_id IN ($placeholders)
-            """.trimIndent()
-
         val vectorsByDoc = linkedMapOf<String, MutableList<List<Double>>>()
-        jdbcTemplate.query(
-            sql,
-            { rs ->
-                val docId = rs.getString("doc_id")
-                val blob = rs.getBytes("vector_blob")
+        mapper.listDocumentVectors(model = model, docIds = docIds)
+            .forEach { row ->
+                val blob = row.vectorBlob
                 if (blob != null) {
                     val vector = runCatching {
                         objectMapper.readValue(blob, object : TypeReference<List<Double>>() {})
                     }.getOrNull()
 
                     if (!vector.isNullOrEmpty()) {
-                        vectorsByDoc.computeIfAbsent(docId) { mutableListOf() }.add(vector)
+                        vectorsByDoc.computeIfAbsent(row.docId) { mutableListOf() }.add(vector)
                     }
                 }
-            },
-            model,
-            *docIds.toTypedArray(),
-        )
+            }
 
         return vectorsByDoc.mapValues { (_, vectors) -> averageVectors(vectors) }
     }
@@ -402,13 +337,87 @@ class LocalRagRetriever(
         )
     }
 
-    private data class IndexedDoc(
-        val docId: String,
-        val sourceType: String,
-        val refId: Long?,
-        val city: String?,
-        val title: String,
-        val body: String,
-        val updatedAt: Instant?,
+}
+
+data class IndexedDoc(
+    val docId: String,
+    val sourceType: String,
+    val refId: Long?,
+    val city: String?,
+    val title: String,
+    val body: String,
+    val updatedAt: Instant?,
+)
+
+data class RagVectorBlobRow(
+    val docId: String,
+    val vectorBlob: ByteArray?,
+)
+
+@Mapper
+interface LocalRagRetrieverMapper {
+    @Select(
+        """
+        <script>
+        SELECT td.doc_id AS docId,
+               COALESCE(td.source_type, 'POI') AS sourceType,
+               td.ref_id AS refId,
+               td.city,
+               td.title,
+               COALESCE(td.body, '') AS body,
+               COALESCE(td.source_updated_at, td.updated_at) AS updatedAt
+        FROM travel_doc td
+        WHERE 1=1
+          <if test="city != null and city != ''">
+            AND td.city = #{city}
+          </if>
+          <if test="sourceTypes != null and sourceTypes.size() > 0">
+            AND td.source_type IN
+            <foreach collection="sourceTypes" item="sourceType" open="(" separator="," close=")">
+              #{sourceType}
+            </foreach>
+          </if>
+          <if test="poiCategories != null and poiCategories.size() > 0">
+            AND (
+              td.source_type &lt;&gt; 'POI'
+              OR EXISTS (
+                SELECT 1 FROM poi p
+                WHERE p.id = td.ref_id
+                  AND LOWER(COALESCE(p.category, '')) IN
+                  <foreach collection="poiCategories" item="poiCategory" open="(" separator="," close=")">
+                    #{poiCategory}
+                  </foreach>
+              )
+            )
+          </if>
+        ORDER BY td.source_updated_at DESC, td.updated_at DESC
+        LIMIT #{limit}
+        </script>
+        """,
     )
+    fun listIndexedDocuments(
+        @Param("city") city: String?,
+        @Param("sourceTypes") sourceTypes: List<String>,
+        @Param("poiCategories") poiCategories: List<String>,
+        @Param("limit") limit: Int,
+    ): List<IndexedDoc>
+
+    @Select(
+        """
+        <script>
+        SELECT c.doc_id AS docId, v.vector_blob AS vectorBlob
+        FROM travel_doc_chunk c
+        JOIN travel_doc_vec v ON v.chunk_id = c.chunk_id
+        WHERE v.model = #{model}
+          AND c.doc_id IN
+          <foreach collection="docIds" item="docId" open="(" separator="," close=")">
+            #{docId}
+          </foreach>
+        </script>
+        """,
+    )
+    fun listDocumentVectors(
+        @Param("model") model: String,
+        @Param("docIds") docIds: List<String>,
+    ): List<RagVectorBlobRow>
 }

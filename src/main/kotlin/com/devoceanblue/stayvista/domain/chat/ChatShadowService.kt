@@ -4,8 +4,10 @@ import io.micrometer.core.instrument.MeterRegistry
 import java.sql.Statement
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.Executors
+import org.apache.ibatis.annotations.Insert
+import org.apache.ibatis.annotations.Mapper
+import org.apache.ibatis.annotations.Options
 import org.springframework.beans.factory.annotation.Value
-import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Service
 import tools.jackson.databind.ObjectMapper
 
@@ -17,7 +19,7 @@ class ChatShadowService(
     private val ragRetriever: LocalRagRetriever,
     private val promptFactory: ChatPromptFactory,
     private val structuredChatParser: StructuredChatParser,
-    private val jdbcTemplate: JdbcTemplate,
+    private val mapper: ChatShadowMapper,
     private val objectMapper: ObjectMapper,
     private val piiRedactor: PiiRedactor,
     private val meterRegistry: MeterRegistry,
@@ -127,30 +129,16 @@ class ChatShadowService(
         metricsJson: String,
         errorMessage: String?,
     ): Long {
-        val keyHolder = org.springframework.jdbc.support.GeneratedKeyHolder()
-        jdbcTemplate.update({ conn ->
-            val ps = conn.prepareStatement(
-                """
-                INSERT INTO chat_shadow_run (
-                  route_primary,
-                  route_shadow,
-                  model_primary,
-                  model_shadow,
-                  metrics_json,
-                  error_message
-                ) VALUES (?, ?, ?, ?, ?, ?)
-                """.trimIndent(),
-                Statement.RETURN_GENERATED_KEYS,
-            )
-            ps.setString(1, routePrimary)
-            ps.setString(2, routeShadow)
-            ps.setString(3, modelPrimary)
-            ps.setString(4, modelShadow)
-            ps.setString(5, metricsJson)
-            ps.setString(6, errorMessage)
-            ps
-        }, keyHolder)
-        return keyHolder.key?.toLong() ?: 0L
+        val command = ChatShadowRunCommand(
+            routePrimary = routePrimary,
+            routeShadow = routeShadow,
+            modelPrimary = modelPrimary,
+            modelShadow = modelShadow,
+            metricsJson = metricsJson,
+            errorMessage = errorMessage,
+        )
+        mapper.insertRun(command)
+        return command.id ?: 0L
     }
 
     private fun insertSample(
@@ -158,17 +146,12 @@ class ChatShadowService(
         requestRedacted: String,
         responseRedacted: String,
     ) {
-        jdbcTemplate.update(
-            """
-            INSERT INTO chat_shadow_sample (
-              shadow_run_id,
-              request_redacted,
-              response_redacted
-            ) VALUES (?, ?, ?)
-            """.trimIndent(),
-            runId,
-            requestRedacted.take(4000),
-            responseRedacted.take(4000),
+        mapper.insertSample(
+            ChatShadowSampleCommand(
+                shadowRunId = runId,
+                requestRedacted = requestRedacted.take(4000),
+                responseRedacted = responseRedacted.take(4000),
+            ),
         )
     }
 
@@ -178,4 +161,60 @@ class ChatShadowService(
         }
         return modelRegistry.fallbackModel() ?: modelRegistry.activeModel()
     }
+}
+
+data class ChatShadowRunCommand(
+    val routePrimary: String,
+    val routeShadow: String,
+    val modelPrimary: String?,
+    val modelShadow: String?,
+    val metricsJson: String,
+    val errorMessage: String?,
+    var id: Long? = null,
+)
+
+data class ChatShadowSampleCommand(
+    val shadowRunId: Long,
+    val requestRedacted: String,
+    val responseRedacted: String,
+)
+
+@Mapper
+interface ChatShadowMapper {
+    @Insert(
+        """
+        INSERT INTO chat_shadow_run (
+          route_primary,
+          route_shadow,
+          model_primary,
+          model_shadow,
+          metrics_json,
+          error_message
+        ) VALUES (
+          #{routePrimary},
+          #{routeShadow},
+          #{modelPrimary},
+          #{modelShadow},
+          #{metricsJson},
+          #{errorMessage}
+        )
+        """,
+    )
+    @Options(useGeneratedKeys = true, keyProperty = "id", keyColumn = "id")
+    fun insertRun(command: ChatShadowRunCommand): Int
+
+    @Insert(
+        """
+        INSERT INTO chat_shadow_sample (
+          shadow_run_id,
+          request_redacted,
+          response_redacted
+        ) VALUES (
+          #{shadowRunId},
+          #{requestRedacted},
+          #{responseRedacted}
+        )
+        """,
+    )
+    fun insertSample(command: ChatShadowSampleCommand): Int
 }

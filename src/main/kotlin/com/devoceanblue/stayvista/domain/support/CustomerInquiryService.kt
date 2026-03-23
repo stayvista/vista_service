@@ -4,15 +4,17 @@ import com.devoceanblue.stayvista.common.api.DomainException
 import com.devoceanblue.stayvista.common.api.ErrorCode
 import com.devoceanblue.stayvista.domain.common.DomainSupportService
 import io.micrometer.core.instrument.MeterRegistry
-import java.sql.Statement
 import java.time.Instant
-import org.springframework.jdbc.core.JdbcTemplate
-import org.springframework.jdbc.support.GeneratedKeyHolder
+import org.apache.ibatis.annotations.Insert
+import org.apache.ibatis.annotations.Mapper
+import org.apache.ibatis.annotations.Options
+import org.apache.ibatis.annotations.Param
+import org.apache.ibatis.annotations.Select
 import org.springframework.stereotype.Service
 
 @Service
 class CustomerInquiryService(
-    private val jdbcTemplate: JdbcTemplate,
+    private val mapper: CustomerInquiryMapper,
     private val domainSupportService: DomainSupportService,
     private val meterRegistry: MeterRegistry,
 ) {
@@ -28,28 +30,18 @@ class CustomerInquiryService(
     fun listInquiries(userId: Long, limit: Int): CustomerInquiryListData {
         domainSupportService.ensureUserExists(userId)
         val safeLimit = limit.coerceIn(1, 100)
-        val items = jdbcTemplate.query(
-            """
-            SELECT id, inquiry_type, title, status, created_at, answered_at
-            FROM customer_inquiry
-            WHERE user_id = ?
-            ORDER BY created_at DESC
-            LIMIT ?
-            """.trimIndent(),
-            { rs, _ ->
+        val items = mapper.listInquiries(userId = userId, limit = safeLimit)
+            .map { row ->
                 CustomerInquirySummary(
-                    inquiry_id = rs.getLong("id"),
-                    inquiry_type = rs.getString("inquiry_type"),
-                    title = rs.getString("title"),
-                    status = rs.getString("status"),
-                    status_label = STATUS_LABELS[rs.getString("status")] ?: rs.getString("status"),
-                    created_at = rs.getTimestamp("created_at")?.toInstant()?.toString() ?: Instant.EPOCH.toString(),
-                    answered_at = rs.getTimestamp("answered_at")?.toInstant()?.toString(),
+                    inquiry_id = row.id,
+                    inquiry_type = row.inquiryType,
+                    title = row.title,
+                    status = row.status,
+                    status_label = STATUS_LABELS[row.status] ?: row.status,
+                    created_at = row.createdAt?.toInstant()?.toString() ?: Instant.EPOCH.toString(),
+                    answered_at = row.answeredAt?.toInstant()?.toString(),
                 )
-            },
-            userId,
-            safeLimit,
-        )
+            }
 
         meterRegistry.counter("customer_inquiry_list_total").increment()
         return CustomerInquiryListData(items = items)
@@ -57,30 +49,23 @@ class CustomerInquiryService(
 
     fun getInquiry(userId: Long, inquiryId: Long): CustomerInquiryDetailData {
         domainSupportService.ensureUserExists(userId)
-        val inquiry = jdbcTemplate.query(
-            """
-            SELECT id, inquiry_type, title, content, status, answer_content, created_at, updated_at, answered_at
-            FROM customer_inquiry
-            WHERE id = ?
-              AND user_id = ?
-            """.trimIndent(),
-            { rs, _ ->
-                CustomerInquiryDetailData(
-                    inquiry_id = rs.getLong("id"),
-                    inquiry_type = rs.getString("inquiry_type"),
-                    title = rs.getString("title"),
-                    content = rs.getString("content"),
-                    status = rs.getString("status"),
-                    status_label = STATUS_LABELS[rs.getString("status")] ?: rs.getString("status"),
-                    answer_content = rs.getString("answer_content"),
-                    created_at = rs.getTimestamp("created_at")?.toInstant()?.toString() ?: Instant.EPOCH.toString(),
-                    updated_at = rs.getTimestamp("updated_at")?.toInstant()?.toString() ?: Instant.EPOCH.toString(),
-                    answered_at = rs.getTimestamp("answered_at")?.toInstant()?.toString(),
-                )
-            },
-            inquiryId,
-            userId,
-        ).firstOrNull() ?: run {
+        val inquiry = mapper.findInquiry(
+            inquiryId = inquiryId,
+            userId = userId,
+        )?.let { row ->
+            CustomerInquiryDetailData(
+                inquiry_id = row.id,
+                inquiry_type = row.inquiryType,
+                title = row.title,
+                content = row.content,
+                status = row.status,
+                status_label = STATUS_LABELS[row.status] ?: row.status,
+                answer_content = row.answerContent,
+                created_at = row.createdAt?.toInstant()?.toString() ?: Instant.EPOCH.toString(),
+                updated_at = row.updatedAt?.toInstant()?.toString() ?: Instant.EPOCH.toString(),
+                answered_at = row.answeredAt?.toInstant()?.toString(),
+            )
+        } ?: run {
             meterRegistry.counter("customer_inquiry_detail_not_found_total").increment()
             throw DomainException(
                 errorCode = ErrorCode.NOT_FOUND,
@@ -101,23 +86,15 @@ class CustomerInquiryService(
 
         validate(inquiryType, title, content)
 
-        val keyHolder = GeneratedKeyHolder()
-        jdbcTemplate.update({ connection ->
-            connection.prepareStatement(
-                """
-                INSERT INTO customer_inquiry(user_id, inquiry_type, title, content, status)
-                VALUES (?, ?, ?, ?, 'RECEIVED')
-                """.trimIndent(),
-                Statement.RETURN_GENERATED_KEYS,
-            ).apply {
-                setLong(1, userId)
-                setString(2, inquiryType)
-                setString(3, title)
-                setString(4, content)
-            }
-        }, keyHolder)
+        val command = CreateCustomerInquiryCommand(
+            userId = userId,
+            inquiryType = inquiryType,
+            title = title,
+            content = content,
+        )
+        mapper.insertInquiry(command)
 
-        val createdId = keyHolder.key?.toLong() ?: throw DomainException(
+        val createdId = command.id ?: throw DomainException(
             errorCode = ErrorCode.INTERNAL,
             message = "문의 등록에 실패했습니다.",
         )
@@ -203,3 +180,85 @@ data class CustomerInquiryCreateData(
     val status: String,
     val status_label: String,
 )
+
+data class CustomerInquirySummaryRow(
+    val id: Long,
+    val inquiryType: String,
+    val title: String,
+    val status: String,
+    val createdAt: java.sql.Timestamp?,
+    val answeredAt: java.sql.Timestamp?,
+)
+
+data class CustomerInquiryDetailRow(
+    val id: Long,
+    val inquiryType: String,
+    val title: String,
+    val content: String,
+    val status: String,
+    val answerContent: String?,
+    val createdAt: java.sql.Timestamp?,
+    val updatedAt: java.sql.Timestamp?,
+    val answeredAt: java.sql.Timestamp?,
+)
+
+data class CreateCustomerInquiryCommand(
+    val userId: Long,
+    val inquiryType: String,
+    val title: String,
+    val content: String,
+    var id: Long? = null,
+)
+
+@Mapper
+interface CustomerInquiryMapper {
+    @Select(
+        """
+        SELECT id,
+               inquiry_type AS inquiryType,
+               title,
+               status,
+               created_at AS createdAt,
+               answered_at AS answeredAt
+        FROM customer_inquiry
+        WHERE user_id = #{userId}
+        ORDER BY created_at DESC
+        LIMIT #{limit}
+        """,
+    )
+    fun listInquiries(
+        @Param("userId") userId: Long,
+        @Param("limit") limit: Int,
+    ): List<CustomerInquirySummaryRow>
+
+    @Select(
+        """
+        SELECT id,
+               inquiry_type AS inquiryType,
+               title,
+               content,
+               status,
+               answer_content AS answerContent,
+               created_at AS createdAt,
+               updated_at AS updatedAt,
+               answered_at AS answeredAt
+        FROM customer_inquiry
+        WHERE id = #{inquiryId}
+          AND user_id = #{userId}
+        LIMIT 1
+        """,
+    )
+    fun findInquiry(
+        @Param("inquiryId") inquiryId: Long,
+        @Param("userId") userId: Long,
+    ): CustomerInquiryDetailRow?
+
+    @Insert(
+        """
+        INSERT INTO customer_inquiry(user_id, inquiry_type, title, content, status)
+        VALUES (#{userId}, #{inquiryType}, #{title}, #{content}, 'RECEIVED')
+        """,
+    )
+    @Options(useGeneratedKeys = true, keyProperty = "id", keyColumn = "id")
+    fun insertInquiry(command: CreateCustomerInquiryCommand): Int
+}

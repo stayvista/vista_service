@@ -8,12 +8,14 @@ import io.micrometer.core.instrument.MeterRegistry
 import java.security.MessageDigest
 import java.time.Duration
 import java.time.LocalDate
-import org.springframework.jdbc.core.JdbcTemplate
+import org.apache.ibatis.annotations.Mapper
+import org.apache.ibatis.annotations.Param
+import org.apache.ibatis.annotations.Select
 import org.springframework.stereotype.Service
 
 @Service
 class PriceCalendarService(
-    private val jdbcTemplate: JdbcTemplate,
+    private val mapper: PriceCalendarMapper,
     private val cache: SimpleTtlCache,
     private val fxService: FxService,
     private val meterRegistry: MeterRegistry,
@@ -106,30 +108,12 @@ class PriceCalendarService(
 
     private fun resolvePoiCity(poiCanonicalId: String): String? {
         val poiId = poiCanonicalId.toLongOrNull() ?: return null
-        return jdbcTemplate.query(
-            """
-            SELECT city
-            FROM poi
-            WHERE id = ?
-            LIMIT 1
-                """.trimIndent(),
-            { rs, _ -> CityCanonicalizer.canonicalize(rs.getString("city")) ?: rs.getString("city") },
-            poiId,
-        ).firstOrNull()
+        return mapper.findPoiCity(poiId)?.let { CityCanonicalizer.canonicalize(it) ?: it }
     }
 
     private fun loadPropertyCalendar(propertyCanonicalId: String, from: LocalDate, to: LocalDate): List<CalendarPriceRow> {
         val propertyId = propertyCanonicalId.toLongOrNull() ?: return emptyList()
-        val minPrice = jdbcTemplate.query(
-            """
-            SELECT MIN(base_price) AS min_price
-            FROM room_type
-            WHERE property_id = ?
-              AND status = 'ACTIVE'
-            """.trimIndent(),
-            { rs, _ -> rs.getLong("min_price") },
-            propertyId,
-        ).firstOrNull()
+        val minPrice = mapper.findPropertyMinPrice(propertyId)
 
         return buildDateSeries(from, to).map { date ->
             CalendarPriceRow(
@@ -140,40 +124,16 @@ class PriceCalendarService(
     }
 
     private fun loadCityCalendar(city: String, from: LocalDate, to: LocalDate): List<CalendarPriceRow> {
-        val rows = jdbcTemplate.query(
-            """
-            SELECT stay_date, min_price_krw
-            FROM city_day_min_price
-            WHERE city = ?
-              AND stay_date >= ?
-              AND stay_date <= ?
-            ORDER BY stay_date ASC
-            """.trimIndent(),
-            { rs, _ ->
-                CalendarPriceRow(
-                    date = rs.getDate("stay_date").toLocalDate().toString(),
-                    min_price_krw = rs.getLong("min_price_krw"),
-                )
-            },
-            city,
-            java.sql.Date.valueOf(from),
-            java.sql.Date.valueOf(to),
+        val rows = mapper.listCityCalendar(
+            city = city,
+            from = java.sql.Date.valueOf(from),
+            to = java.sql.Date.valueOf(to),
         )
         if (rows.isNotEmpty()) {
             return rows
         }
 
-        val fallbackMin = jdbcTemplate.query(
-            """
-            SELECT MIN(rt.base_price) AS min_price
-            FROM property p
-            JOIN room_type rt ON rt.property_id = p.id AND rt.status = 'ACTIVE'
-            WHERE p.city = ?
-              AND p.status = 'ACTIVE'
-            """.trimIndent(),
-            { rs, _ -> rs.getLong("min_price") },
-            city,
-        ).firstOrNull()
+        val fallbackMin = mapper.findCityFallbackMinPrice(city)
 
         return buildDateSeries(from, to).map { date ->
             CalendarPriceRow(
@@ -259,3 +219,47 @@ data class CalendarPriceRow(
     val date: String,
     val min_price_krw: Long?,
 )
+
+@Mapper
+interface PriceCalendarMapper {
+    @Select("SELECT city FROM poi WHERE id = #{poiId} LIMIT 1")
+    fun findPoiCity(@Param("poiId") poiId: Long): String?
+
+    @Select(
+        """
+        SELECT MIN(base_price)
+        FROM room_type
+        WHERE property_id = #{propertyId}
+          AND status = 'ACTIVE'
+        """,
+    )
+    fun findPropertyMinPrice(@Param("propertyId") propertyId: Long): Long?
+
+    @Select(
+        """
+        SELECT DATE_FORMAT(stay_date, '%Y-%m-%d') AS date,
+               min_price_krw
+        FROM city_day_min_price
+        WHERE city = #{city}
+          AND stay_date >= #{from}
+          AND stay_date <= #{to}
+        ORDER BY stay_date ASC
+        """,
+    )
+    fun listCityCalendar(
+        @Param("city") city: String,
+        @Param("from") from: java.sql.Date,
+        @Param("to") to: java.sql.Date,
+    ): List<CalendarPriceRow>
+
+    @Select(
+        """
+        SELECT MIN(rt.base_price)
+        FROM property p
+        JOIN room_type rt ON rt.property_id = p.id AND rt.status = 'ACTIVE'
+        WHERE p.city = #{city}
+          AND p.status = 'ACTIVE'
+        """,
+    )
+    fun findCityFallbackMinPrice(@Param("city") city: String): Long?
+}

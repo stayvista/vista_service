@@ -13,81 +13,53 @@ import com.devoceanblue.stayvista.domain.ticket.TicketConfirmRequest
 import com.devoceanblue.stayvista.domain.ticket.TicketHoldPrice
 import com.devoceanblue.stayvista.domain.ticket.TicketHoldRequest
 import com.devoceanblue.stayvista.domain.ticket.TicketService
-import java.sql.PreparedStatement
 import java.time.Instant
 import java.time.LocalDate
 import java.util.UUID
-import org.springframework.jdbc.core.JdbcTemplate
-import org.springframework.jdbc.support.GeneratedKeyHolder
+import org.apache.ibatis.annotations.Insert
+import org.apache.ibatis.annotations.Mapper
+import org.apache.ibatis.annotations.Options
+import org.apache.ibatis.annotations.Param
+import org.apache.ibatis.annotations.Select
+import org.apache.ibatis.annotations.Update
 import org.springframework.stereotype.Service
 import org.springframework.transaction.support.TransactionTemplate
 
 @Service
 class PackageService(
-    private val jdbcTemplate: JdbcTemplate,
+    private val mapper: PackageMapper,
     private val bookingService: BookingService,
     private val ticketService: TicketService,
     private val idempotencyService: IdempotencyService,
     private val transactionTemplate: TransactionTemplate,
 ) {
     fun createPackage(request: CreatePackageRequest): Long {
-        val keyHolder = GeneratedKeyHolder()
-        jdbcTemplate.update({ connection ->
-            val ps = connection.prepareStatement(
-                """
-                INSERT INTO package_product(name, status, currency, amount_total, image_url)
-                VALUES (?, ?, ?, ?, ?)
-                """.trimIndent(),
-                PreparedStatement.RETURN_GENERATED_KEYS,
-            )
-            ps.setString(1, request.name)
-            ps.setString(2, request.status)
-            ps.setString(3, request.price.currency)
-            ps.setLong(4, request.price.amount_total)
-            ps.setString(5, request.image_url)
-            ps
-        }, keyHolder)
-        val packageId = keyHolder.key?.toLong() ?: throw DomainException(ErrorCode.INTERNAL, "Failed to create package")
+        val command = PackageProductInsertCommand(
+            name = request.name,
+            status = request.status,
+            currency = request.price.currency,
+            amountTotal = request.price.amount_total,
+            imageUrl = request.image_url,
+        )
+        mapper.insertPackageProduct(command)
+        val packageId = command.id ?: throw DomainException(ErrorCode.INTERNAL, "Failed to create package")
 
         request.components.forEach { component ->
-            jdbcTemplate.update(
-                """
-                INSERT INTO package_product_component(
-                    package_id, component_type, room_type_id, ticket_event_id, nights, rooms, quantity
-                )
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-                """.trimIndent(),
-                packageId,
-                component.type,
-                component.room_type_id,
-                component.event_id,
-                component.nights,
-                component.rooms,
-                component.quantity,
+            mapper.insertPackageComponent(
+                packageId = packageId,
+                componentType = component.type,
+                roomTypeId = component.room_type_id,
+                ticketEventId = component.event_id,
+                nights = component.nights,
+                rooms = component.rooms,
+                quantity = component.quantity,
             )
         }
         return packageId
     }
 
     fun getPackage(packageId: Long): PackageDetail {
-        val pack = jdbcTemplate.query(
-            """
-            SELECT id, name, status, currency, amount_total, image_url
-            FROM package_product
-            WHERE id = ?
-            """.trimIndent(),
-            { rs, _ ->
-                PackageBase(
-                    id = rs.getLong("id"),
-                    name = rs.getString("name"),
-                    status = rs.getString("status"),
-                    currency = rs.getString("currency"),
-                    amount = rs.getLong("amount_total"),
-                    imageUrl = rs.getString("image_url"),
-                )
-            },
-            packageId,
-        ).firstOrNull() ?: throw DomainException(ErrorCode.NOT_FOUND, "Package not found")
+        val pack = mapper.findPackage(packageId) ?: throw DomainException(ErrorCode.NOT_FOUND, "Package not found")
         return PackageDetail(
             package_id = pack.id,
             name = pack.name,
@@ -99,26 +71,7 @@ class PackageService(
     }
 
     fun listPackages(): PackageListData {
-        val items = jdbcTemplate.query(
-            """
-            SELECT id, name, status, currency, amount_total, image_url
-            FROM package_product
-            WHERE status='ACTIVE'
-            ORDER BY id DESC
-            """.trimIndent(),
-            { rs, _ ->
-                PackageSummary(
-                    package_id = rs.getLong("id"),
-                    name = rs.getString("name"),
-                    status = rs.getString("status"),
-                    price = PackagePrice(
-                        currency = rs.getString("currency"),
-                        amount_total = rs.getLong("amount_total"),
-                    ),
-                    image_url = rs.getString("image_url"),
-                )
-            },
-        )
+        val items = mapper.listActivePackages()
         return PackageListData(items)
     }
 
@@ -146,23 +99,11 @@ class PackageService(
         }
         params += safeLimit
 
-        val items = jdbcTemplate.query(
-            sql,
-            { rs, _ ->
-                PackageOrderSummary(
-                    package_order_id = "pkg_${rs.getLong("id")}",
-                    package_id = rs.getLong("package_id"),
-                    user_id = rs.getLong("user_id"),
-                    status = rs.getString("status"),
-                    booking_id = rs.getLong("booking_id").takeIf { !rs.wasNull() }?.let { "bkg_$it" },
-                    ticket_order_id = rs.getLong("ticket_order_id").takeIf { !rs.wasNull() }?.let { "tord_$it" },
-                    expires_at = rs.getTimestamp("expires_at")?.toInstant()?.toString(),
-                    created_at = rs.getTimestamp("created_at")?.toInstant()?.toString(),
-                    updated_at = rs.getTimestamp("updated_at")?.toInstant()?.toString(),
-                )
-            },
-            *params.toTypedArray(),
-        )
+        val items = if (!status.isNullOrBlank()) {
+            mapper.listOrdersByStatus(status = status, limit = safeLimit)
+        } else {
+            mapper.listOrders(limit = safeLimit)
+        }
         return PackageOrderListData(items)
     }
 
@@ -236,20 +177,11 @@ class PackageService(
             )
 
             transactionTemplate.execute {
-                jdbcTemplate.update(
-                    """
-                    UPDATE package_order
-                    SET status='HOLD',
-                        booking_id=?,
-                        ticket_order_id=?,
-                        expires_at=?,
-                        updated_at=NOW(3)
-                    WHERE id=?
-                    """.trimIndent(),
-                    bookingNumericId,
-                    ticketNumericId,
-                    java.sql.Timestamp.from(expiresAt),
-                    packageOrderId,
+                mapper.markPackageOrderHeld(
+                    packageOrderId = packageOrderId,
+                    bookingId = bookingNumericId,
+                    ticketOrderId = ticketNumericId,
+                    expiresAt = java.sql.Timestamp.from(expiresAt),
                 )
             }
 
@@ -274,26 +206,11 @@ class PackageService(
         ) {
             val packageOrderId = request.package_order_id.removePrefix("pkg_").toLongOrNull()
                 ?: throw DomainException(ErrorCode.VALIDATION_ERROR, "Invalid package_order_id")
-            val row = jdbcTemplate.query(
-                """
-                SELECT id, status, booking_id, ticket_order_id, expires_at
-                FROM package_order
-                WHERE id = ? AND package_id = ? AND user_id = ?
-                FOR UPDATE
-                """.trimIndent(),
-                { rs, _ ->
-                    PackageOrderRow(
-                        id = rs.getLong("id"),
-                        status = rs.getString("status"),
-                        bookingId = rs.getLong("booking_id"),
-                        ticketOrderId = rs.getLong("ticket_order_id"),
-                        expiresAt = rs.getTimestamp("expires_at")?.toInstant(),
-                    )
-                },
-                packageOrderId,
-                packageId,
-                userId,
-            ).firstOrNull() ?: throw DomainException(ErrorCode.NOT_FOUND, "Package order not found")
+            val row = mapper.findPackageOrderForUpdate(
+                packageOrderId = packageOrderId,
+                packageId = packageId,
+                userId = userId,
+            ) ?: throw DomainException(ErrorCode.NOT_FOUND, "Package order not found")
             if (row.status != "HOLD") {
                 throw DomainException(ErrorCode.CONFLICT, "Package order cannot be confirmed from ${row.status}")
             }
@@ -350,54 +267,17 @@ class PackageService(
     }
 
     private fun createPackageOrder(packageId: Long, userId: Long): Long {
-        val keyHolder = GeneratedKeyHolder()
-        jdbcTemplate.update({ connection ->
-            val ps = connection.prepareStatement(
-                """
-                INSERT INTO package_order(package_id, user_id, status)
-                VALUES (?, ?, 'HOLDING')
-                """.trimIndent(),
-                PreparedStatement.RETURN_GENERATED_KEYS,
-            )
-            ps.setLong(1, packageId)
-            ps.setLong(2, userId)
-            ps
-        }, keyHolder)
-        return keyHolder.key?.toLong() ?: throw DomainException(ErrorCode.INTERNAL, "Failed to create package order")
+        val command = PackageOrderInsertCommand(packageId = packageId, userId = userId)
+        mapper.insertPackageOrder(command)
+        return command.id ?: throw DomainException(ErrorCode.INTERNAL, "Failed to create package order")
     }
 
     private fun updatePackageOrderStatus(packageOrderId: Long, status: String) {
-        jdbcTemplate.update(
-            """
-            UPDATE package_order
-            SET status=?, updated_at=NOW(3)
-            WHERE id=?
-            """.trimIndent(),
-            status,
-            packageOrderId,
-        )
+        mapper.updatePackageOrderStatus(packageOrderId = packageOrderId, status = status)
     }
 
     private fun components(packageId: Long): List<PackageComponent> {
-        return jdbcTemplate.query(
-            """
-            SELECT component_type, room_type_id, ticket_event_id, nights, rooms, quantity
-            FROM package_product_component
-            WHERE package_id = ?
-            ORDER BY id
-            """.trimIndent(),
-            { rs, _ ->
-                PackageComponent(
-                    type = rs.getString("component_type"),
-                    room_type_id = rs.getLong("room_type_id").takeIf { !rs.wasNull() },
-                    event_id = rs.getLong("ticket_event_id").takeIf { !rs.wasNull() },
-                    nights = rs.getInt("nights").takeIf { !rs.wasNull() },
-                    rooms = rs.getInt("rooms").takeIf { !rs.wasNull() },
-                    quantity = rs.getInt("quantity").takeIf { !rs.wasNull() },
-                )
-            },
-            packageId,
-        )
+        return mapper.listComponents(packageId)
     }
 }
 
@@ -489,7 +369,7 @@ data class PackageOrderListData(
     val items: List<PackageOrderSummary>,
 )
 
-private data class PackageBase(
+data class PackageBase(
     val id: Long,
     val name: String,
     val status: String,
@@ -498,10 +378,197 @@ private data class PackageBase(
     val imageUrl: String?,
 )
 
-private data class PackageOrderRow(
+data class PackageOrderRow(
     val id: Long,
     val status: String,
     val bookingId: Long,
     val ticketOrderId: Long,
     val expiresAt: Instant?,
 )
+
+data class PackageProductInsertCommand(
+    val name: String,
+    val status: String,
+    val currency: String,
+    val amountTotal: Long,
+    val imageUrl: String?,
+    var id: Long? = null,
+)
+
+data class PackageOrderInsertCommand(
+    val packageId: Long,
+    val userId: Long,
+    var id: Long? = null,
+)
+
+@Mapper
+interface PackageMapper {
+    @Insert(
+        """
+        INSERT INTO package_product(name, status, currency, amount_total, image_url)
+        VALUES (#{name}, #{status}, #{currency}, #{amountTotal}, #{imageUrl})
+        """,
+    )
+    @Options(useGeneratedKeys = true, keyProperty = "id", keyColumn = "id")
+    fun insertPackageProduct(command: PackageProductInsertCommand): Int
+
+    @Insert(
+        """
+        INSERT INTO package_product_component(
+            package_id, component_type, room_type_id, ticket_event_id, nights, rooms, quantity
+        )
+        VALUES (#{packageId}, #{componentType}, #{roomTypeId}, #{ticketEventId}, #{nights}, #{rooms}, #{quantity})
+        """,
+    )
+    fun insertPackageComponent(
+        @Param("packageId") packageId: Long,
+        @Param("componentType") componentType: String,
+        @Param("roomTypeId") roomTypeId: Long?,
+        @Param("ticketEventId") ticketEventId: Long?,
+        @Param("nights") nights: Int?,
+        @Param("rooms") rooms: Int?,
+        @Param("quantity") quantity: Int?,
+    ): Int
+
+    @Select(
+        """
+        SELECT id,
+               name,
+               status,
+               currency,
+               amount_total AS amount,
+               image_url AS imageUrl
+        FROM package_product
+        WHERE id = #{packageId}
+        LIMIT 1
+        """,
+    )
+    fun findPackage(@Param("packageId") packageId: Long): PackageBase?
+
+    @Select(
+        """
+        SELECT id AS package_id,
+               name,
+               status,
+               currency,
+               amount_total AS amount_total,
+               image_url AS image_url
+        FROM package_product
+        WHERE status='ACTIVE'
+        ORDER BY id DESC
+        """,
+    )
+    fun listActivePackages(): List<PackageSummary>
+
+    @Select(
+        """
+        SELECT CONCAT('pkg_', id) AS package_order_id,
+               package_id,
+               user_id,
+               status,
+               CASE WHEN booking_id IS NULL THEN NULL ELSE CONCAT('bkg_', booking_id) END AS booking_id,
+               CASE WHEN ticket_order_id IS NULL THEN NULL ELSE CONCAT('tord_', ticket_order_id) END AS ticket_order_id,
+               expires_at AS expires_at,
+               created_at AS created_at,
+               updated_at AS updated_at
+        FROM package_order
+        ORDER BY id DESC
+        LIMIT #{limit}
+        """,
+    )
+    fun listOrders(@Param("limit") limit: Int): List<PackageOrderSummary>
+
+    @Select(
+        """
+        SELECT CONCAT('pkg_', id) AS package_order_id,
+               package_id,
+               user_id,
+               status,
+               CASE WHEN booking_id IS NULL THEN NULL ELSE CONCAT('bkg_', booking_id) END AS booking_id,
+               CASE WHEN ticket_order_id IS NULL THEN NULL ELSE CONCAT('tord_', ticket_order_id) END AS ticket_order_id,
+               expires_at AS expires_at,
+               created_at AS created_at,
+               updated_at AS updated_at
+        FROM package_order
+        WHERE status = #{status}
+        ORDER BY id DESC
+        LIMIT #{limit}
+        """,
+    )
+    fun listOrdersByStatus(
+        @Param("status") status: String,
+        @Param("limit") limit: Int,
+    ): List<PackageOrderSummary>
+
+    @Update(
+        """
+        UPDATE package_order
+        SET status='HOLD',
+            booking_id=#{bookingId},
+            ticket_order_id=#{ticketOrderId},
+            expires_at=#{expiresAt},
+            updated_at=NOW(3)
+        WHERE id=#{packageOrderId}
+        """,
+    )
+    fun markPackageOrderHeld(
+        @Param("packageOrderId") packageOrderId: Long,
+        @Param("bookingId") bookingId: Long,
+        @Param("ticketOrderId") ticketOrderId: Long,
+        @Param("expiresAt") expiresAt: java.sql.Timestamp,
+    ): Int
+
+    @Select(
+        """
+        SELECT id,
+               status,
+               booking_id AS bookingId,
+               ticket_order_id AS ticketOrderId,
+               expires_at AS expiresAt
+        FROM package_order
+        WHERE id = #{packageOrderId} AND package_id = #{packageId} AND user_id = #{userId}
+        FOR UPDATE
+        """,
+    )
+    fun findPackageOrderForUpdate(
+        @Param("packageOrderId") packageOrderId: Long,
+        @Param("packageId") packageId: Long,
+        @Param("userId") userId: Long,
+    ): PackageOrderRow?
+
+    @Insert(
+        """
+        INSERT INTO package_order(package_id, user_id, status)
+        VALUES (#{packageId}, #{userId}, 'HOLDING')
+        """,
+    )
+    @Options(useGeneratedKeys = true, keyProperty = "id", keyColumn = "id")
+    fun insertPackageOrder(command: PackageOrderInsertCommand): Int
+
+    @Update(
+        """
+        UPDATE package_order
+        SET status=#{status}, updated_at=NOW(3)
+        WHERE id=#{packageOrderId}
+        """,
+    )
+    fun updatePackageOrderStatus(
+        @Param("packageOrderId") packageOrderId: Long,
+        @Param("status") status: String,
+    ): Int
+
+    @Select(
+        """
+        SELECT component_type AS type,
+               room_type_id AS room_type_id,
+               ticket_event_id AS event_id,
+               nights,
+               rooms,
+               quantity
+        FROM package_product_component
+        WHERE package_id = #{packageId}
+        ORDER BY id
+        """,
+    )
+    fun listComponents(@Param("packageId") packageId: Long): List<PackageComponent>
+}

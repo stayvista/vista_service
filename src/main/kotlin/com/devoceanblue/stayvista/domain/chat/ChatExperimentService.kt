@@ -2,14 +2,18 @@ package com.devoceanblue.stayvista.domain.chat
 
 import io.micrometer.core.instrument.MeterRegistry
 import kotlin.math.abs
-import org.springframework.jdbc.core.JdbcTemplate
+import org.apache.ibatis.annotations.Insert
+import org.apache.ibatis.annotations.Mapper
+import org.apache.ibatis.annotations.Param
+import org.apache.ibatis.annotations.Select
+import org.apache.ibatis.annotations.Update
 import org.springframework.stereotype.Service
 import tools.jackson.core.type.TypeReference
 import tools.jackson.databind.ObjectMapper
 
 @Service
 class ChatExperimentService(
-    private val jdbcTemplate: JdbcTemplate,
+    private val mapper: ChatExperimentMapper,
     private val objectMapper: ObjectMapper,
     private val meterRegistry: MeterRegistry,
 ) {
@@ -56,43 +60,23 @@ class ChatExperimentService(
 
     fun update(request: ChatExperimentUpdateRequest): ChatExperimentConfig {
         val parametersJson = objectMapper.writeValueAsString(request.parameters_json)
-        val updatedRows = jdbcTemplate.update(
-            """
-            UPDATE chat_experiment
-            SET enabled = ?,
-                rollout_percent = ?,
-                treatment_model = ?,
-                prompt_version = ?,
-                parameters_json = ?,
-                updated_at = CURRENT_TIMESTAMP
-            WHERE experiment_key = ?
-            """.trimIndent(),
-            if (request.enabled) 1 else 0,
-            request.rollout_percent.coerceIn(0, 100),
-            request.treatment_model,
-            request.prompt_version,
-            parametersJson,
-            "chat-core",
+        val updatedRows = mapper.updateConfig(
+            enabled = request.enabled,
+            rolloutPercent = request.rollout_percent.coerceIn(0, 100),
+            treatmentModel = request.treatment_model,
+            promptVersion = request.prompt_version,
+            parametersJson = parametersJson,
+            experimentKey = "chat-core",
         )
 
         if (updatedRows == 0) {
-            jdbcTemplate.update(
-                """
-                INSERT INTO chat_experiment (
-                  experiment_key,
-                  enabled,
-                  rollout_percent,
-                  treatment_model,
-                  prompt_version,
-                  parameters_json
-                ) VALUES (?, ?, ?, ?, ?, ?)
-                """.trimIndent(),
-                "chat-core",
-                if (request.enabled) 1 else 0,
-                request.rollout_percent.coerceIn(0, 100),
-                request.treatment_model,
-                request.prompt_version,
-                parametersJson,
+            mapper.insertConfig(
+                experimentKey = "chat-core",
+                enabled = request.enabled,
+                rolloutPercent = request.rollout_percent.coerceIn(0, 100),
+                treatmentModel = request.treatment_model,
+                promptVersion = request.prompt_version,
+                parametersJson = parametersJson,
             )
         }
         meterRegistry.counter("chat_experiment_config_total", "action", "update").increment()
@@ -102,36 +86,9 @@ class ChatExperimentService(
     }
 
     private fun loadConfig(): ChatExperimentConfig {
-        val row = jdbcTemplate.query(
-            """
-            SELECT experiment_key, enabled, rollout_percent, treatment_model, prompt_version, parameters_json, updated_at
-            FROM chat_experiment
-            WHERE experiment_key = ?
-            LIMIT 1
-            """.trimIndent(),
-            { rs, _ ->
-                val parameters = rs.getString("parameters_json")
-                    ?.let { raw ->
-                        runCatching {
-                            objectMapper.readValue(raw, object : TypeReference<Map<String, Any?>>() {})
-                        }.getOrDefault(emptyMap())
-                    }
-                    ?: emptyMap()
+        val row = mapper.findConfig("chat-core")
 
-                ChatExperimentConfig(
-                    experiment_key = rs.getString("experiment_key"),
-                    enabled = rs.getBoolean("enabled"),
-                    rollout_percent = rs.getInt("rollout_percent"),
-                    treatment_model = rs.getString("treatment_model"),
-                    prompt_version = rs.getString("prompt_version"),
-                    parameters_json = parameters,
-                    updated_at = rs.getTimestamp("updated_at")?.toInstant()?.toString().orEmpty(),
-                )
-            },
-            "chat-core",
-        ).firstOrNull()
-
-        return row ?: ChatExperimentConfig(
+        return row?.toData(objectMapper) ?: ChatExperimentConfig(
             experiment_key = "chat-core",
             enabled = false,
             rollout_percent = 0,
@@ -172,3 +129,100 @@ data class ChatExperimentUpdateRequest(
     val prompt_version: String? = null,
     val parameters_json: Map<String, Any?> = emptyMap(),
 )
+
+data class ChatExperimentRow(
+    val experimentKey: String,
+    val enabled: Boolean,
+    val rolloutPercent: Int,
+    val treatmentModel: String?,
+    val promptVersion: String?,
+    val parametersJson: String?,
+    val updatedAt: java.sql.Timestamp?,
+) {
+    fun toData(objectMapper: ObjectMapper): ChatExperimentConfig {
+        val parameters = parametersJson
+            ?.let { raw ->
+                runCatching {
+                    objectMapper.readValue(raw, object : TypeReference<Map<String, Any?>>() {})
+                }.getOrDefault(emptyMap())
+            }
+            ?: emptyMap()
+        return ChatExperimentConfig(
+            experiment_key = experimentKey,
+            enabled = enabled,
+            rollout_percent = rolloutPercent,
+            treatment_model = treatmentModel,
+            prompt_version = promptVersion,
+            parameters_json = parameters,
+            updated_at = updatedAt?.toInstant()?.toString().orEmpty(),
+        )
+    }
+}
+
+@Mapper
+interface ChatExperimentMapper {
+    @Update(
+        """
+        UPDATE chat_experiment
+        SET enabled = #{enabled},
+            rollout_percent = #{rolloutPercent},
+            treatment_model = #{treatmentModel},
+            prompt_version = #{promptVersion},
+            parameters_json = #{parametersJson},
+            updated_at = CURRENT_TIMESTAMP
+        WHERE experiment_key = #{experimentKey}
+        """,
+    )
+    fun updateConfig(
+        @Param("enabled") enabled: Boolean,
+        @Param("rolloutPercent") rolloutPercent: Int,
+        @Param("treatmentModel") treatmentModel: String?,
+        @Param("promptVersion") promptVersion: String?,
+        @Param("parametersJson") parametersJson: String,
+        @Param("experimentKey") experimentKey: String,
+    ): Int
+
+    @Insert(
+        """
+        INSERT INTO chat_experiment (
+          experiment_key,
+          enabled,
+          rollout_percent,
+          treatment_model,
+          prompt_version,
+          parameters_json
+        ) VALUES (
+          #{experimentKey},
+          #{enabled},
+          #{rolloutPercent},
+          #{treatmentModel},
+          #{promptVersion},
+          #{parametersJson}
+        )
+        """,
+    )
+    fun insertConfig(
+        @Param("experimentKey") experimentKey: String,
+        @Param("enabled") enabled: Boolean,
+        @Param("rolloutPercent") rolloutPercent: Int,
+        @Param("treatmentModel") treatmentModel: String?,
+        @Param("promptVersion") promptVersion: String?,
+        @Param("parametersJson") parametersJson: String,
+    ): Int
+
+    @Select(
+        """
+        SELECT experiment_key AS experimentKey,
+               enabled,
+               rollout_percent AS rolloutPercent,
+               treatment_model AS treatmentModel,
+               prompt_version AS promptVersion,
+               parameters_json AS parametersJson,
+               updated_at AS updatedAt
+        FROM chat_experiment
+        WHERE experiment_key = #{experimentKey}
+        LIMIT 1
+        """,
+    )
+    fun findConfig(@Param("experimentKey") experimentKey: String): ChatExperimentRow?
+}

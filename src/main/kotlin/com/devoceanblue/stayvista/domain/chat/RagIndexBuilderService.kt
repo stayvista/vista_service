@@ -5,15 +5,19 @@ import java.security.MessageDigest
 import java.time.Duration
 import java.time.LocalDateTime
 import java.util.concurrent.atomic.AtomicLong
+import org.apache.ibatis.annotations.Delete
+import org.apache.ibatis.annotations.Insert
+import org.apache.ibatis.annotations.Mapper
+import org.apache.ibatis.annotations.Param
+import org.apache.ibatis.annotations.Select
 import org.springframework.beans.factory.annotation.Value
-import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Service
 import tools.jackson.databind.ObjectMapper
 
 @Service
 class RagIndexBuilderService(
-    private val jdbcTemplate: JdbcTemplate,
+    private val mapper: RagIndexBuilderMapper,
     private val embedClient: EmbedClient,
     private val modelRegistry: LlmModelRegistry,
     private val objectMapper: ObjectMapper,
@@ -163,231 +167,133 @@ class RagIndexBuilderService(
     }
 
     private fun latestIndexedAt(sourceType: String): LocalDateTime? {
-        return jdbcTemplate.query(
-            "SELECT MAX(source_updated_at) AS last_updated FROM travel_doc WHERE source_type = ?",
-            { rs, _ -> rs.getTimestamp("last_updated")?.toLocalDateTime() },
-            sourceType,
-        ).firstOrNull()
+        return mapper.findLatestIndexedAt(sourceType)
     }
 
     private fun loadExistingHashes(docIds: List<String>): Map<String, String> {
         if (docIds.isEmpty()) return emptyMap()
-
-        val placeholders = docIds.joinToString(",") { "?" }
-        val sql = "SELECT doc_id, doc_hash FROM travel_doc WHERE doc_id IN ($placeholders)"
-
-        return jdbcTemplate.query(
-            sql,
-            { rs, _ -> rs.getString("doc_id") to rs.getString("doc_hash") },
-            *docIds.toTypedArray(),
-        ).toMap()
+        return mapper.listExistingHashes(docIds).associate { it.docId to it.docHash }
     }
 
     private fun loadPropertyDocs(limit: Int?, updatedAfter: LocalDateTime?): List<SourceDoc> {
-        val params = mutableListOf<Any>()
-        val sql = StringBuilder(
-            """
-            SELECT p.id, p.name, p.city, p.country, p.updated_at,
-                   COALESCE(p.rating, 0.0) AS rating,
-                   COALESCE(MIN(rt.base_price), 0) AS min_price
-            FROM property p
-            LEFT JOIN room_type rt ON rt.property_id = p.id AND rt.status = 'ACTIVE'
-            WHERE p.status = 'ACTIVE'
-            """.trimIndent(),
-        )
+        return mapper.listPropertyDocRows(updatedAfter = updatedAfter, limit = limit)
+            .map { row ->
+                val propertyId = row.id
+                val city = row.city
+                val country = row.country
+                val rating = row.rating
+                val minPrice = row.minPrice
+                val updatedAt = row.updatedAt
 
-        if (updatedAfter != null) {
-            sql.append(" AND p.updated_at > ?")
-            params += java.sql.Timestamp.valueOf(updatedAfter)
-        }
+                val title = row.name
+                val body = buildString {
+                    append("숙소 ")
+                    append(title)
+                    append('\n')
+                    append("도시: ")
+                    append(city ?: "Unknown")
+                    append('\n')
+                    append("국가: ")
+                    append(country ?: "Unknown")
+                    append('\n')
+                    append("평점: ")
+                    append("%.1f".format(rating))
+                    append('\n')
+                    append("최저가: ")
+                    append(minPrice)
+                    append(" KRW")
+                }
 
-        sql.append(" GROUP BY p.id, p.name, p.city, p.country, p.updated_at, p.rating")
-        sql.append(" ORDER BY p.updated_at DESC")
-
-        if (limit != null) {
-            sql.append(" LIMIT ?")
-            params += limit
-        }
-
-        return jdbcTemplate.query(sql.toString(), { rs, _ ->
-            val propertyId = rs.getLong("id")
-            val city = rs.getString("city")
-            val country = rs.getString("country")
-            val rating = rs.getBigDecimal("rating")?.toDouble() ?: 0.0
-            val minPrice = rs.getLong("min_price")
-            val updatedAt = rs.getTimestamp("updated_at")?.toLocalDateTime()
-
-            val title = rs.getString("name")
-            val body = buildString {
-                append("숙소 ")
-                append(title)
-                append('\n')
-                append("도시: ")
-                append(city ?: "Unknown")
-                append('\n')
-                append("국가: ")
-                append(country ?: "Unknown")
-                append('\n')
-                append("평점: ")
-                append("%.1f".format(rating))
-                append('\n')
-                append("최저가: ")
-                append(minPrice)
-                append(" KRW")
+                SourceDoc(
+                    docId = "property:$propertyId",
+                    sourceType = "PROPERTY",
+                    refId = propertyId,
+                    city = city,
+                    title = title,
+                    body = body,
+                    sourceUpdatedAt = updatedAt,
+                )
             }
-
-            SourceDoc(
-                docId = "property:$propertyId",
-                sourceType = "PROPERTY",
-                refId = propertyId,
-                city = city,
-                title = title,
-                body = body,
-                sourceUpdatedAt = updatedAt,
-            )
-        }, *params.toTypedArray())
     }
 
     private fun loadTicketDocs(limit: Int?, updatedAfter: LocalDateTime?): List<SourceDoc> {
-        val params = mutableListOf<Any>()
-        val sql = StringBuilder(
-            """
-            SELECT p.id, p.name, p.city, p.product_type, p.updated_at,
-                   MIN(te.start_time) AS next_start,
-                   COALESCE(MAX(ti.total - ti.sold - ti.hold), 0) AS max_remain
-            FROM product p
-            LEFT JOIN ticket_event te ON te.product_id = p.id AND te.status = 'ACTIVE'
-            LEFT JOIN ticket_inventory ti ON ti.event_id = te.id
-            WHERE p.status = 'ACTIVE'
-            """.trimIndent(),
-        )
+        return mapper.listTicketDocRows(updatedAfter = updatedAfter, limit = limit)
+            .map { row ->
+                val productId = row.id
+                val city = row.city
+                val productType = row.productType ?: "TICKET"
+                val nextStart = row.nextStart
+                val remain = row.maxRemain
+                val updatedAt = row.updatedAt
 
-        if (updatedAfter != null) {
-            sql.append(" AND p.updated_at > ?")
-            params += java.sql.Timestamp.valueOf(updatedAfter)
-        }
+                val title = row.name
+                val body = buildString {
+                    append("티켓/체험 ")
+                    append(title)
+                    append('\n')
+                    append("도시: ")
+                    append(city ?: "Unknown")
+                    append('\n')
+                    append("유형: ")
+                    append(productType)
+                    append('\n')
+                    append("가장 빠른 시작: ")
+                    append(nextStart?.toString() ?: "미정")
+                    append('\n')
+                    append("최대 잔여: ")
+                    append(remain)
+                }
 
-        sql.append(" GROUP BY p.id, p.name, p.city, p.product_type, p.updated_at")
-        sql.append(" ORDER BY p.updated_at DESC")
-
-        if (limit != null) {
-            sql.append(" LIMIT ?")
-            params += limit
-        }
-
-        return jdbcTemplate.query(sql.toString(), { rs, _ ->
-            val productId = rs.getLong("id")
-            val city = rs.getString("city")
-            val productType = rs.getString("product_type") ?: "TICKET"
-            val nextStart = rs.getTimestamp("next_start")?.toLocalDateTime()
-            val remain = rs.getInt("max_remain")
-            val updatedAt = rs.getTimestamp("updated_at")?.toLocalDateTime()
-
-            val title = rs.getString("name")
-            val body = buildString {
-                append("티켓/체험 ")
-                append(title)
-                append('\n')
-                append("도시: ")
-                append(city ?: "Unknown")
-                append('\n')
-                append("유형: ")
-                append(productType)
-                append('\n')
-                append("가장 빠른 시작: ")
-                append(nextStart?.toString() ?: "미정")
-                append('\n')
-                append("최대 잔여: ")
-                append(remain)
+                SourceDoc(
+                    docId = "ticket:$productId",
+                    sourceType = "TICKET",
+                    refId = productId,
+                    city = city,
+                    title = title,
+                    body = body,
+                    sourceUpdatedAt = updatedAt,
+                )
             }
-
-            SourceDoc(
-                docId = "ticket:$productId",
-                sourceType = "TICKET",
-                refId = productId,
-                city = city,
-                title = title,
-                body = body,
-                sourceUpdatedAt = updatedAt,
-            )
-        }, *params.toTypedArray())
     }
 
     private fun loadPackageDocs(limit: Int?, updatedAfter: LocalDateTime?): List<SourceDoc> {
-        val params = mutableListOf<Any>()
-        val sql = StringBuilder(
-            """
-            SELECT
-              pp.id,
-              pp.name,
-              pp.status,
-              pp.amount_total,
-              pp.currency,
-              pp.updated_at,
-              MAX(COALESCE(pr.city, prod.city)) AS component_city,
-              COUNT(DISTINCT COALESCE(pr.city, prod.city)) AS component_city_count
-            FROM package_product pp
-            LEFT JOIN package_product_component ppc ON ppc.package_id = pp.id
-            LEFT JOIN room_type rt ON rt.id = ppc.room_type_id
-            LEFT JOIN property pr ON pr.id = rt.property_id
-            LEFT JOIN ticket_event te ON te.id = ppc.ticket_event_id
-            LEFT JOIN product prod ON prod.id = te.product_id
-            WHERE pp.status = 'ACTIVE'
-            """.trimIndent(),
-        )
+        return mapper.listPackageDocRows(updatedAfter = updatedAfter, limit = limit)
+            .map { row ->
+                val packageId = row.id
+                val amount = row.amountTotal
+                val currency = row.currency ?: "KRW"
+                val updatedAt = row.updatedAt
+                val componentCity = row.componentCity
+                val componentCityCount = row.componentCityCount
 
-        if (updatedAfter != null) {
-            sql.append(" AND pp.updated_at > ?")
-            params += java.sql.Timestamp.valueOf(updatedAfter)
-        }
+                val title = row.name
+                val city = inferCityFromText(title)
+                    ?: componentCity.takeIf { !it.isNullOrBlank() && componentCityCount == 1 }
+                val body = buildString {
+                    append("패키지 ")
+                    append(title)
+                    append('\n')
+                    append("도시: ")
+                    append(city ?: "Unknown")
+                    append('\n')
+                    append("금액: ")
+                    append(amount)
+                    append(' ')
+                    append(currency)
+                    append('\n')
+                    append("상태: ACTIVE")
+                }
 
-        sql.append(
-            """
-             GROUP BY pp.id, pp.name, pp.status, pp.amount_total, pp.currency, pp.updated_at
-             ORDER BY pp.updated_at DESC
-            """.trimIndent(),
-        )
-        if (limit != null) {
-            sql.append(" LIMIT ?")
-            params += limit
-        }
-
-        return jdbcTemplate.query(sql.toString(), { rs, _ ->
-            val packageId = rs.getLong("id")
-            val amount = rs.getLong("amount_total")
-            val currency = rs.getString("currency") ?: "KRW"
-            val updatedAt = rs.getTimestamp("updated_at")?.toLocalDateTime()
-            val componentCity = rs.getString("component_city")
-            val componentCityCount = rs.getInt("component_city_count")
-
-            val title = rs.getString("name")
-            val city = inferCityFromText(title)
-                ?: componentCity.takeIf { !it.isNullOrBlank() && componentCityCount == 1 }
-            val body = buildString {
-                append("패키지 ")
-                append(title)
-                append('\n')
-                append("도시: ")
-                append(city ?: "Unknown")
-                append('\n')
-                append("금액: ")
-                append(amount)
-                append(' ')
-                append(currency)
-                append('\n')
-                append("상태: ACTIVE")
+                SourceDoc(
+                    docId = "package:$packageId",
+                    sourceType = "PACKAGE",
+                    refId = packageId,
+                    city = city,
+                    title = title,
+                    body = body,
+                    sourceUpdatedAt = updatedAt,
+                )
             }
-
-            SourceDoc(
-                docId = "package:$packageId",
-                sourceType = "PACKAGE",
-                refId = packageId,
-                city = city,
-                title = title,
-                body = body,
-                sourceUpdatedAt = updatedAt,
-            )
-        }, *params.toTypedArray())
     }
 
     private fun inferCityFromText(text: String?): String? {
@@ -405,92 +311,52 @@ class RagIndexBuilderService(
     }
 
     private fun loadPoiDocs(limit: Int?, createdAfter: LocalDateTime?): List<SourceDoc> {
-        val params = mutableListOf<Any>()
-        val sql = StringBuilder(
-            """
-            SELECT id, name, category, city, created_at
-            FROM poi
-            WHERE 1=1
-            """.trimIndent(),
-        )
+        return mapper.listPoiDocRows(createdAfter = createdAfter, limit = limit)
+            .map { row ->
+                val poiId = row.id
+                val city = row.city
+                val category = row.category ?: "spot"
+                val createdAt = row.createdAt
 
-        if (createdAfter != null) {
-            sql.append(" AND created_at > ?")
-            params += java.sql.Timestamp.valueOf(createdAfter)
-        }
+                val title = row.name
+                val body = buildString {
+                    append("POI ")
+                    append(title)
+                    append('\n')
+                    append("도시: ")
+                    append(city ?: "Unknown")
+                    append('\n')
+                    append("카테고리: ")
+                    append(category)
+                }
 
-        sql.append(" ORDER BY created_at DESC")
-        if (limit != null) {
-            sql.append(" LIMIT ?")
-            params += limit
-        }
-
-        return jdbcTemplate.query(sql.toString(), { rs, _ ->
-            val poiId = rs.getLong("id")
-            val city = rs.getString("city")
-            val category = rs.getString("category") ?: "spot"
-            val createdAt = rs.getTimestamp("created_at")?.toLocalDateTime()
-
-            val title = rs.getString("name")
-            val body = buildString {
-                append("POI ")
-                append(title)
-                append('\n')
-                append("도시: ")
-                append(city ?: "Unknown")
-                append('\n')
-                append("카테고리: ")
-                append(category)
+                SourceDoc(
+                    docId = "poi:$poiId",
+                    sourceType = "POI",
+                    refId = poiId,
+                    city = city,
+                    title = title,
+                    body = body,
+                    sourceUpdatedAt = createdAt,
+                )
             }
-
-            SourceDoc(
-                docId = "poi:$poiId",
-                sourceType = "POI",
-                refId = poiId,
-                city = city,
-                title = title,
-                body = body,
-                sourceUpdatedAt = createdAt,
-            )
-        }, *params.toTypedArray())
     }
 
     private fun upsertDocument(doc: SourceDoc) {
-        jdbcTemplate.update(
-            """
-            INSERT INTO travel_doc (doc_id, source_type, ref_id, city, title, body, doc_hash, source_updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ON DUPLICATE KEY UPDATE
-              source_type = VALUES(source_type),
-              ref_id = VALUES(ref_id),
-              city = VALUES(city),
-              title = VALUES(title),
-              body = VALUES(body),
-              doc_hash = VALUES(doc_hash),
-              source_updated_at = VALUES(source_updated_at),
-              updated_at = CURRENT_TIMESTAMP(3)
-            """.trimIndent(),
-            doc.docId,
-            doc.sourceType,
-            doc.refId,
-            doc.city,
-            doc.title,
-            doc.body,
-            doc.hash,
-            doc.sourceUpdatedAt?.let { java.sql.Timestamp.valueOf(it) },
+        mapper.upsertDocument(
+            docId = doc.docId,
+            sourceType = doc.sourceType,
+            refId = doc.refId,
+            city = doc.city,
+            title = doc.title,
+            body = doc.body,
+            docHash = doc.hash,
+            sourceUpdatedAt = doc.sourceUpdatedAt,
         )
     }
 
     private fun upsertChunksAndVectors(doc: SourceDoc, model: String): ChunkUpsertStats {
-        val existingHashesByChunkOrder = jdbcTemplate.query(
-            """
-            SELECT chunk_order, chunk_hash
-            FROM travel_doc_chunk
-            WHERE doc_id = ?
-            """.trimIndent(),
-            { rs, _ -> rs.getInt("chunk_order") to rs.getString("chunk_hash") },
-            doc.docId,
-        ).toMap()
+        val existingHashesByChunkOrder = mapper.listChunkHashes(doc.docId).associate { it.chunkOrder to it.chunkHash }
 
         val chunks = chunkText(doc.body)
         var chunksUpserted = 0
@@ -505,20 +371,12 @@ class RagIndexBuilderService(
                 return@forEachIndexed
             }
 
-            jdbcTemplate.update(
-                """
-                INSERT INTO travel_doc_chunk (chunk_id, doc_id, chunk_order, chunk_text, chunk_hash)
-                VALUES (?, ?, ?, ?, ?)
-                ON DUPLICATE KEY UPDATE
-                  chunk_text = VALUES(chunk_text),
-                  chunk_hash = VALUES(chunk_hash),
-                  updated_at = CURRENT_TIMESTAMP(3)
-                """.trimIndent(),
-                chunkId,
-                doc.docId,
-                index + 1,
-                text,
-                chunkHash,
+            mapper.upsertChunk(
+                chunkId = chunkId,
+                docId = doc.docId,
+                chunkOrder = index + 1,
+                chunkText = text,
+                chunkHash = chunkHash,
             )
             chunksUpserted += 1
 
@@ -527,38 +385,18 @@ class RagIndexBuilderService(
                 emptyList()
             }
             if (vector.isNotEmpty()) {
-                jdbcTemplate.update(
-                    """
-                    INSERT INTO travel_doc_vec (chunk_id, model, vector_blob)
-                    VALUES (?, ?, ?)
-                    ON DUPLICATE KEY UPDATE
-                      vector_blob = VALUES(vector_blob),
-                      updated_at = CURRENT_TIMESTAMP(3)
-                    """.trimIndent(),
-                    chunkId,
-                    model,
-                    objectMapper.writeValueAsBytes(vector),
+                mapper.upsertVector(
+                    chunkId = chunkId,
+                    model = model,
+                    vectorBlob = objectMapper.writeValueAsBytes(vector),
                 )
                 vectorsUpserted += 1
             }
         }
 
         val nextOrder = chunks.size + 1
-        jdbcTemplate.update(
-            """
-            DELETE FROM travel_doc_vec
-            WHERE chunk_id IN (
-              SELECT chunk_id FROM travel_doc_chunk WHERE doc_id = ? AND chunk_order >= ?
-            )
-            """.trimIndent(),
-            doc.docId,
-            nextOrder,
-        )
-        jdbcTemplate.update(
-            "DELETE FROM travel_doc_chunk WHERE doc_id = ? AND chunk_order >= ?",
-            doc.docId,
-            nextOrder,
-        )
+        mapper.deleteVectorsByDocFromOrder(doc.docId, nextOrder)
+        mapper.deleteChunksByDocFromOrder(doc.docId, nextOrder)
 
         return ChunkUpsertStats(
             chunksUpserted = chunksUpserted,
@@ -567,24 +405,13 @@ class RagIndexBuilderService(
     }
 
     private fun deleteStaleDocuments(liveDocIds: Set<String>): Int {
-        val allIndexed = jdbcTemplate.query(
-            "SELECT doc_id FROM travel_doc",
-            { rs, _ -> rs.getString("doc_id") },
-        )
+        val allIndexed = mapper.listAllIndexedDocIds()
 
         val stale = allIndexed.filter { it !in liveDocIds }
         stale.forEach { docId ->
-            jdbcTemplate.update(
-                """
-                DELETE FROM travel_doc_vec
-                WHERE chunk_id IN (
-                  SELECT chunk_id FROM travel_doc_chunk WHERE doc_id = ?
-                )
-                """.trimIndent(),
-                docId,
-            )
-            jdbcTemplate.update("DELETE FROM travel_doc_chunk WHERE doc_id = ?", docId)
-            jdbcTemplate.update("DELETE FROM travel_doc WHERE doc_id = ?", docId)
+            mapper.deleteVectorsByDoc(docId)
+            mapper.deleteChunksByDoc(docId)
+            mapper.deleteDocument(docId)
         }
         return stale.size
     }
@@ -620,7 +447,7 @@ class RagIndexBuilderService(
         return digest.joinToString("") { "%02x".format(it) }
     }
 
-    private data class SourceDoc(
+    data class SourceDoc(
         val docId: String,
         val sourceType: String,
         val refId: Long?,
@@ -672,3 +499,282 @@ data class RagIndexBuildData(
     val elapsed_ms: Long,
     val speedup_vs_full: Double?,
 )
+
+data class IndexedHashRow(
+    val docId: String,
+    val docHash: String,
+)
+
+data class PropertySourceRow(
+    val id: Long,
+    val name: String,
+    val city: String?,
+    val country: String?,
+    val updatedAt: LocalDateTime?,
+    val rating: Double,
+    val minPrice: Long,
+)
+
+data class TicketSourceRow(
+    val id: Long,
+    val name: String,
+    val city: String?,
+    val productType: String?,
+    val updatedAt: LocalDateTime?,
+    val nextStart: LocalDateTime?,
+    val maxRemain: Int,
+)
+
+data class PackageSourceRow(
+    val id: Long,
+    val name: String,
+    val amountTotal: Long,
+    val currency: String?,
+    val updatedAt: LocalDateTime?,
+    val componentCity: String?,
+    val componentCityCount: Int,
+)
+
+data class PoiSourceRow(
+    val id: Long,
+    val name: String,
+    val category: String?,
+    val city: String?,
+    val createdAt: LocalDateTime?,
+)
+
+data class ChunkHashRow(
+    val chunkOrder: Int,
+    val chunkHash: String,
+)
+
+@Mapper
+interface RagIndexBuilderMapper {
+    @Select("SELECT MAX(source_updated_at) FROM travel_doc WHERE source_type = #{sourceType}")
+    fun findLatestIndexedAt(@Param("sourceType") sourceType: String): LocalDateTime?
+
+    @Select(
+        """
+        <script>
+        SELECT doc_id AS docId, doc_hash AS docHash
+        FROM travel_doc
+        WHERE doc_id IN
+        <foreach collection="docIds" item="docId" open="(" separator="," close=")">
+          #{docId}
+        </foreach>
+        </script>
+        """,
+    )
+    fun listExistingHashes(@Param("docIds") docIds: List<String>): List<IndexedHashRow>
+
+    @Select(
+        """
+        <script>
+        SELECT p.id,
+               p.name,
+               p.city,
+               p.country,
+               p.updated_at AS updatedAt,
+               COALESCE(p.rating, 0.0) AS rating,
+               COALESCE(MIN(rt.base_price), 0) AS minPrice
+        FROM property p
+        LEFT JOIN room_type rt ON rt.property_id = p.id AND rt.status = 'ACTIVE'
+        WHERE p.status = 'ACTIVE'
+          <if test="updatedAfter != null">
+            AND p.updated_at &gt; #{updatedAfter}
+          </if>
+        GROUP BY p.id, p.name, p.city, p.country, p.updated_at, p.rating
+        ORDER BY p.updated_at DESC
+        <if test="limit != null">LIMIT #{limit}</if>
+        </script>
+        """,
+    )
+    fun listPropertyDocRows(
+        @Param("updatedAfter") updatedAfter: LocalDateTime?,
+        @Param("limit") limit: Int?,
+    ): List<PropertySourceRow>
+
+    @Select(
+        """
+        <script>
+        SELECT p.id,
+               p.name,
+               p.city,
+               p.product_type AS productType,
+               p.updated_at AS updatedAt,
+               MIN(te.start_time) AS nextStart,
+               COALESCE(MAX(ti.total - ti.sold - ti.hold), 0) AS maxRemain
+        FROM product p
+        LEFT JOIN ticket_event te ON te.product_id = p.id AND te.status = 'ACTIVE'
+        LEFT JOIN ticket_inventory ti ON ti.event_id = te.id
+        WHERE p.status = 'ACTIVE'
+          <if test="updatedAfter != null">
+            AND p.updated_at &gt; #{updatedAfter}
+          </if>
+        GROUP BY p.id, p.name, p.city, p.product_type, p.updated_at
+        ORDER BY p.updated_at DESC
+        <if test="limit != null">LIMIT #{limit}</if>
+        </script>
+        """,
+    )
+    fun listTicketDocRows(
+        @Param("updatedAfter") updatedAfter: LocalDateTime?,
+        @Param("limit") limit: Int?,
+    ): List<TicketSourceRow>
+
+    @Select(
+        """
+        <script>
+        SELECT pp.id,
+               pp.name,
+               pp.amount_total AS amountTotal,
+               pp.currency,
+               pp.updated_at AS updatedAt,
+               MAX(COALESCE(pr.city, prod.city)) AS componentCity,
+               COUNT(DISTINCT COALESCE(pr.city, prod.city)) AS componentCityCount
+        FROM package_product pp
+        LEFT JOIN package_product_component ppc ON ppc.package_id = pp.id
+        LEFT JOIN room_type rt ON rt.id = ppc.room_type_id
+        LEFT JOIN property pr ON pr.id = rt.property_id
+        LEFT JOIN ticket_event te ON te.id = ppc.ticket_event_id
+        LEFT JOIN product prod ON prod.id = te.product_id
+        WHERE pp.status = 'ACTIVE'
+          <if test="updatedAfter != null">
+            AND pp.updated_at &gt; #{updatedAfter}
+          </if>
+        GROUP BY pp.id, pp.name, pp.amount_total, pp.currency, pp.updated_at
+        ORDER BY pp.updated_at DESC
+        <if test="limit != null">LIMIT #{limit}</if>
+        </script>
+        """,
+    )
+    fun listPackageDocRows(
+        @Param("updatedAfter") updatedAfter: LocalDateTime?,
+        @Param("limit") limit: Int?,
+    ): List<PackageSourceRow>
+
+    @Select(
+        """
+        <script>
+        SELECT id, name, category, city, created_at AS createdAt
+        FROM poi
+        WHERE 1=1
+          <if test="createdAfter != null">
+            AND created_at &gt; #{createdAfter}
+          </if>
+        ORDER BY created_at DESC
+        <if test="limit != null">LIMIT #{limit}</if>
+        </script>
+        """,
+    )
+    fun listPoiDocRows(
+        @Param("createdAfter") createdAfter: LocalDateTime?,
+        @Param("limit") limit: Int?,
+    ): List<PoiSourceRow>
+
+    @Insert(
+        """
+        INSERT INTO travel_doc (doc_id, source_type, ref_id, city, title, body, doc_hash, source_updated_at)
+        VALUES (#{docId}, #{sourceType}, #{refId}, #{city}, #{title}, #{body}, #{docHash}, #{sourceUpdatedAt})
+        ON DUPLICATE KEY UPDATE
+          source_type = VALUES(source_type),
+          ref_id = VALUES(ref_id),
+          city = VALUES(city),
+          title = VALUES(title),
+          body = VALUES(body),
+          doc_hash = VALUES(doc_hash),
+          source_updated_at = VALUES(source_updated_at),
+          updated_at = CURRENT_TIMESTAMP(3)
+        """,
+    )
+    fun upsertDocument(
+        @Param("docId") docId: String,
+        @Param("sourceType") sourceType: String,
+        @Param("refId") refId: Long?,
+        @Param("city") city: String?,
+        @Param("title") title: String,
+        @Param("body") body: String,
+        @Param("docHash") docHash: String,
+        @Param("sourceUpdatedAt") sourceUpdatedAt: LocalDateTime?,
+    ): Int
+
+    @Select(
+        """
+        SELECT chunk_order AS chunkOrder, chunk_hash AS chunkHash
+        FROM travel_doc_chunk
+        WHERE doc_id = #{docId}
+        """,
+    )
+    fun listChunkHashes(@Param("docId") docId: String): List<ChunkHashRow>
+
+    @Insert(
+        """
+        INSERT INTO travel_doc_chunk (chunk_id, doc_id, chunk_order, chunk_text, chunk_hash)
+        VALUES (#{chunkId}, #{docId}, #{chunkOrder}, #{chunkText}, #{chunkHash})
+        ON DUPLICATE KEY UPDATE
+          chunk_text = VALUES(chunk_text),
+          chunk_hash = VALUES(chunk_hash),
+          updated_at = CURRENT_TIMESTAMP(3)
+        """,
+    )
+    fun upsertChunk(
+        @Param("chunkId") chunkId: String,
+        @Param("docId") docId: String,
+        @Param("chunkOrder") chunkOrder: Int,
+        @Param("chunkText") chunkText: String,
+        @Param("chunkHash") chunkHash: String,
+    ): Int
+
+    @Insert(
+        """
+        INSERT INTO travel_doc_vec (chunk_id, model, vector_blob)
+        VALUES (#{chunkId}, #{model}, #{vectorBlob})
+        ON DUPLICATE KEY UPDATE
+          vector_blob = VALUES(vector_blob),
+          updated_at = CURRENT_TIMESTAMP(3)
+        """,
+    )
+    fun upsertVector(
+        @Param("chunkId") chunkId: String,
+        @Param("model") model: String,
+        @Param("vectorBlob") vectorBlob: ByteArray,
+    ): Int
+
+    @Delete(
+        """
+        DELETE FROM travel_doc_vec
+        WHERE chunk_id IN (
+          SELECT chunk_id FROM travel_doc_chunk WHERE doc_id = #{docId} AND chunk_order >= #{nextOrder}
+        )
+        """,
+    )
+    fun deleteVectorsByDocFromOrder(
+        @Param("docId") docId: String,
+        @Param("nextOrder") nextOrder: Int,
+    ): Int
+
+    @Delete("DELETE FROM travel_doc_chunk WHERE doc_id = #{docId} AND chunk_order >= #{nextOrder}")
+    fun deleteChunksByDocFromOrder(
+        @Param("docId") docId: String,
+        @Param("nextOrder") nextOrder: Int,
+    ): Int
+
+    @Select("SELECT doc_id FROM travel_doc")
+    fun listAllIndexedDocIds(): List<String>
+
+    @Delete(
+        """
+        DELETE FROM travel_doc_vec
+        WHERE chunk_id IN (
+          SELECT chunk_id FROM travel_doc_chunk WHERE doc_id = #{docId}
+        )
+        """,
+    )
+    fun deleteVectorsByDoc(@Param("docId") docId: String): Int
+
+    @Delete("DELETE FROM travel_doc_chunk WHERE doc_id = #{docId}")
+    fun deleteChunksByDoc(@Param("docId") docId: String): Int
+
+    @Delete("DELETE FROM travel_doc WHERE doc_id = #{docId}")
+    fun deleteDocument(@Param("docId") docId: String): Int
+}

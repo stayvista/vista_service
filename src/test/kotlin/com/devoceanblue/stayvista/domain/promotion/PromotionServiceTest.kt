@@ -5,17 +5,14 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry
 import java.time.Instant
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
-import org.mockito.ArgumentMatchers
 import org.mockito.Mockito
-import org.springframework.jdbc.core.JdbcTemplate
-import org.springframework.jdbc.core.RowMapper
 
 class PromotionServiceTest {
-    private val jdbcTemplate: JdbcTemplate = Mockito.mock(JdbcTemplate::class.java)
+    private val mapper: PromotionMapper = Mockito.mock(PromotionMapper::class.java)
     private val domainSupportService: DomainSupportService = Mockito.mock(DomainSupportService::class.java)
     private val meterRegistry = SimpleMeterRegistry()
     private val promotionService = PromotionService(
-        jdbcTemplate = jdbcTemplate,
+        mapper = mapper,
         domainSupportService = domainSupportService,
         meterRegistry = meterRegistry,
     )
@@ -66,51 +63,45 @@ class PromotionServiceTest {
         assertEquals(1, result.items.size)
     }
 
-    @Suppress("UNCHECKED_CAST")
     private fun stubQuery(capturedArgs: MutableList<Any?>) {
         Mockito.`when`(
-            jdbcTemplate.query(
-                ArgumentMatchers.anyString(),
-                ArgumentMatchers.any<RowMapper<PromotionCampaignSummary>>(),
-                ArgumentMatchers.any(),
-                ArgumentMatchers.any(),
-                ArgumentMatchers.any(),
-                ArgumentMatchers.any(),
-                ArgumentMatchers.any(),
-                ArgumentMatchers.any(),
+            mapper.listCampaigns(
+                Mockito.anyString(),
+                Mockito.anyString(),
+                Mockito.anyString(),
+                Mockito.anyInt(),
             ),
         ).thenAnswer { invocation ->
             capturedArgs.clear()
-            capturedArgs.add(invocation.getArgument(2))
-            capturedArgs.add(invocation.getArgument(3))
-            capturedArgs.add(invocation.getArgument(4))
-            capturedArgs.add(invocation.getArgument(5))
-            capturedArgs.add(invocation.getArgument(6))
-            capturedArgs.add(invocation.getArgument(7))
+            capturedArgs.add(invocation.getArgument<String>(0))
+            capturedArgs.add(invocation.getArgument<String>(1))
+            capturedArgs.add(invocation.getArgument<String>(1))
+            capturedArgs.add(invocation.getArgument<String>(2))
+            capturedArgs.add(invocation.getArgument<String>(2))
+            capturedArgs.add(invocation.getArgument<Int>(3))
             listOf(
-                PromotionCampaignSummary(
-                    campaign_id = 1L,
+                PromotionCampaignQueryRow(
+                    id = 1L,
                     code = "PROMO_TEST",
                     section = "HOTEL_SALE",
                     title = "title",
                     subtitle = null,
                     description = null,
                     city = null,
-                    image_url = null,
-                    badge_text = null,
-                    discount_text = null,
+                    imageUrl = null,
+                    badgeText = null,
+                    discountText = null,
                     currency = "KRW",
-                    coupon_value_type = "PERCENT",
-                    coupon_value = 10.0,
-                    min_order_amount = 10000L,
-                    issue_limit = 100,
-                    issued_count = 0,
-                    remaining_count = 100,
-                    starts_at = Instant.now().minusSeconds(3600),
-                    ends_at = Instant.now().plusSeconds(3600),
+                    couponValueType = "PERCENT",
+                    couponValue = 10.0,
+                    minOrderAmount = 10000L,
+                    issueLimit = 100,
+                    issuedCount = 0,
+                    startsAt = java.sql.Timestamp.from(Instant.now().minusSeconds(3600)),
+                    endsAt = java.sql.Timestamp.from(Instant.now().plusSeconds(3600)),
                     priority = 1,
                     status = "ACTIVE",
-                    claimable = true,
+                    remainingCount = 100,
                 ),
             )
         }

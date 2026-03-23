@@ -2,12 +2,14 @@ package com.devoceanblue.stayvista.domain.search
 
 import com.devoceanblue.stayvista.domain.common.PlaceIdCodec
 import com.devoceanblue.stayvista.domain.common.PlaceType
-import org.springframework.jdbc.core.JdbcTemplate
+import org.apache.ibatis.annotations.Mapper
+import org.apache.ibatis.annotations.Param
+import org.apache.ibatis.annotations.Select
 import org.springframework.stereotype.Service
 
 @Service
 class DestinationRecommendationService(
-    private val jdbcTemplate: JdbcTemplate,
+    private val mapper: DestinationRecommendationMapper,
 ) {
     fun recommend(
         cityId: String?,
@@ -47,19 +49,7 @@ class DestinationRecommendationService(
 
     private fun resolveCountry(city: String): String {
         val normalizedCity = CityCanonicalizer.canonicalize(city) ?: city
-        val fromProperty = jdbcTemplate.query(
-            """
-            SELECT country
-            FROM property
-            WHERE city = ?
-              AND status = 'ACTIVE'
-              AND country IS NOT NULL
-              AND country <> ''
-            LIMIT 1
-            """.trimIndent(),
-            { rs, _ -> rs.getString("country") },
-            normalizedCity,
-        ).firstOrNull()
+        val fromProperty = mapper.findCountryByCity(normalizedCity)
 
         if (!fromProperty.isNullOrBlank()) {
             return fromProperty
@@ -73,175 +63,50 @@ class DestinationRecommendationService(
     }
 
     private fun loadDistricts(city: String, limit: Int): List<DistrictRecommendation> {
-        val fromTable = jdbcTemplate.query(
-            """
-            SELECT id, name, blurb, rank_score
-            FROM district
-            WHERE city = ?
-            ORDER BY rank_score DESC, id ASC
-            LIMIT ?
-            """.trimIndent(),
-            { rs, _ ->
-                DistrictRecommendation(
-                    id = rs.getLong("id"),
-                    name = rs.getString("name"),
-                    blurb = rs.getString("blurb"),
-                    rank = rs.getInt("rank_score"),
-                )
-            },
-            city,
-            limit,
-        )
+        val fromTable = mapper.listDistricts(city = city, limit = limit)
         if (fromTable.isNotEmpty()) {
             return fromTable
         }
 
-        return jdbcTemplate.query(
-            """
-            SELECT district_name, COUNT(*) AS cnt
-            FROM property
-            WHERE city = ?
-              AND status = 'ACTIVE'
-              AND district_name IS NOT NULL
-              AND district_name <> ''
-            GROUP BY district_name
-            ORDER BY cnt DESC, district_name ASC
-            LIMIT ?
-            """.trimIndent(),
-            { rs, idx ->
+        return mapper.listFallbackDistricts(city = city, limit = limit)
+            .mapIndexed { idx, row ->
                 DistrictRecommendation(
                     id = (idx + 1).toLong(),
-                    name = rs.getString("district_name"),
-                    blurb = "${rs.getString("district_name")} 중심 숙소",
-                    rank = rs.getInt("cnt"),
+                    name = row.districtName,
+                    blurb = "${row.districtName} 중심 숙소",
+                    rank = row.count,
                 )
-            },
-            city,
-            limit,
-        )
+            }
     }
 
     private fun loadPois(city: String, limit: Int): List<PoiRecommendation> {
-        val ranked = jdbcTemplate.query(
-            """
-            SELECT p.id, p.name, p.category, cpp.rank_score
-            FROM city_poi_popular cpp
-            JOIN poi p ON p.id = cpp.poi_id
-            WHERE cpp.city = ?
-              AND p.active = 1
-            ORDER BY cpp.rank_score DESC, p.id ASC
-            LIMIT ?
-            """.trimIndent(),
-            { rs, _ ->
-                PoiRecommendation(
-                    poi_id = rs.getLong("id"),
-                    name = rs.getString("name"),
-                    category = rs.getString("category") ?: "attraction",
-                    rank = rs.getInt("rank_score"),
-                )
-            },
-            city,
-            limit,
-        )
+        val ranked = mapper.listRankedPois(city = city, limit = limit)
         if (ranked.isNotEmpty()) {
             return ranked
         }
 
-        return jdbcTemplate.query(
-            """
-            SELECT id, name, category, popularity_score
-            FROM poi
-            WHERE city = ?
-              AND active = 1
-            ORDER BY popularity_score DESC, rating_score DESC, id ASC
-            LIMIT ?
-            """.trimIndent(),
-            { rs, _ ->
-                PoiRecommendation(
-                    poi_id = rs.getLong("id"),
-                    name = rs.getString("name"),
-                    category = rs.getString("category") ?: "attraction",
-                    rank = rs.getInt("popularity_score"),
-                )
-            },
-            city,
-            limit,
-        )
+        return mapper.listFallbackPois(city = city, limit = limit)
     }
 
     private fun loadFeaturedProperties(city: String, limit: Int): List<FeaturedPropertyRecommendation> {
-        val curated = jdbcTemplate.query(
-            """
-            SELECT p.id, p.name, p.thumbnail_url, p.star_rating, cfp.rank_score
-            FROM city_featured_property cfp
-            JOIN property p ON p.id = cfp.property_id
-            WHERE cfp.city = ?
-              AND p.status = 'ACTIVE'
-            ORDER BY cfp.rank_score DESC, p.id ASC
-            LIMIT ?
-            """.trimIndent(),
-            { rs, _ ->
-                FeaturedPropertyRecommendation(
-                    property_id = rs.getLong("id"),
-                    name = rs.getString("name"),
-                    thumb = rs.getString("thumbnail_url"),
-                    stars = rs.getInt("star_rating"),
-                    rank = rs.getInt("rank_score"),
-                )
-            },
-            city,
-            limit,
-        )
+        val curated = mapper.listCuratedProperties(city = city, limit = limit)
         if (curated.isNotEmpty()) {
             return curated
         }
 
-        return jdbcTemplate.query(
-            """
-            SELECT id, name, thumbnail_url, star_rating, rating, popularity_score
-            FROM property
-            WHERE city = ?
-              AND status = 'ACTIVE'
-            ORDER BY rating DESC, popularity_score DESC, id ASC
-            LIMIT ?
-            """.trimIndent(),
-            { rs, _ ->
-                FeaturedPropertyRecommendation(
-                    property_id = rs.getLong("id"),
-                    name = rs.getString("name"),
-                    thumb = rs.getString("thumbnail_url"),
-                    stars = rs.getInt("star_rating"),
-                    rank = rs.getInt("popularity_score"),
-                )
-            },
-            city,
-            limit,
-        )
+        return mapper.listFallbackProperties(city = city, limit = limit)
     }
 
     private fun loadCountryPopularCities(country: String, city: String, limit: Int): List<PopularCityRecommendation> {
-        val candidates = jdbcTemplate.query(
-            """
-            SELECT p.city, COUNT(*) AS cnt
-            FROM property p
-            WHERE p.status = 'ACTIVE'
-              AND p.country = ?
-            GROUP BY p.city
-            ORDER BY cnt DESC, p.city ASC
-            LIMIT ?
-            """.trimIndent(),
-            { rs, _ ->
-                val cityName = rs.getString("city")
+        val candidates = mapper.listPopularCities(country = country, limit = limit + 2)
+            .map { row ->
                 PopularCityRecommendation(
-                    city = cityName,
+                    city = row.city,
                     country = country,
-                    property_count = rs.getInt("cnt"),
-                    highlights = cityHighlights(cityName),
+                    property_count = row.count,
+                    highlights = cityHighlights(row.city),
                 )
-            },
-            country,
-            limit + 2,
-        ).filter { it.city != city }
+            }.filter { it.city != city }
             .take(limit)
 
         if (candidates.isNotEmpty()) {
@@ -256,21 +121,7 @@ class DestinationRecommendationService(
     }
 
     private fun cityHighlights(city: String): String {
-        val categories = jdbcTemplate.query(
-            """
-            SELECT category, COUNT(*) AS cnt
-            FROM poi
-            WHERE city = ?
-              AND active = 1
-              AND category IS NOT NULL
-              AND category <> ''
-            GROUP BY category
-            ORDER BY cnt DESC, category ASC
-            LIMIT 2
-            """.trimIndent(),
-            { rs, _ -> rs.getString("category") },
-            city,
-        )
+        val categories = mapper.listCityHighlightCategories(city)
         if (categories.isEmpty()) {
             return "인기 여행지"
         }
@@ -326,3 +177,154 @@ data class PopularCityRecommendation(
     val property_count: Int,
     val highlights: String,
 )
+
+data class DestinationDistrictFallbackRow(
+    val districtName: String,
+    val count: Int,
+)
+
+data class DestinationPopularCityRow(
+    val city: String,
+    val count: Int,
+)
+
+@Mapper
+interface DestinationRecommendationMapper {
+    @Select(
+        """
+        SELECT country
+        FROM property
+        WHERE city = #{city}
+          AND status = 'ACTIVE'
+          AND country IS NOT NULL
+          AND country <> ''
+        LIMIT 1
+        """,
+    )
+    fun findCountryByCity(@Param("city") city: String): String?
+
+    @Select(
+        """
+        SELECT id, name, blurb, rank_score AS rank
+        FROM district
+        WHERE city = #{city}
+        ORDER BY rank_score DESC, id ASC
+        LIMIT #{limit}
+        """,
+    )
+    fun listDistricts(
+        @Param("city") city: String,
+        @Param("limit") limit: Int,
+    ): List<DistrictRecommendation>
+
+    @Select(
+        """
+        SELECT district_name AS districtName, COUNT(*) AS count
+        FROM property
+        WHERE city = #{city}
+          AND status = 'ACTIVE'
+          AND district_name IS NOT NULL
+          AND district_name <> ''
+        GROUP BY district_name
+        ORDER BY count DESC, district_name ASC
+        LIMIT #{limit}
+        """,
+    )
+    fun listFallbackDistricts(
+        @Param("city") city: String,
+        @Param("limit") limit: Int,
+    ): List<DestinationDistrictFallbackRow>
+
+    @Select(
+        """
+        SELECT p.id AS poi_id, p.name, COALESCE(p.category, 'attraction') AS category, cpp.rank_score AS rank
+        FROM city_poi_popular cpp
+        JOIN poi p ON p.id = cpp.poi_id
+        WHERE cpp.city = #{city}
+          AND p.active = 1
+        ORDER BY cpp.rank_score DESC, p.id ASC
+        LIMIT #{limit}
+        """,
+    )
+    fun listRankedPois(
+        @Param("city") city: String,
+        @Param("limit") limit: Int,
+    ): List<PoiRecommendation>
+
+    @Select(
+        """
+        SELECT id AS poi_id, name, COALESCE(category, 'attraction') AS category, popularity_score AS rank
+        FROM poi
+        WHERE city = #{city}
+          AND active = 1
+        ORDER BY popularity_score DESC, rating_score DESC, id ASC
+        LIMIT #{limit}
+        """,
+    )
+    fun listFallbackPois(
+        @Param("city") city: String,
+        @Param("limit") limit: Int,
+    ): List<PoiRecommendation>
+
+    @Select(
+        """
+        SELECT p.id AS property_id, p.name, p.thumbnail_url AS thumb, p.star_rating AS stars, cfp.rank_score AS rank
+        FROM city_featured_property cfp
+        JOIN property p ON p.id = cfp.property_id
+        WHERE cfp.city = #{city}
+          AND p.status = 'ACTIVE'
+        ORDER BY cfp.rank_score DESC, p.id ASC
+        LIMIT #{limit}
+        """,
+    )
+    fun listCuratedProperties(
+        @Param("city") city: String,
+        @Param("limit") limit: Int,
+    ): List<FeaturedPropertyRecommendation>
+
+    @Select(
+        """
+        SELECT id AS property_id, name, thumbnail_url AS thumb, star_rating AS stars, popularity_score AS rank
+        FROM property
+        WHERE city = #{city}
+          AND status = 'ACTIVE'
+        ORDER BY rating DESC, popularity_score DESC, id ASC
+        LIMIT #{limit}
+        """,
+    )
+    fun listFallbackProperties(
+        @Param("city") city: String,
+        @Param("limit") limit: Int,
+    ): List<FeaturedPropertyRecommendation>
+
+    @Select(
+        """
+        SELECT p.city, COUNT(*) AS count
+        FROM property p
+        WHERE p.status = 'ACTIVE'
+          AND p.country = #{country}
+        GROUP BY p.city
+        ORDER BY count DESC, p.city ASC
+        LIMIT #{limit}
+        """,
+    )
+    fun listPopularCities(
+        @Param("country") country: String,
+        @Param("limit") limit: Int,
+    ): List<DestinationPopularCityRow>
+
+    @Select(
+        """
+        SELECT category
+        FROM poi
+        WHERE city = #{city}
+          AND active = 1
+          AND category IS NOT NULL
+          AND category <> ''
+        GROUP BY category
+        ORDER BY COUNT(*) DESC, category ASC
+        LIMIT 2
+        """,
+    )
+    fun listCityHighlightCategories(@Param("city") city: String): List<String>
+}

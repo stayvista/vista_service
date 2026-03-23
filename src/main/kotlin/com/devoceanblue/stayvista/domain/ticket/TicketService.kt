@@ -8,8 +8,13 @@ import com.devoceanblue.stayvista.domain.common.DomainSupportService
 import com.devoceanblue.stayvista.domain.payment.PaymentAuthorizationRequest
 import com.devoceanblue.stayvista.domain.payment.PaymentGateway
 import io.micrometer.core.instrument.MeterRegistry
+import org.apache.ibatis.annotations.Insert
+import org.apache.ibatis.annotations.Mapper
+import org.apache.ibatis.annotations.Options
+import org.apache.ibatis.annotations.Param
+import org.apache.ibatis.annotations.Select
+import org.apache.ibatis.annotations.Update
 import java.sql.Date
-import java.sql.PreparedStatement
 import java.sql.Time
 import java.sql.Timestamp
 import java.time.Clock
@@ -19,15 +24,13 @@ import java.time.LocalDateTime
 import java.time.LocalTime
 import java.time.ZoneOffset
 import org.springframework.beans.factory.annotation.Value
-import org.springframework.jdbc.core.JdbcTemplate
-import org.springframework.jdbc.support.GeneratedKeyHolder
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Service
 import org.springframework.transaction.support.TransactionTemplate
 
 @Service
 class TicketService(
-    private val jdbcTemplate: JdbcTemplate,
+    private val mapper: TicketMapper,
     private val domainSupportService: DomainSupportService,
     private val idempotencyService: IdempotencyService,
     private val retryExecutor: DbRetryExecutor,
@@ -40,176 +43,62 @@ class TicketService(
     fun createProduct(request: CreateTicketProductRequest): Long {
         val partnerId = request.partner_id ?: 1L
         domainSupportService.ensurePartnerExists(partnerId, "TICKET_VENDOR")
-        val keyHolder = GeneratedKeyHolder()
-        jdbcTemplate.update({ connection ->
-            val ps = connection.prepareStatement(
-                """
-                INSERT INTO product(partner_id, product_type, name, city, image_url, status)
-                VALUES (?, ?, ?, ?, ?, ?)
-                """.trimIndent(),
-                PreparedStatement.RETURN_GENERATED_KEYS,
-            )
-            ps.setLong(1, partnerId)
-            ps.setString(2, request.category)
-            ps.setString(3, request.name)
-            ps.setString(4, request.city)
-            ps.setString(5, request.image_url)
-            ps.setString(6, request.status)
-            ps
-        }, keyHolder)
-        val id = keyHolder.key?.toLong() ?: throw DomainException(ErrorCode.INTERNAL, "Failed to create ticket product")
-        return id
+        val command = TicketProductInsertCommand(
+            partnerId = partnerId,
+            productType = request.category,
+            name = request.name,
+            city = request.city,
+            imageUrl = request.image_url,
+            status = request.status,
+        )
+        mapper.insertProduct(command)
+        return command.id ?: throw DomainException(ErrorCode.INTERNAL, "Failed to create ticket product")
     }
 
     fun createEvent(productId: Long, request: CreateTicketEventRequest): Long {
-        val productExists = jdbcTemplate.queryForObject(
-            "SELECT COUNT(*) FROM product WHERE id = ?",
-            Long::class.java,
-            productId,
-        ) ?: 0L
+        val productExists = mapper.countProduct(productId)
         if (productExists == 0L) {
             throw DomainException(ErrorCode.NOT_FOUND, "Ticket product not found")
         }
-        val keyHolder = GeneratedKeyHolder()
         val startAt = LocalDateTime.of(request.event_date, request.start_time)
         val endAt = request.end_time?.let { LocalDateTime.of(request.event_date, it) }
-        jdbcTemplate.update({ connection ->
-            val ps = connection.prepareStatement(
-                """
-                INSERT INTO ticket_event(product_id, start_time, end_time, status)
-                VALUES (?, ?, ?, ?)
-                """.trimIndent(),
-                PreparedStatement.RETURN_GENERATED_KEYS,
-            )
-            ps.setLong(1, productId)
-            ps.setTimestamp(2, Timestamp.valueOf(startAt))
-            ps.setTimestamp(3, endAt?.let { Timestamp.valueOf(it) })
-            ps.setString(4, request.status)
-            ps
-        }, keyHolder)
-        return keyHolder.key?.toLong() ?: throw DomainException(ErrorCode.INTERNAL, "Failed to create ticket event")
+        val command = TicketEventInsertCommand(
+            productId = productId,
+            startTime = Timestamp.valueOf(startAt),
+            endTime = endAt?.let { Timestamp.valueOf(it) },
+            status = request.status,
+        )
+        mapper.insertEvent(command)
+        return command.id ?: throw DomainException(ErrorCode.INTERNAL, "Failed to create ticket event")
     }
 
     fun putInventory(eventId: Long, request: PutTicketInventoryRequest) {
-        val eventExists = jdbcTemplate.queryForObject(
-            "SELECT COUNT(*) FROM ticket_event WHERE id = ?",
-            Long::class.java,
-            eventId,
-        ) ?: 0L
+        val eventExists = mapper.countEvent(eventId)
         if (eventExists == 0L) {
             throw DomainException(ErrorCode.NOT_FOUND, "Ticket event not found")
         }
 
-        val conflict = jdbcTemplate.query(
-            """
-            SELECT event_id
-            FROM ticket_inventory
-            WHERE event_id = ?
-              AND ? < (hold + sold)
-            """.trimIndent(),
-            { rs, _ -> rs.getLong("event_id") },
-            eventId,
-            request.total,
-        ).firstOrNull()
+        val conflict = mapper.findInventoryConflict(eventId = eventId, total = request.total)
         if (conflict != null) {
             throw DomainException(
                 ErrorCode.INVENTORY_TOTAL_BELOW_COMMITTED,
                 "Inventory total cannot be lower than hold + sold",
             )
         }
-        jdbcTemplate.update(
-            """
-            INSERT INTO ticket_inventory(event_id, total, hold, sold)
-            VALUES (?, ?, 0, 0)
-            ON DUPLICATE KEY UPDATE total = VALUES(total), updated_at = NOW(3)
-            """.trimIndent(),
-            eventId,
-            request.total,
-        )
+        mapper.upsertInventory(eventId = eventId, total = request.total)
     }
 
     fun listProducts(): TicketProductListData {
-        val rows = jdbcTemplate.query(
-            """
-            SELECT id, name, product_type, city, status, image_url
-            FROM product
-            WHERE status='ACTIVE'
-            ORDER BY id DESC
-            """.trimIndent(),
-            { rs, _ ->
-                TicketProductSummary(
-                    product_id = rs.getLong("id"),
-                    name = rs.getString("name"),
-                    category = rs.getString("product_type"),
-                    city = rs.getString("city"),
-                    status = rs.getString("status"),
-                    image_url = rs.getString("image_url"),
-                )
-            },
-        )
+        val rows = mapper.listProducts()
         return TicketProductListData(rows)
     }
 
     fun getProduct(productId: Long): TicketProductDetail {
-        return jdbcTemplate.query(
-            """
-            SELECT id, name, product_type, city, status, image_url
-            FROM product
-            WHERE id = ?
-            """.trimIndent(),
-            { rs, _ ->
-                TicketProductDetail(
-                    product_id = rs.getLong("id"),
-                    name = rs.getString("name"),
-                    category = rs.getString("product_type"),
-                    city = rs.getString("city"),
-                    status = rs.getString("status"),
-                    image_url = rs.getString("image_url"),
-                )
-            },
-            productId,
-        ).firstOrNull() ?: throw DomainException(ErrorCode.NOT_FOUND, "Ticket product not found")
+        return mapper.findProduct(productId) ?: throw DomainException(ErrorCode.NOT_FOUND, "Ticket product not found")
     }
 
     fun listEvents(productId: Long?, date: LocalDate?): TicketEventListData {
-        val params = mutableListOf<Any?>()
-        val where = mutableListOf<String>()
-        if (productId != null) {
-            where += "te.product_id = ?"
-            params += productId
-        }
-        if (date != null) {
-            where += "DATE(te.start_time) = ?"
-            params += Date.valueOf(date)
-        }
-        val sql = buildString {
-            append(
-                """
-                SELECT te.id, te.product_id, te.start_time, te.end_time, te.status,
-                       COALESCE(ti.total, 0) AS total, COALESCE(ti.hold, 0) AS hold, COALESCE(ti.sold, 0) AS sold
-                FROM ticket_event te
-                LEFT JOIN ticket_inventory ti ON ti.event_id = te.id
-                """.trimIndent(),
-            )
-            if (where.isNotEmpty()) {
-                append(" WHERE ")
-                append(where.joinToString(" AND "))
-            }
-            append(" ORDER BY te.start_time")
-        }
-        val rows = jdbcTemplate.query(sql, { rs, _ ->
-            TicketEventSummary(
-                event_id = rs.getLong("id"),
-                product_id = rs.getLong("product_id"),
-                event_date = rs.getTimestamp("start_time").toLocalDateTime().toLocalDate(),
-                start_time = rs.getTimestamp("start_time").toLocalDateTime().toLocalTime(),
-                end_time = rs.getTimestamp("end_time")?.toLocalDateTime()?.toLocalTime(),
-                status = rs.getString("status"),
-                total = rs.getInt("total"),
-                hold = rs.getInt("hold"),
-                sold = rs.getInt("sold"),
-            )
-        }, *params.toTypedArray())
+        val rows = mapper.listEvents(productId = productId, eventDate = date?.let(Date::valueOf))
         return TicketEventListData(rows)
     }
 
@@ -245,40 +134,12 @@ class TicketService(
 
     fun listOrderVouchers(userId: Long, rawOrderId: String): TicketVoucherListData {
         val orderId = parseOrderId(rawOrderId)
-        val foundOrder = jdbcTemplate.queryForObject(
-            """
-            SELECT COUNT(*)
-            FROM ticket_order
-            WHERE id = ? AND user_id = ?
-            """.trimIndent(),
-            Long::class.java,
-            orderId,
-            userId,
-        ) ?: 0L
+        val foundOrder = mapper.countUserOrder(orderId = orderId, userId = userId)
         if (foundOrder == 0L) {
             throw DomainException(ErrorCode.NOT_FOUND, "Ticket order not found")
         }
 
-        val vouchers = jdbcTemplate.query(
-            """
-            SELECT id, sequence_no, status, qr_payload, issued_at, redeemed_at
-            FROM voucher
-            WHERE order_id = ? AND user_id = ?
-            ORDER BY sequence_no
-            """.trimIndent(),
-            { rs, _ ->
-                TicketVoucherSummary(
-                    voucher_id = "vch_${rs.getLong("id")}",
-                    sequence_no = rs.getInt("sequence_no"),
-                    status = rs.getString("status"),
-                    qr_payload = rs.getString("qr_payload"),
-                    issued_at = rs.getTimestamp("issued_at")?.toInstant()?.toString(),
-                    redeemed_at = rs.getTimestamp("redeemed_at")?.toInstant()?.toString(),
-                )
-            },
-            orderId,
-            userId,
-        )
+        val vouchers = mapper.listOrderVouchers(orderId = orderId, userId = userId)
 
         return TicketVoucherListData(
             order_id = "tord_$orderId",
@@ -288,20 +149,7 @@ class TicketService(
 
     fun validateVoucher(request: ValidateVoucherRequest): VoucherValidateData {
         val voucherId = resolveVoucherId(request)
-        val voucher = jdbcTemplate.query(
-            """
-            SELECT id, status
-            FROM voucher
-            WHERE id = ?
-            """.trimIndent(),
-            { rs, _ ->
-                VoucherRow(
-                    id = rs.getLong("id"),
-                    status = rs.getString("status"),
-                )
-            },
-            voucherId,
-        ).firstOrNull() ?: throw DomainException(ErrorCode.NOT_FOUND, "Voucher not found")
+        val voucher = mapper.findVoucher(voucherId) ?: throw DomainException(ErrorCode.NOT_FOUND, "Voucher not found")
 
         if (voucher.status == "REDEEMED") {
             throw DomainException(ErrorCode.ALREADY_USED, "Voucher already redeemed")
@@ -310,14 +158,7 @@ class TicketService(
             throw DomainException(ErrorCode.EXPIRED, "Voucher expired")
         }
 
-        jdbcTemplate.update(
-            """
-            UPDATE voucher
-            SET status='REDEEMED', redeemed_at=NOW(3)
-            WHERE id=? AND status='ISSUED'
-            """.trimIndent(),
-            voucher.id,
-        )
+        mapper.markVoucherRedeemed(voucher.id)
         return VoucherValidateData(
             voucher_id = "vch_${voucher.id}",
             result = "VALID",
@@ -330,34 +171,15 @@ class TicketService(
                 ?: throw DomainException(ErrorCode.VALIDATION_ERROR, "Invalid voucher_id")
         }
         if (!request.qr_payload.isNullOrBlank()) {
-            return jdbcTemplate.query(
-                """
-                SELECT id
-                FROM voucher
-                WHERE qr_payload = ?
-                ORDER BY id
-                LIMIT 1
-                """.trimIndent(),
-                { rs, _ -> rs.getLong("id") },
-                request.qr_payload,
-            ).firstOrNull() ?: throw DomainException(ErrorCode.NOT_FOUND, "Voucher not found")
+            return mapper.findVoucherIdByQrPayload(request.qr_payload)
+                ?: throw DomainException(ErrorCode.NOT_FOUND, "Voucher not found")
         }
         throw DomainException(ErrorCode.VALIDATION_ERROR, "voucher_id or qr_payload is required")
     }
 
     @Scheduled(fixedDelay = 60000, initialDelay = 45000)
     fun expireTicketHolds() {
-        val ids = jdbcTemplate.query(
-            """
-            SELECT id
-            FROM ticket_order
-            WHERE status='HOLD'
-              AND expires_at < NOW(3)
-            ORDER BY id
-            LIMIT 200
-            """.trimIndent(),
-            { rs, _ -> rs.getLong("id") },
-        )
+        val ids = mapper.listExpiredHoldIds(limit = 200)
         ids.forEach { orderId ->
             transactionTemplate.execute {
                 expireOne(orderId)
@@ -367,59 +189,31 @@ class TicketService(
 
     private fun holdTx(userId: Long, idempotencyKey: String, request: TicketHoldRequest): TicketHoldData {
         domainSupportService.ensureUserExists(userId)
-        val event = jdbcTemplate.query(
-            """
-            SELECT id, status
-            FROM ticket_event
-            WHERE id = ?
-            """.trimIndent(),
-            { rs, _ ->
-                TicketEventRow(
-                    id = rs.getLong("id"),
-                    status = rs.getString("status"),
-                )
-            },
-            request.event_id,
-        ).firstOrNull() ?: throw DomainException(ErrorCode.NOT_FOUND, "Ticket event not found")
+        val event = mapper.findEvent(request.event_id) ?: throw DomainException(ErrorCode.NOT_FOUND, "Ticket event not found")
         if (event.status != "ACTIVE") {
             throw DomainException(ErrorCode.NOT_FOUND, "Ticket event not available")
         }
 
-        val affected = jdbcTemplate.update(
-            """
-            UPDATE ticket_inventory
-            SET hold = hold + ?
-            WHERE event_id = ?
-              AND (hold + sold + ?) <= total
-            """.trimIndent(),
-            request.quantity,
-            request.event_id,
-            request.quantity,
+        val affected = mapper.increaseInventoryHold(
+            eventId = request.event_id,
+            quantity = request.quantity,
         )
         if (affected != 1) {
             throw DomainException(ErrorCode.TICKET_SOLD_OUT, "Ticket sold out")
         }
 
         val expiresAt = Instant.now(clock).plusSeconds(holdTtlMinutes * 60)
-        val keyHolder = GeneratedKeyHolder()
-        jdbcTemplate.update({ connection ->
-            val ps = connection.prepareStatement(
-                """
-                INSERT INTO ticket_order(user_id, event_id, qty, status, expires_at, currency, total_amount, idempotency_key)
-                VALUES (?, ?, ?, 'HOLD', ?, ?, ?, ?)
-                """.trimIndent(),
-                PreparedStatement.RETURN_GENERATED_KEYS,
-            )
-            ps.setLong(1, userId)
-            ps.setLong(2, request.event_id)
-            ps.setInt(3, request.quantity)
-            ps.setTimestamp(4, Timestamp.from(expiresAt))
-            ps.setString(5, request.price.currency)
-            ps.setLong(6, request.price.amount_total)
-            ps.setString(7, idempotencyKey)
-            ps
-        }, keyHolder)
-        val orderId = keyHolder.key?.toLong() ?: throw DomainException(ErrorCode.INTERNAL, "Failed to create order")
+        val command = TicketOrderInsertCommand(
+            userId = userId,
+            eventId = request.event_id,
+            qty = request.quantity,
+            expiresAt = Timestamp.from(expiresAt),
+            currency = request.price.currency,
+            totalAmount = request.price.amount_total,
+            idempotencyKey = idempotencyKey,
+        )
+        mapper.insertTicketOrder(command)
+        val orderId = command.id ?: throw DomainException(ErrorCode.INTERNAL, "Failed to create order")
 
         return TicketHoldData(
             order_id = "tord_$orderId",
@@ -430,27 +224,8 @@ class TicketService(
 
     private fun confirmTx(userId: Long, orderId: Long, request: TicketConfirmRequest): TicketConfirmData {
         domainSupportService.ensureUserExists(userId)
-        val order = jdbcTemplate.query(
-            """
-            SELECT id, event_id, qty, status, expires_at, total_amount, currency
-            FROM ticket_order
-            WHERE id = ? AND user_id = ?
-            FOR UPDATE
-            """.trimIndent(),
-            { rs, _ ->
-                TicketOrderRow(
-                    id = rs.getLong("id"),
-                    eventId = rs.getLong("event_id"),
-                    quantity = rs.getInt("qty"),
-                    status = rs.getString("status"),
-                    expiresAt = rs.getTimestamp("expires_at")?.toInstant(),
-                    totalAmount = rs.getLong("total_amount"),
-                    currency = rs.getString("currency"),
-                )
-            },
-            orderId,
-            userId,
-        ).firstOrNull() ?: throw DomainException(ErrorCode.NOT_FOUND, "Ticket order not found")
+        val order = mapper.findOrderForUpdate(orderId = orderId, userId = userId)
+            ?: throw DomainException(ErrorCode.NOT_FOUND, "Ticket order not found")
 
         if (order.status != "HOLD") {
             throw DomainException(ErrorCode.ORDER_STATE_CONFLICT, "Ticket order cannot be confirmed from ${order.status}")
@@ -469,33 +244,16 @@ class TicketService(
             ),
         )
 
-        val moved = jdbcTemplate.update(
-            """
-            UPDATE ticket_inventory
-            SET hold = hold - ?, sold = sold + ?
-            WHERE event_id = ?
-              AND hold >= ?
-            """.trimIndent(),
-            order.quantity,
-            order.quantity,
-            order.eventId,
-            order.quantity,
+        val moved = mapper.moveInventoryHoldToSold(
+            eventId = order.eventId,
+            quantity = order.quantity,
         )
         if (moved != 1) {
             meterRegistry.counter("ticket_confirm_inventory_conflict_total").increment()
             throw DomainException(ErrorCode.TICKET_SOLD_OUT, "Ticket sold out during confirm")
         }
 
-        jdbcTemplate.update(
-            """
-            UPDATE ticket_order
-            SET status='CONFIRMED',
-                confirmed_at=NOW(3),
-                updated_at=NOW(3)
-            WHERE id=?
-            """.trimIndent(),
-            order.id,
-        )
+        mapper.markOrderConfirmed(order.id)
 
         domainSupportService.appendOutbox(
             aggregateType = "TICKET_ORDER",
@@ -510,16 +268,7 @@ class TicketService(
             payload = mapOf("order_id" to order.id, "user_id" to userId, "event_id" to order.eventId, "quantity" to order.quantity),
         )
 
-        val voucherIds = jdbcTemplate.query(
-            """
-            SELECT id
-            FROM voucher
-            WHERE order_id = ?
-            ORDER BY sequence_no
-            """.trimIndent(),
-            { rs, _ -> "vch_${rs.getLong("id")}" },
-            order.id,
-        )
+        val voucherIds = mapper.listVoucherIds(order.id)
 
         return TicketConfirmData(
             order_id = "tord_${order.id}",
@@ -529,50 +278,17 @@ class TicketService(
     }
 
     private fun expireOne(orderId: Long) {
-        val order = jdbcTemplate.query(
-            """
-            SELECT id, event_id, qty, status, expires_at, total_amount, currency
-            FROM ticket_order
-            WHERE id = ?
-            FOR UPDATE
-            """.trimIndent(),
-            { rs, _ ->
-                TicketOrderRow(
-                    id = rs.getLong("id"),
-                    eventId = rs.getLong("event_id"),
-                    quantity = rs.getInt("qty"),
-                    status = rs.getString("status"),
-                    expiresAt = rs.getTimestamp("expires_at")?.toInstant(),
-                    totalAmount = rs.getLong("total_amount"),
-                    currency = rs.getString("currency"),
-                )
-            },
-            orderId,
-        ).firstOrNull() ?: return
+        val order = mapper.findOrderByIdForUpdate(orderId) ?: return
 
         if (order.status != "HOLD") return
         if (order.expiresAt == null || order.expiresAt.isAfter(Instant.now(clock))) return
 
-        val restored = jdbcTemplate.update(
-            """
-            UPDATE ticket_inventory
-            SET hold = hold - ?
-            WHERE event_id = ?
-              AND hold >= ?
-            """.trimIndent(),
-            order.quantity,
-            order.eventId,
-            order.quantity,
+        val restored = mapper.restoreInventoryHold(
+            eventId = order.eventId,
+            quantity = order.quantity,
         )
         if (restored == 1) {
-            jdbcTemplate.update(
-                """
-                UPDATE ticket_order
-                SET status='EXPIRED', expired_at=NOW(3), updated_at=NOW(3)
-                WHERE id=?
-                """.trimIndent(),
-                order.id,
-            )
+            mapper.markOrderExpired(order.id)
             meterRegistry.counter("ticket_hold_expired_total").increment()
         }
     }
@@ -693,12 +409,12 @@ data class VoucherValidateData(
     val result: String,
 )
 
-private data class TicketEventRow(
+data class TicketEventRow(
     val id: Long,
     val status: String,
 )
 
-private data class TicketOrderRow(
+data class TicketOrderRow(
     val id: Long,
     val eventId: Long,
     val quantity: Int,
@@ -708,7 +424,344 @@ private data class TicketOrderRow(
     val currency: String,
 )
 
-private data class VoucherRow(
+data class VoucherRow(
     val id: Long,
     val status: String,
 )
+
+data class TicketProductInsertCommand(
+    val partnerId: Long,
+    val productType: String,
+    val name: String,
+    val city: String?,
+    val imageUrl: String?,
+    val status: String,
+    var id: Long? = null,
+)
+
+data class TicketEventInsertCommand(
+    val productId: Long,
+    val startTime: Timestamp,
+    val endTime: Timestamp?,
+    val status: String,
+    var id: Long? = null,
+)
+
+data class TicketOrderInsertCommand(
+    val userId: Long,
+    val eventId: Long,
+    val qty: Int,
+    val expiresAt: Timestamp,
+    val currency: String,
+    val totalAmount: Long,
+    val idempotencyKey: String,
+    var id: Long? = null,
+)
+
+@Mapper
+interface TicketMapper {
+    @Insert(
+        """
+        INSERT INTO product(partner_id, product_type, name, city, image_url, status)
+        VALUES (#{partnerId}, #{productType}, #{name}, #{city}, #{imageUrl}, #{status})
+        """,
+    )
+    @Options(useGeneratedKeys = true, keyProperty = "id", keyColumn = "id")
+    fun insertProduct(command: TicketProductInsertCommand): Int
+
+    @Select("SELECT COUNT(*) FROM product WHERE id = #{productId}")
+    fun countProduct(@Param("productId") productId: Long): Long
+
+    @Insert(
+        """
+        INSERT INTO ticket_event(product_id, start_time, end_time, status)
+        VALUES (#{productId}, #{startTime}, #{endTime}, #{status})
+        """,
+    )
+    @Options(useGeneratedKeys = true, keyProperty = "id", keyColumn = "id")
+    fun insertEvent(command: TicketEventInsertCommand): Int
+
+    @Select("SELECT COUNT(*) FROM ticket_event WHERE id = #{eventId}")
+    fun countEvent(@Param("eventId") eventId: Long): Long
+
+    @Select(
+        """
+        SELECT event_id
+        FROM ticket_inventory
+        WHERE event_id = #{eventId}
+          AND #{total} < (hold + sold)
+        LIMIT 1
+        """,
+    )
+    fun findInventoryConflict(
+        @Param("eventId") eventId: Long,
+        @Param("total") total: Int,
+    ): Long?
+
+    @Insert(
+        """
+        INSERT INTO ticket_inventory(event_id, total, hold, sold)
+        VALUES (#{eventId}, #{total}, 0, 0)
+        ON DUPLICATE KEY UPDATE total = VALUES(total), updated_at = NOW(3)
+        """,
+    )
+    fun upsertInventory(
+        @Param("eventId") eventId: Long,
+        @Param("total") total: Int,
+    ): Int
+
+    @Select(
+        """
+        SELECT id AS product_id,
+               name,
+               product_type AS category,
+               city,
+               status,
+               image_url AS image_url
+        FROM product
+        WHERE status='ACTIVE'
+        ORDER BY id DESC
+        """,
+    )
+    fun listProducts(): List<TicketProductSummary>
+
+    @Select(
+        """
+        SELECT id AS product_id,
+               name,
+               product_type AS category,
+               city,
+               status,
+               image_url AS image_url
+        FROM product
+        WHERE id = #{productId}
+        LIMIT 1
+        """,
+    )
+    fun findProduct(@Param("productId") productId: Long): TicketProductDetail?
+
+    @Select(
+        """
+        <script>
+        SELECT te.id AS event_id,
+               te.product_id AS product_id,
+               DATE(te.start_time) AS event_date,
+               TIME(te.start_time) AS start_time,
+               TIME(te.end_time) AS end_time,
+               te.status,
+               COALESCE(ti.total, 0) AS total,
+               COALESCE(ti.hold, 0) AS hold,
+               COALESCE(ti.sold, 0) AS sold
+        FROM ticket_event te
+        LEFT JOIN ticket_inventory ti ON ti.event_id = te.id
+        <where>
+          <if test="productId != null">te.product_id = #{productId}</if>
+          <if test="eventDate != null">
+            <if test="productId != null">AND</if>
+            DATE(te.start_time) = #{eventDate}
+          </if>
+        </where>
+        ORDER BY te.start_time
+        </script>
+        """,
+    )
+    fun listEvents(
+        @Param("productId") productId: Long?,
+        @Param("eventDate") eventDate: Date?,
+    ): List<TicketEventSummary>
+
+    @Select(
+        """
+        SELECT COUNT(*)
+        FROM ticket_order
+        WHERE id = #{orderId} AND user_id = #{userId}
+        """,
+    )
+    fun countUserOrder(
+        @Param("orderId") orderId: Long,
+        @Param("userId") userId: Long,
+    ): Long
+
+    @Select(
+        """
+        SELECT CONCAT('vch_', id) AS voucher_id,
+               sequence_no,
+               status,
+               qr_payload,
+               issued_at AS issued_at,
+               redeemed_at AS redeemed_at
+        FROM voucher
+        WHERE order_id = #{orderId} AND user_id = #{userId}
+        ORDER BY sequence_no
+        """,
+    )
+    fun listOrderVouchers(
+        @Param("orderId") orderId: Long,
+        @Param("userId") userId: Long,
+    ): List<TicketVoucherSummary>
+
+    @Select(
+        """
+        SELECT id, status
+        FROM voucher
+        WHERE id = #{voucherId}
+        LIMIT 1
+        """,
+    )
+    fun findVoucher(@Param("voucherId") voucherId: Long): VoucherRow?
+
+    @Update(
+        """
+        UPDATE voucher
+        SET status='REDEEMED', redeemed_at=NOW(3)
+        WHERE id=#{voucherId} AND status='ISSUED'
+        """,
+    )
+    fun markVoucherRedeemed(@Param("voucherId") voucherId: Long): Int
+
+    @Select(
+        """
+        SELECT id
+        FROM voucher
+        WHERE qr_payload = #{qrPayload}
+        ORDER BY id
+        LIMIT 1
+        """,
+    )
+    fun findVoucherIdByQrPayload(@Param("qrPayload") qrPayload: String): Long?
+
+    @Select(
+        """
+        SELECT id
+        FROM ticket_order
+        WHERE status='HOLD'
+          AND expires_at < NOW(3)
+        ORDER BY id
+        LIMIT #{limit}
+        """,
+    )
+    fun listExpiredHoldIds(@Param("limit") limit: Int): List<Long>
+
+    @Select(
+        """
+        SELECT id, status
+        FROM ticket_event
+        WHERE id = #{eventId}
+        LIMIT 1
+        """,
+    )
+    fun findEvent(@Param("eventId") eventId: Long): TicketEventRow?
+
+    @Update(
+        """
+        UPDATE ticket_inventory
+        SET hold = hold + #{quantity}
+        WHERE event_id = #{eventId}
+          AND (hold + sold + #{quantity}) <= total
+        """,
+    )
+    fun increaseInventoryHold(
+        @Param("eventId") eventId: Long,
+        @Param("quantity") quantity: Int,
+    ): Int
+
+    @Insert(
+        """
+        INSERT INTO ticket_order(user_id, event_id, qty, status, expires_at, currency, total_amount, idempotency_key)
+        VALUES (#{userId}, #{eventId}, #{qty}, 'HOLD', #{expiresAt}, #{currency}, #{totalAmount}, #{idempotencyKey})
+        """,
+    )
+    @Options(useGeneratedKeys = true, keyProperty = "id", keyColumn = "id")
+    fun insertTicketOrder(command: TicketOrderInsertCommand): Int
+
+    @Select(
+        """
+        SELECT id,
+               event_id AS eventId,
+               qty AS quantity,
+               status,
+               expires_at AS expiresAt,
+               total_amount AS totalAmount,
+               currency
+        FROM ticket_order
+        WHERE id = #{orderId} AND user_id = #{userId}
+        FOR UPDATE
+        """,
+    )
+    fun findOrderForUpdate(
+        @Param("orderId") orderId: Long,
+        @Param("userId") userId: Long,
+    ): TicketOrderRow?
+
+    @Update(
+        """
+        UPDATE ticket_inventory
+        SET hold = hold - #{quantity}, sold = sold + #{quantity}
+        WHERE event_id = #{eventId}
+          AND hold >= #{quantity}
+        """,
+    )
+    fun moveInventoryHoldToSold(
+        @Param("eventId") eventId: Long,
+        @Param("quantity") quantity: Int,
+    ): Int
+
+    @Update(
+        """
+        UPDATE ticket_order
+        SET status='CONFIRMED',
+            confirmed_at=NOW(3),
+            updated_at=NOW(3)
+        WHERE id=#{orderId}
+        """,
+    )
+    fun markOrderConfirmed(@Param("orderId") orderId: Long): Int
+
+    @Select(
+        """
+        SELECT CONCAT('vch_', id)
+        FROM voucher
+        WHERE order_id = #{orderId}
+        ORDER BY sequence_no
+        """,
+    )
+    fun listVoucherIds(@Param("orderId") orderId: Long): List<String>
+
+    @Select(
+        """
+        SELECT id,
+               event_id AS eventId,
+               qty AS quantity,
+               status,
+               expires_at AS expiresAt,
+               total_amount AS totalAmount,
+               currency
+        FROM ticket_order
+        WHERE id = #{orderId}
+        FOR UPDATE
+        """,
+    )
+    fun findOrderByIdForUpdate(@Param("orderId") orderId: Long): TicketOrderRow?
+
+    @Update(
+        """
+        UPDATE ticket_inventory
+        SET hold = hold - #{quantity}
+        WHERE event_id = #{eventId}
+          AND hold >= #{quantity}
+        """,
+    )
+    fun restoreInventoryHold(
+        @Param("eventId") eventId: Long,
+        @Param("quantity") quantity: Int,
+    ): Int
+
+    @Update(
+        """
+        UPDATE ticket_order
+        SET status='EXPIRED', expired_at=NOW(3), updated_at=NOW(3)
+        WHERE id=#{orderId}
+        """,
+    )
+    fun markOrderExpired(@Param("orderId") orderId: Long): Int
+}

@@ -4,12 +4,15 @@ import com.devoceanblue.stayvista.common.api.DomainException
 import com.devoceanblue.stayvista.common.api.ErrorCode
 import java.security.MessageDigest
 import java.util.Locale
-import org.springframework.jdbc.core.JdbcTemplate
+import org.apache.ibatis.annotations.Insert
+import org.apache.ibatis.annotations.Mapper
+import org.apache.ibatis.annotations.Param
+import org.apache.ibatis.annotations.Select
 import org.springframework.stereotype.Service
 
 @Service
 class LocaleService(
-    private val jdbcTemplate: JdbcTemplate,
+    private val mapper: LocaleMapper,
 ) {
     fun getLocale(
         userId: Long?,
@@ -65,22 +68,7 @@ class LocaleService(
 
         if (userId != null) {
             runCatching {
-                jdbcTemplate.update(
-                    """
-                    INSERT INTO user_locale(user_id, country, currency, language, source)
-                    VALUES (?, ?, ?, ?, 'manual')
-                    ON DUPLICATE KEY UPDATE
-                      country = VALUES(country),
-                      currency = VALUES(currency),
-                      language = VALUES(language),
-                      source = 'manual',
-                      updated_at = NOW(3)
-                    """.trimIndent(),
-                    userId,
-                    country,
-                    currency,
-                    language,
-                )
+                mapper.upsertUserLocale(userId = userId, country = country, currency = currency, language = language)
             }
         }
 
@@ -92,21 +80,11 @@ class LocaleService(
         )
 
         runCatching {
-            jdbcTemplate.update(
-                """
-                INSERT INTO session_locale(session_id, country, currency, language, source)
-                VALUES (?, ?, ?, ?, 'manual')
-                ON DUPLICATE KEY UPDATE
-                  country = VALUES(country),
-                  currency = VALUES(currency),
-                  language = VALUES(language),
-                  source = 'manual',
-                  updated_at = NOW(3)
-                """.trimIndent(),
-                resolvedSessionId,
-                country,
-                currency,
-                language,
+            mapper.upsertSessionLocale(
+                sessionId = resolvedSessionId,
+                country = country,
+                currency = currency,
+                language = language,
             )
         }
 
@@ -130,45 +108,15 @@ class LocaleService(
 
     private fun loadUserLocale(userId: Long): LocaleData? {
         return runCatching {
-            jdbcTemplate.query(
-                """
-                SELECT country, currency, language
-                FROM user_locale
-                WHERE user_id = ?
-                LIMIT 1
-                """.trimIndent(),
-                { rs, _ ->
-                    LocaleData(
-                        country = rs.getString("country"),
-                        currency = rs.getString("currency"),
-                        language = rs.getString("language"),
-                        source = "stored_user",
-                    )
-                },
-                userId,
-            ).firstOrNull()
+            mapper.findUserLocale(userId)
+                ?.copy(source = "stored_user")
         }.getOrNull()
     }
 
     private fun loadSessionLocale(sessionId: String): LocaleData? {
         return runCatching {
-            jdbcTemplate.query(
-                """
-                SELECT country, currency, language
-                FROM session_locale
-                WHERE session_id = ?
-                LIMIT 1
-                """.trimIndent(),
-                { rs, _ ->
-                    LocaleData(
-                        country = rs.getString("country"),
-                        currency = rs.getString("currency"),
-                        language = rs.getString("language"),
-                        source = "stored_session",
-                    )
-                },
-                sessionId,
-            ).firstOrNull()
+            mapper.findSessionLocale(sessionId)
+                ?.copy(source = "stored_session")
         }.getOrNull()
     }
 
@@ -234,3 +182,64 @@ data class LocaleOverrideRequest(
     val currency: String,
     val language: String? = null,
 )
+
+@Mapper
+interface LocaleMapper {
+    @Insert(
+        """
+        INSERT INTO user_locale(user_id, country, currency, language, source)
+        VALUES (#{userId}, #{country}, #{currency}, #{language}, 'manual')
+        ON DUPLICATE KEY UPDATE
+          country = VALUES(country),
+          currency = VALUES(currency),
+          language = VALUES(language),
+          source = 'manual',
+          updated_at = NOW(3)
+        """,
+    )
+    fun upsertUserLocale(
+        @Param("userId") userId: Long,
+        @Param("country") country: String,
+        @Param("currency") currency: String,
+        @Param("language") language: String,
+    ): Int
+
+    @Insert(
+        """
+        INSERT INTO session_locale(session_id, country, currency, language, source)
+        VALUES (#{sessionId}, #{country}, #{currency}, #{language}, 'manual')
+        ON DUPLICATE KEY UPDATE
+          country = VALUES(country),
+          currency = VALUES(currency),
+          language = VALUES(language),
+          source = 'manual',
+          updated_at = NOW(3)
+        """,
+    )
+    fun upsertSessionLocale(
+        @Param("sessionId") sessionId: String,
+        @Param("country") country: String,
+        @Param("currency") currency: String,
+        @Param("language") language: String,
+    ): Int
+
+    @Select(
+        """
+        SELECT country, currency, language, 'stored_user' AS source
+        FROM user_locale
+        WHERE user_id = #{userId}
+        LIMIT 1
+        """,
+    )
+    fun findUserLocale(@Param("userId") userId: Long): LocaleData?
+
+    @Select(
+        """
+        SELECT country, currency, language, 'stored_session' AS source
+        FROM session_locale
+        WHERE session_id = #{sessionId}
+        LIMIT 1
+        """,
+    )
+    fun findSessionLocale(@Param("sessionId") sessionId: String): LocaleData?
+}

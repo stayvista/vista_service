@@ -1,13 +1,15 @@
 package com.devoceanblue.stayvista.domain.search
 
 import io.micrometer.core.instrument.MeterRegistry
-import org.springframework.jdbc.core.JdbcTemplate
+import org.apache.ibatis.annotations.Mapper
+import org.apache.ibatis.annotations.Param
+import org.apache.ibatis.annotations.Select
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Service
 
 @Service
 class SearchIndexSyncService(
-    private val jdbcTemplate: JdbcTemplate,
+    private val mapper: SearchIndexSyncMapper,
     private val openSearchClient: OpenSearchClient,
     private val meterRegistry: MeterRegistry,
 ) {
@@ -23,18 +25,7 @@ class SearchIndexSyncService(
     fun syncCatalogEvent(aggregateType: String, aggregateId: String, eventType: String) {
         val propertyId = when {
             eventType == "PropertyUpserted" && aggregateType == "PROPERTY" -> aggregateId.toLongOrNull()
-            eventType == "RoomTypeUpserted" && aggregateType == "ROOM_TYPE" -> {
-                val roomTypeId = aggregateId.toLongOrNull()
-                if (roomTypeId == null) {
-                    null
-                } else {
-                    jdbcTemplate.query(
-                        "SELECT property_id FROM room_type WHERE id = ?",
-                        { rs, _ -> rs.getLong("property_id") },
-                        roomTypeId,
-                    ).firstOrNull()
-                }
-            }
+            eventType == "RoomTypeUpserted" && aggregateType == "ROOM_TYPE" -> aggregateId.toLongOrNull()?.let(mapper::findPropertyIdByRoomType)
 
             else -> null
         }
@@ -43,44 +34,9 @@ class SearchIndexSyncService(
             return
         }
 
-        val property = jdbcTemplate.query(
-            """
-            SELECT id, name, city, country, status, lat, lng, rating, thumbnail_url
-            FROM property
-            WHERE id = ?
-            """.trimIndent(),
-            { rs, _ ->
-                PropertyDocument(
-                    propertyId = rs.getLong("id"),
-                    name = rs.getString("name"),
-                    city = rs.getString("city"),
-                    country = rs.getString("country"),
-                    status = rs.getString("status"),
-                    lat = rs.getBigDecimal("lat")?.toDouble(),
-                    lng = rs.getBigDecimal("lng")?.toDouble(),
-                    rating = rs.getBigDecimal("rating")?.toDouble() ?: 0.0,
-                    thumbnailUrl = rs.getString("thumbnail_url"),
-                )
-            },
-            propertyId,
-        ).firstOrNull() ?: return
+        val property = mapper.findProperty(propertyId) ?: return
 
-        val roomTypes = jdbcTemplate.query(
-            """
-            SELECT id, name, capacity_adults, base_price
-            FROM room_type
-            WHERE property_id = ?
-            """.trimIndent(),
-            { rs, _ ->
-                RoomTypeDocument(
-                    roomTypeId = rs.getLong("id"),
-                    name = rs.getString("name"),
-                    maxGuests = rs.getInt("capacity_adults"),
-                    basePrice = rs.getLong("base_price"),
-                )
-            },
-            propertyId,
-        )
+        val roomTypes = mapper.listRoomTypes(propertyId)
 
         val document = mutableMapOf<String, Any?>(
             "property_id" to property.propertyId,
@@ -111,16 +67,9 @@ class SearchIndexSyncService(
 
     fun reindexAll(limit: Int?): SearchReindexData {
         val propertyIds = if (limit != null) {
-            jdbcTemplate.query(
-                "SELECT id FROM property ORDER BY id LIMIT ?",
-                { rs, _ -> rs.getLong("id") },
-                limit,
-            )
+            mapper.listPropertyIdsLimited(limit)
         } else {
-            jdbcTemplate.query(
-                "SELECT id FROM property ORDER BY id",
-                { rs, _ -> rs.getLong("id") },
-            )
+            mapper.listPropertyIds()
         }
 
         var successCount = 0
@@ -145,24 +94,6 @@ class SearchIndexSyncService(
         )
     }
 
-    private data class PropertyDocument(
-        val propertyId: Long,
-        val name: String,
-        val city: String?,
-        val country: String?,
-        val status: String,
-        val lat: Double?,
-        val lng: Double?,
-        val rating: Double,
-        val thumbnailUrl: String?,
-    )
-
-    private data class RoomTypeDocument(
-        val roomTypeId: Long,
-        val name: String,
-        val maxGuests: Int,
-        val basePrice: Long,
-    )
 }
 
 data class SearchReindexData(
@@ -170,3 +101,64 @@ data class SearchReindexData(
     val upserted: Int,
     val failed: Int,
 )
+
+data class PropertyDocument(
+    val propertyId: Long,
+    val name: String,
+    val city: String?,
+    val country: String?,
+    val status: String,
+    val lat: Double?,
+    val lng: Double?,
+    val rating: Double,
+    val thumbnailUrl: String?,
+)
+
+data class RoomTypeDocument(
+    val roomTypeId: Long,
+    val name: String,
+    val maxGuests: Int,
+    val basePrice: Long,
+)
+
+@Mapper
+interface SearchIndexSyncMapper {
+    @Select("SELECT property_id FROM room_type WHERE id = #{roomTypeId} LIMIT 1")
+    fun findPropertyIdByRoomType(@Param("roomTypeId") roomTypeId: Long): Long?
+
+    @Select(
+        """
+        SELECT id AS propertyId,
+               name,
+               city,
+               country,
+               status,
+               lat,
+               lng,
+               COALESCE(rating, 0) AS rating,
+               thumbnail_url AS thumbnailUrl
+        FROM property
+        WHERE id = #{propertyId}
+        LIMIT 1
+        """,
+    )
+    fun findProperty(@Param("propertyId") propertyId: Long): PropertyDocument?
+
+    @Select(
+        """
+        SELECT id AS roomTypeId,
+               name,
+               capacity_adults AS maxGuests,
+               base_price AS basePrice
+        FROM room_type
+        WHERE property_id = #{propertyId}
+        """,
+    )
+    fun listRoomTypes(@Param("propertyId") propertyId: Long): List<RoomTypeDocument>
+
+    @Select("SELECT id FROM property ORDER BY id")
+    fun listPropertyIds(): List<Long>
+
+    @Select("SELECT id FROM property ORDER BY id LIMIT #{limit}")
+    fun listPropertyIdsLimited(@Param("limit") limit: Int): List<Long>
+}

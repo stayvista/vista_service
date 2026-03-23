@@ -6,12 +6,14 @@ import java.math.RoundingMode
 import java.time.Instant
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
-import org.springframework.jdbc.core.JdbcTemplate
+import org.apache.ibatis.annotations.Mapper
+import org.apache.ibatis.annotations.Param
+import org.apache.ibatis.annotations.Select
 import org.springframework.stereotype.Service
 
 @Service
 class FxService(
-    private val jdbcTemplate: JdbcTemplate,
+    private val mapper: FxMapper,
     private val cache: SimpleTtlCache,
 ) {
     fun quote(base: String, quote: String): FxQuote {
@@ -77,25 +79,15 @@ class FxService(
 
     private fun loadRate(base: String, quote: String): FxQuote? {
         return runCatching {
-            jdbcTemplate.query(
-                """
-                SELECT base, quote, rate, as_of
-                FROM fx_rate
-                WHERE base = ?
-                  AND quote = ?
-                LIMIT 1
-                """.trimIndent(),
-                { rs, _ ->
+            mapper.findRate(base = base, quote = quote)
+                ?.let {
                     FxQuote(
-                        base = rs.getString("base"),
-                        quote = rs.getString("quote"),
-                        rate = rs.getBigDecimal("rate"),
-                        as_of = rs.getTimestamp("as_of")?.toInstant()?.toString() ?: nowIso(),
+                        base = it.base,
+                        quote = it.quote,
+                        rate = it.rate,
+                        as_of = it.asOf?.toInstant()?.toString() ?: nowIso(),
                     )
-                },
-                base,
-                quote,
-            ).firstOrNull()
+                }
         }.getOrNull()
     }
 
@@ -127,3 +119,27 @@ data class FxQuote(
     val rate: BigDecimal,
     val as_of: String,
 )
+
+data class FxRateRow(
+    val base: String,
+    val quote: String,
+    val rate: BigDecimal,
+    val asOf: java.sql.Timestamp?,
+)
+
+@Mapper
+interface FxMapper {
+    @Select(
+        """
+        SELECT base, quote, rate, as_of AS asOf
+        FROM fx_rate
+        WHERE base = #{base}
+          AND quote = #{quote}
+        LIMIT 1
+        """,
+    )
+    fun findRate(
+        @Param("base") base: String,
+        @Param("quote") quote: String,
+    ): FxRateRow?
+}

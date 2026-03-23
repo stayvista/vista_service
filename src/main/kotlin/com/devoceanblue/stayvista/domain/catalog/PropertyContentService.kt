@@ -2,129 +2,37 @@ package com.devoceanblue.stayvista.domain.catalog
 
 import com.devoceanblue.stayvista.common.api.DomainException
 import com.devoceanblue.stayvista.common.api.ErrorCode
-import org.springframework.jdbc.core.JdbcTemplate
+import org.apache.ibatis.annotations.Mapper
+import org.apache.ibatis.annotations.Param
+import org.apache.ibatis.annotations.Select
 import org.springframework.stereotype.Service
 
 @Service
 class PropertyContentService(
-    private val jdbcTemplate: JdbcTemplate,
+    private val mapper: PropertyContentMapper,
 ) {
     fun getContent(propertyId: Long): PropertyContentData {
-        val exists = jdbcTemplate.queryForObject(
-            "SELECT COUNT(*) FROM property WHERE id = ?",
-            Long::class.java,
-            propertyId,
-        ) ?: 0L
+        val exists = mapper.countProperty(propertyId)
         if (exists == 0L) {
             throw DomainException(ErrorCode.NOT_FOUND, "Property not found")
         }
 
-        val editorial = jdbcTemplate.query(
-            """
-            SELECT short_description,
-                   long_description,
-                   check_in_time,
-                   check_out_time,
-                   airport_transfer_fee_krw,
-                   breakfast_fee_krw,
-                   remodeled_year,
-                   children_policy
-            FROM property_editorial
-            WHERE property_id = ?
-            LIMIT 1
-            """.trimIndent(),
-            { rs, _ ->
-                PropertyEditorialData(
-                    short_description = rs.getString("short_description"),
-                    long_description = rs.getString("long_description"),
-                    check_in_time = rs.getString("check_in_time"),
-                    check_out_time = rs.getString("check_out_time"),
-                    airport_transfer_fee_krw = rs.getLong("airport_transfer_fee_krw").takeIf { !rs.wasNull() },
-                    breakfast_fee_krw = rs.getLong("breakfast_fee_krw").takeIf { !rs.wasNull() },
-                    remodeled_year = rs.getInt("remodeled_year").takeIf { !rs.wasNull() },
-                    children_policy = rs.getString("children_policy"),
-                )
-            },
-            propertyId,
-        ).firstOrNull()
+        val editorial = mapper.findEditorial(propertyId)
 
-        val highlights = jdbcTemplate.query(
-            """
-            SELECT content
-            FROM property_highlight
-            WHERE property_id = ?
-              AND active = 1
-            ORDER BY display_order ASC, id ASC
-            """.trimIndent(),
-            { rs, _ -> rs.getString("content") },
-            propertyId,
-        )
+        val highlights = mapper.listHighlights(propertyId)
 
-        val galleryImages = jdbcTemplate.query(
-            """
-            SELECT image_url
-            FROM property_gallery_image
-            WHERE property_id = ?
-              AND active = 1
-            ORDER BY is_cover DESC, display_order ASC, id ASC
-            """.trimIndent(),
-            { rs, _ -> rs.getString("image_url") },
-            propertyId,
-        )
+        val galleryImages = mapper.listGalleryImages(propertyId)
 
-        val cards = jdbcTemplate.query(
-            """
-            SELECT id, card_code, title, subtitle
-            FROM property_staycation_card
-            WHERE property_id = ?
-              AND active = 1
-            ORDER BY display_order ASC, id ASC
-            """.trimIndent(),
-            { rs, _ ->
-                StaycationCardRow(
-                    id = rs.getLong("id"),
-                    cardCode = rs.getString("card_code"),
-                    title = rs.getString("title"),
-                    subtitle = rs.getString("subtitle"),
-                )
-            },
-            propertyId,
-        )
+        val cards = mapper.listStaycationCards(propertyId)
 
         val cardItemsById = if (cards.isEmpty()) {
             emptyMap()
         } else {
-            val placeholders = cards.joinToString(",") { "?" }
-            jdbcTemplate.query(
-                """
-                SELECT card_id, item_text
-                FROM property_staycation_item
-                WHERE card_id IN ($placeholders)
-                  AND active = 1
-                ORDER BY card_id ASC, display_order ASC, id ASC
-                """.trimIndent(),
-                { rs, _ ->
-                    StaycationItemRow(
-                        cardId = rs.getLong("card_id"),
-                        itemText = rs.getString("item_text"),
-                    )
-                },
-                *cards.map { it.id }.toTypedArray(),
-            ).groupBy { it.cardId }
+            mapper.listStaycationItems(cards.map { it.id }).groupBy { it.cardId }
                 .mapValues { (_, rows) -> rows.map { it.itemText } }
         }
 
-        val roomTypeIds = jdbcTemplate.query(
-            """
-            SELECT id
-            FROM room_type
-            WHERE property_id = ?
-              AND status = 'ACTIVE'
-            ORDER BY id ASC
-            """.trimIndent(),
-            { rs, _ -> rs.getLong("id") },
-            propertyId,
-        )
+        val roomTypeIds = mapper.listRoomTypeIds(propertyId)
 
         val roomMediaByType = loadRoomMedia(roomTypeIds)
         val roomFeatureByType = loadRoomFeatures(roomTypeIds)
@@ -169,94 +77,24 @@ class PropertyContentService(
 
     private fun loadRoomMedia(roomTypeIds: List<Long>): Map<Long, List<String>> {
         if (roomTypeIds.isEmpty()) return emptyMap()
-        val placeholders = roomTypeIds.joinToString(",") { "?" }
-        return jdbcTemplate.query(
-            """
-            SELECT room_type_id, image_url
-            FROM room_type_media
-            WHERE room_type_id IN ($placeholders)
-              AND active = 1
-            ORDER BY room_type_id ASC, display_order ASC, id ASC
-            """.trimIndent(),
-            { rs, _ ->
-                RoomTextRow(
-                    roomTypeId = rs.getLong("room_type_id"),
-                    value = rs.getString("image_url"),
-                )
-            },
-            *roomTypeIds.toTypedArray(),
-        ).groupBy { it.roomTypeId }
+        return mapper.listRoomMedia(roomTypeIds).groupBy { it.roomTypeId }
             .mapValues { (_, rows) -> rows.map { it.value } }
     }
 
     private fun loadRoomFeatures(roomTypeIds: List<Long>): Map<Long, List<String>> {
         if (roomTypeIds.isEmpty()) return emptyMap()
-        val placeholders = roomTypeIds.joinToString(",") { "?" }
-        return jdbcTemplate.query(
-            """
-            SELECT room_type_id, feature_text
-            FROM room_type_feature
-            WHERE room_type_id IN ($placeholders)
-              AND active = 1
-            ORDER BY room_type_id ASC, display_order ASC, id ASC
-            """.trimIndent(),
-            { rs, _ ->
-                RoomTextRow(
-                    roomTypeId = rs.getLong("room_type_id"),
-                    value = rs.getString("feature_text"),
-                )
-            },
-            *roomTypeIds.toTypedArray(),
-        ).groupBy { it.roomTypeId }
+        return mapper.listRoomFeatures(roomTypeIds).groupBy { it.roomTypeId }
             .mapValues { (_, rows) -> rows.map { it.value } }
     }
 
     private fun loadRoomPlans(roomTypeIds: List<Long>): List<RatePlanRow> {
         if (roomTypeIds.isEmpty()) return emptyList()
-        val placeholders = roomTypeIds.joinToString(",") { "?" }
-        return jdbcTemplate.query(
-            """
-            SELECT id, room_type_id, plan_code, occupancy_text, pay_summary, urgency_text, list_price_krw, sale_price_krw
-            FROM room_rate_plan
-            WHERE room_type_id IN ($placeholders)
-              AND active = 1
-            ORDER BY room_type_id ASC, display_order ASC, id ASC
-            """.trimIndent(),
-            { rs, _ ->
-                RatePlanRow(
-                    id = rs.getLong("id"),
-                    roomTypeId = rs.getLong("room_type_id"),
-                    planCode = rs.getString("plan_code"),
-                    occupancyText = rs.getString("occupancy_text"),
-                    paySummary = rs.getString("pay_summary"),
-                    urgencyText = rs.getString("urgency_text"),
-                    listPriceKrw = rs.getLong("list_price_krw"),
-                    salePriceKrw = rs.getLong("sale_price_krw"),
-                )
-            },
-            *roomTypeIds.toTypedArray(),
-        )
+        return mapper.listRoomPlans(roomTypeIds)
     }
 
     private fun loadPlanBenefits(planIds: List<Long>): Map<Long, List<String>> {
         if (planIds.isEmpty()) return emptyMap()
-        val placeholders = planIds.joinToString(",") { "?" }
-        return jdbcTemplate.query(
-            """
-            SELECT plan_id, benefit_text
-            FROM room_rate_plan_benefit
-            WHERE plan_id IN ($placeholders)
-              AND active = 1
-            ORDER BY plan_id ASC, display_order ASC, id ASC
-            """.trimIndent(),
-            { rs, _ ->
-                PlanBenefitRow(
-                    planId = rs.getLong("plan_id"),
-                    benefitText = rs.getString("benefit_text"),
-                )
-            },
-            *planIds.toTypedArray(),
-        ).groupBy { it.planId }
+        return mapper.listPlanBenefits(planIds).groupBy { it.planId }
             .mapValues { (_, rows) -> rows.map { it.benefitText } }
     }
 }
@@ -304,24 +142,24 @@ data class PropertyRatePlanData(
     val benefits: List<String>,
 )
 
-private data class StaycationCardRow(
+data class StaycationCardRow(
     val id: Long,
     val cardCode: String,
     val title: String,
     val subtitle: String?,
 )
 
-private data class StaycationItemRow(
+data class StaycationItemRow(
     val cardId: Long,
     val itemText: String,
 )
 
-private data class RoomTextRow(
+data class RoomTextRow(
     val roomTypeId: Long,
     val value: String,
 )
 
-private data class RatePlanRow(
+data class RatePlanRow(
     val id: Long,
     val roomTypeId: Long,
     val planCode: String,
@@ -332,7 +170,164 @@ private data class RatePlanRow(
     val salePriceKrw: Long,
 )
 
-private data class PlanBenefitRow(
+data class PlanBenefitRow(
     val planId: Long,
     val benefitText: String,
 )
+
+@Mapper
+interface PropertyContentMapper {
+    @Select("SELECT COUNT(*) FROM property WHERE id = #{propertyId}")
+    fun countProperty(@Param("propertyId") propertyId: Long): Long
+
+    @Select(
+        """
+        SELECT short_description,
+               long_description,
+               check_in_time,
+               check_out_time,
+               airport_transfer_fee_krw,
+               breakfast_fee_krw,
+               remodeled_year,
+               children_policy
+        FROM property_editorial
+        WHERE property_id = #{propertyId}
+        LIMIT 1
+        """,
+    )
+    fun findEditorial(@Param("propertyId") propertyId: Long): PropertyEditorialData?
+
+    @Select(
+        """
+        SELECT content
+        FROM property_highlight
+        WHERE property_id = #{propertyId}
+          AND active = 1
+        ORDER BY display_order ASC, id ASC
+        """,
+    )
+    fun listHighlights(@Param("propertyId") propertyId: Long): List<String>
+
+    @Select(
+        """
+        SELECT image_url
+        FROM property_gallery_image
+        WHERE property_id = #{propertyId}
+          AND active = 1
+        ORDER BY is_cover DESC, display_order ASC, id ASC
+        """,
+    )
+    fun listGalleryImages(@Param("propertyId") propertyId: Long): List<String>
+
+    @Select(
+        """
+        SELECT id,
+               card_code AS cardCode,
+               title,
+               subtitle
+        FROM property_staycation_card
+        WHERE property_id = #{propertyId}
+          AND active = 1
+        ORDER BY display_order ASC, id ASC
+        """,
+    )
+    fun listStaycationCards(@Param("propertyId") propertyId: Long): List<StaycationCardRow>
+
+    @Select(
+        """
+        <script>
+        SELECT card_id AS cardId, item_text AS itemText
+        FROM property_staycation_item
+        WHERE card_id IN
+        <foreach collection="cardIds" item="cardId" open="(" separator="," close=")">
+          #{cardId}
+        </foreach>
+          AND active = 1
+        ORDER BY card_id ASC, display_order ASC, id ASC
+        </script>
+        """,
+    )
+    fun listStaycationItems(@Param("cardIds") cardIds: List<Long>): List<StaycationItemRow>
+
+    @Select(
+        """
+        SELECT id
+        FROM room_type
+        WHERE property_id = #{propertyId}
+          AND status = 'ACTIVE'
+        ORDER BY id ASC
+        """,
+    )
+    fun listRoomTypeIds(@Param("propertyId") propertyId: Long): List<Long>
+
+    @Select(
+        """
+        <script>
+        SELECT room_type_id AS roomTypeId, image_url AS value
+        FROM room_type_media
+        WHERE room_type_id IN
+        <foreach collection="roomTypeIds" item="roomTypeId" open="(" separator="," close=")">
+          #{roomTypeId}
+        </foreach>
+          AND active = 1
+        ORDER BY room_type_id ASC, display_order ASC, id ASC
+        </script>
+        """,
+    )
+    fun listRoomMedia(@Param("roomTypeIds") roomTypeIds: List<Long>): List<RoomTextRow>
+
+    @Select(
+        """
+        <script>
+        SELECT room_type_id AS roomTypeId, feature_text AS value
+        FROM room_type_feature
+        WHERE room_type_id IN
+        <foreach collection="roomTypeIds" item="roomTypeId" open="(" separator="," close=")">
+          #{roomTypeId}
+        </foreach>
+          AND active = 1
+        ORDER BY room_type_id ASC, display_order ASC, id ASC
+        </script>
+        """,
+    )
+    fun listRoomFeatures(@Param("roomTypeIds") roomTypeIds: List<Long>): List<RoomTextRow>
+
+    @Select(
+        """
+        <script>
+        SELECT id,
+               room_type_id AS roomTypeId,
+               plan_code AS planCode,
+               occupancy_text AS occupancyText,
+               pay_summary AS paySummary,
+               urgency_text AS urgencyText,
+               list_price_krw AS listPriceKrw,
+               sale_price_krw AS salePriceKrw
+        FROM room_rate_plan
+        WHERE room_type_id IN
+        <foreach collection="roomTypeIds" item="roomTypeId" open="(" separator="," close=")">
+          #{roomTypeId}
+        </foreach>
+          AND active = 1
+        ORDER BY room_type_id ASC, display_order ASC, id ASC
+        </script>
+        """,
+    )
+    fun listRoomPlans(@Param("roomTypeIds") roomTypeIds: List<Long>): List<RatePlanRow>
+
+    @Select(
+        """
+        <script>
+        SELECT plan_id AS planId, benefit_text AS benefitText
+        FROM room_rate_plan_benefit
+        WHERE plan_id IN
+        <foreach collection="planIds" item="planId" open="(" separator="," close=")">
+          #{planId}
+        </foreach>
+          AND active = 1
+        ORDER BY plan_id ASC, display_order ASC, id ASC
+        </script>
+        """,
+    )
+    fun listPlanBenefits(@Param("planIds") planIds: List<Long>): List<PlanBenefitRow>
+}

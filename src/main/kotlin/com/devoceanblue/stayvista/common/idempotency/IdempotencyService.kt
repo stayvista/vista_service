@@ -2,14 +2,18 @@ package com.devoceanblue.stayvista.common.idempotency
 
 import com.devoceanblue.stayvista.common.api.DomainException
 import com.devoceanblue.stayvista.common.api.ErrorCode
+import org.apache.ibatis.annotations.Insert
+import org.apache.ibatis.annotations.Mapper
+import org.apache.ibatis.annotations.Param
+import org.apache.ibatis.annotations.Select
+import org.apache.ibatis.annotations.Update
 import org.springframework.dao.DuplicateKeyException
-import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Component
 import tools.jackson.databind.ObjectMapper
 
 @Component
 class IdempotencyService(
-    private val jdbcTemplate: JdbcTemplate,
+    private val mapper: IdempotencyMapper,
     private val objectMapper: ObjectMapper,
 ) {
     fun <T : Any> execute(
@@ -27,41 +31,24 @@ class IdempotencyService(
 
         return try {
             val response = action()
-            jdbcTemplate.update(
-                """
-                UPDATE idempotency_record
-                SET status='COMPLETED', response_json=?, updated_at=NOW(3)
-                WHERE idem_key=? AND `scope`=?
-                """.trimIndent(),
-                objectMapper.writeValueAsString(response),
-                idempotencyKey,
-                scope,
+            mapper.markCompleted(
+                scope = scope,
+                idempotencyKey = idempotencyKey,
+                responseJson = objectMapper.writeValueAsString(response),
             )
             response
         } catch (ex: RuntimeException) {
-            jdbcTemplate.update(
-                """
-                UPDATE idempotency_record
-                SET status='FAILED', updated_at=NOW(3)
-                WHERE idem_key=? AND `scope`=?
-                """.trimIndent(),
-                idempotencyKey,
-                scope,
-            )
+            mapper.markFailed(scope = scope, idempotencyKey = idempotencyKey)
             throw ex
         }
     }
 
     private fun tryCreate(scope: String, idempotencyKey: String, requestHash: String): Boolean {
         return try {
-            jdbcTemplate.update(
-                """
-                INSERT INTO idempotency_record(idem_key, `scope`, request_hash, status)
-                VALUES (?, ?, ?, 'IN_PROGRESS')
-                """.trimIndent(),
-                idempotencyKey,
-                scope,
-                requestHash,
+            mapper.insertRecord(
+                scope = scope,
+                idempotencyKey = idempotencyKey,
+                requestHash = requestHash,
             )
             true
         } catch (_: DuplicateKeyException) {
@@ -76,22 +63,10 @@ class IdempotencyService(
         responseType: Class<T>,
     ): T {
         repeat(21) { attempt ->
-            val row = jdbcTemplate.query(
-                """
-                SELECT request_hash, status, response_json
-                FROM idempotency_record
-                WHERE idem_key=? AND `scope`=?
-                """.trimIndent(),
-                { rs, _ ->
-                    ExistingRecord(
-                        requestHash = rs.getString("request_hash"),
-                        status = rs.getString("status"),
-                        responseJson = rs.getString("response_json"),
-                    )
-                },
-                idempotencyKey,
-                scope,
-            ).firstOrNull() ?: throw DomainException(
+            val row = mapper.findExisting(
+                scope = scope,
+                idempotencyKey = idempotencyKey,
+            ) ?: throw DomainException(
                 ErrorCode.CONFLICT,
                 "Idempotency key state is missing",
             )
@@ -118,9 +93,63 @@ class IdempotencyService(
         )
     }
 
-    private data class ExistingRecord(
-        val requestHash: String,
-        val status: String,
-        val responseJson: String?,
-    )
 }
+
+@Mapper
+interface IdempotencyMapper {
+    @Insert(
+        """
+        INSERT INTO idempotency_record(idem_key, `scope`, request_hash, status)
+        VALUES (#{idempotencyKey}, #{scope}, #{requestHash}, 'IN_PROGRESS')
+        """,
+    )
+    fun insertRecord(
+        @Param("scope") scope: String,
+        @Param("idempotencyKey") idempotencyKey: String,
+        @Param("requestHash") requestHash: String,
+    ): Int
+
+    @Update(
+        """
+        UPDATE idempotency_record
+        SET status='COMPLETED', response_json=#{responseJson}, updated_at=NOW(3)
+        WHERE idem_key=#{idempotencyKey} AND `scope`=#{scope}
+        """,
+    )
+    fun markCompleted(
+        @Param("scope") scope: String,
+        @Param("idempotencyKey") idempotencyKey: String,
+        @Param("responseJson") responseJson: String,
+    ): Int
+
+    @Update(
+        """
+        UPDATE idempotency_record
+        SET status='FAILED', updated_at=NOW(3)
+        WHERE idem_key=#{idempotencyKey} AND `scope`=#{scope}
+        """,
+    )
+    fun markFailed(
+        @Param("scope") scope: String,
+        @Param("idempotencyKey") idempotencyKey: String,
+    ): Int
+
+    @Select(
+        """
+        SELECT request_hash AS requestHash, status, response_json AS responseJson
+        FROM idempotency_record
+        WHERE idem_key=#{idempotencyKey} AND `scope`=#{scope}
+        LIMIT 1
+        """,
+    )
+    fun findExisting(
+        @Param("scope") scope: String,
+        @Param("idempotencyKey") idempotencyKey: String,
+    ): IdempotencyExistingRecord?
+}
+
+data class IdempotencyExistingRecord(
+    val requestHash: String,
+    val status: String,
+    val responseJson: String?,
+)

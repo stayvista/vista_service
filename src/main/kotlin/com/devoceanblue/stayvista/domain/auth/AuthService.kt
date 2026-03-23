@@ -5,15 +5,17 @@ import com.devoceanblue.stayvista.common.api.ErrorCode
 import jakarta.validation.constraints.Email
 import jakarta.validation.constraints.NotBlank
 import jakarta.validation.constraints.Size
-import java.sql.PreparedStatement
+import org.apache.ibatis.annotations.Insert
+import org.apache.ibatis.annotations.Mapper
+import org.apache.ibatis.annotations.Options
+import org.apache.ibatis.annotations.Param
+import org.apache.ibatis.annotations.Select
 import org.springframework.dao.DuplicateKeyException
-import org.springframework.jdbc.core.JdbcTemplate
-import org.springframework.jdbc.support.GeneratedKeyHolder
 import org.springframework.stereotype.Service
 
 @Service
 class AuthService(
-    private val jdbcTemplate: JdbcTemplate,
+    private val mapper: AuthMapper,
     private val passwordHasher: PasswordHasher,
     private val redisSessionService: RedisSessionService,
 ) {
@@ -25,26 +27,18 @@ class AuthService(
         val phone = request.phone?.trim()?.takeIf { it.isNotBlank() }
         val passwordHash = passwordHasher.hash(request.password)
 
-        val keyHolder = GeneratedKeyHolder()
+        val command = CreateUserCommand(
+            email = email,
+            passwordHash = passwordHash,
+            phone = phone,
+            name = name,
+        )
         try {
-            jdbcTemplate.update({ connection ->
-                val ps = connection.prepareStatement(
-                    """
-                    INSERT INTO user_account(email, password_hash, phone, name, status)
-                    VALUES (?, ?, ?, ?, 'ACTIVE')
-                    """.trimIndent(),
-                    PreparedStatement.RETURN_GENERATED_KEYS,
-                )
-                ps.setString(1, email)
-                ps.setString(2, passwordHash)
-                ps.setString(3, phone)
-                ps.setString(4, name)
-                ps
-            }, keyHolder)
+            mapper.insertUser(command)
         } catch (e: DuplicateKeyException) {
             throw DomainException(ErrorCode.CONFLICT, "Email already in use")
         }
-        val userId = keyHolder.key?.toLong() ?: throw DomainException(ErrorCode.INTERNAL, "Failed to create user")
+        val userId = command.id ?: throw DomainException(ErrorCode.INTERNAL, "Failed to create user")
         return issueToken(
             UserRow(
                 id = userId,
@@ -58,24 +52,11 @@ class AuthService(
 
     fun login(request: LoginRequest): AuthTokenData {
         val email = normalizeEmail(request.email)
-        val user = jdbcTemplate.query(
-            """
-            SELECT id, email, name, password_hash, status
-            FROM user_account
-            WHERE email = ?
-            LIMIT 1
-            """.trimIndent(),
-            { rs, _ ->
-                UserRow(
-                    id = rs.getLong("id"),
-                    email = rs.getString("email"),
-                    name = rs.getString("name") ?: rs.getString("email").substringBefore("@"),
-                    passwordHash = rs.getString("password_hash"),
-                    status = rs.getString("status"),
-                )
-            },
-            email,
-        ).firstOrNull() ?: throw DomainException(ErrorCode.UNAUTHORIZED, "Invalid email or password")
+        val user = mapper.findUserByEmail(email)
+            ?.let {
+                it.copy(name = it.name ?: it.email.substringBefore("@"))
+            }
+            ?: throw DomainException(ErrorCode.UNAUTHORIZED, "Invalid email or password")
 
         if (user.status != "ACTIVE") {
             throw DomainException(ErrorCode.UNAUTHORIZED, "Invalid email or password")
@@ -95,7 +76,8 @@ class AuthService(
     }
 
     private fun issueToken(user: UserRow): AuthTokenData {
-        val token = redisSessionService.createSession(user.id, user.email, user.name)
+        val resolvedName = user.name ?: user.email.substringBefore("@")
+        val token = redisSessionService.createSession(user.id, user.email, resolvedName)
         return AuthTokenData(
             token_type = "Bearer",
             access_token = token.accessToken,
@@ -103,7 +85,7 @@ class AuthService(
             user = AuthUserData(
                 user_id = user.id,
                 email = user.email,
-                name = user.name,
+                name = resolvedName,
             ),
         )
     }
@@ -152,10 +134,40 @@ data class LogoutData(
     val logged_out: Boolean,
 )
 
-private data class UserRow(
+data class UserRow(
     val id: Long,
     val email: String,
-    val name: String,
+    val name: String?,
     val passwordHash: String?,
     val status: String,
 )
+
+data class CreateUserCommand(
+    val email: String,
+    val passwordHash: String,
+    val phone: String?,
+    val name: String?,
+    var id: Long? = null,
+)
+
+@Mapper
+interface AuthMapper {
+    @Insert(
+        """
+        INSERT INTO user_account(email, password_hash, phone, name, status)
+        VALUES (#{email}, #{passwordHash}, #{phone}, #{name}, 'ACTIVE')
+        """,
+    )
+    @Options(useGeneratedKeys = true, keyProperty = "id", keyColumn = "id")
+    fun insertUser(command: CreateUserCommand): Int
+
+    @Select(
+        """
+        SELECT id, email, name, password_hash AS passwordHash, status
+        FROM user_account
+        WHERE email = #{email}
+        LIMIT 1
+        """,
+    )
+    fun findUserByEmail(@Param("email") email: String): UserRow?
+}

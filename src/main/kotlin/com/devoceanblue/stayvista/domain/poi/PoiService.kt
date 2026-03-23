@@ -13,16 +13,20 @@ import kotlin.math.cos
 import kotlin.math.roundToInt
 import kotlin.math.sin
 import kotlin.math.sqrt
+import org.apache.ibatis.annotations.Insert
+import org.apache.ibatis.annotations.Mapper
+import org.apache.ibatis.annotations.Options
+import org.apache.ibatis.annotations.Param
+import org.apache.ibatis.annotations.Select
+import org.apache.ibatis.annotations.Update
 import org.springframework.beans.factory.annotation.Value
-import org.springframework.jdbc.core.JdbcTemplate
-import org.springframework.jdbc.support.GeneratedKeyHolder
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import tools.jackson.databind.ObjectMapper
 
 @Service
 class PoiService(
-    private val jdbcTemplate: JdbcTemplate,
+    private val mapper: PoiMapper,
     private val cache: SimpleTtlCache,
     private val meterRegistry: MeterRegistry,
     private val geohashPrefixPlanner: PoiGeohashPrefixPlanner,
@@ -162,32 +166,11 @@ class PoiService(
         val normalizedKeyword = keyword?.trim()?.takeIf { it.isNotBlank() }
         val keywordLike = normalizedKeyword?.let { "%$it%" }
 
-        val rows = jdbcTemplate.query(
-            """
-            SELECT id, name, category, city, lat, lng, address, active
-            FROM poi
-            WHERE (? IS NULL OR name LIKE ? OR category LIKE ? OR city LIKE ?)
-            ORDER BY id DESC
-            LIMIT ? OFFSET ?
-            """.trimIndent(),
-            { rs, _ ->
-                AdminPoiSummary(
-                    id = rs.getLong("id"),
-                    name = rs.getString("name"),
-                    category = rs.getString("category"),
-                    city = rs.getString("city"),
-                    lat = rs.getBigDecimal("lat").toDouble(),
-                    lng = rs.getBigDecimal("lng").toDouble(),
-                    address = rs.getString("address"),
-                    active = rs.getBoolean("active"),
-                )
-            },
-            normalizedKeyword,
-            keywordLike,
-            keywordLike,
-            keywordLike,
-            fetchLimit + 1,
-            offset.coerceAtLeast(0),
+        val rows = mapper.listAdminPois(
+            keyword = normalizedKeyword,
+            keywordLike = keywordLike,
+            limit = fetchLimit + 1,
+            offset = offset.coerceAtLeast(0),
         )
 
         val hasMore = rows.size > fetchLimit
@@ -223,34 +206,23 @@ class PoiService(
         val normalized = normalizeCreateRequest(request)
         val geohash = PoiGeohash.encode(normalized.lat, normalized.lng, 9)
 
-        val keyHolder = GeneratedKeyHolder()
-        jdbcTemplate.update({ connection ->
-            val statement = connection.prepareStatement(
-                """
-                INSERT INTO poi(
-                  name, category, city, lat, lng, address, description,
-                  image_urls, popularity_score, rating_score, active, geohash
-                )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """.trimIndent(),
-                arrayOf("id"),
-            )
-            statement.setString(1, normalized.name)
-            statement.setString(2, normalized.category)
-            statement.setString(3, normalized.city)
-            statement.setBigDecimal(4, normalized.lat.toBigDecimal())
-            statement.setBigDecimal(5, normalized.lng.toBigDecimal())
-            statement.setString(6, normalized.address)
-            statement.setString(7, normalized.description)
-            statement.setString(8, writeImages(normalized.images))
-            statement.setInt(9, normalized.popularity_score)
-            statement.setBigDecimal(10, normalized.rating_score.toBigDecimal())
-            statement.setBoolean(11, normalized.active)
-            statement.setString(12, geohash)
-            statement
-        }, keyHolder)
+        val command = AdminPoiCreateCommand(
+            name = normalized.name,
+            category = normalized.category,
+            city = normalized.city,
+            lat = normalized.lat,
+            lng = normalized.lng,
+            address = normalized.address,
+            description = normalized.description,
+            imageUrls = writeImages(normalized.images),
+            popularityScore = normalized.popularity_score,
+            ratingScore = normalized.rating_score,
+            active = normalized.active,
+            geohash = geohash,
+        )
+        mapper.insertAdminPoi(command)
 
-        val id = keyHolder.key?.toLong() ?: throw DomainException(ErrorCode.INTERNAL, "POI create failed")
+        val id = command.id ?: throw DomainException(ErrorCode.INTERNAL, "POI create failed")
         domainSupportService.appendOutbox(
             aggregateType = "POI",
             aggregateId = id.toString(),
@@ -283,36 +255,22 @@ class PoiService(
             active = request.active ?: current.active,
         )
 
-        val affected = jdbcTemplate.update(
-            """
-            UPDATE poi
-            SET name = ?,
-                category = ?,
-                city = ?,
-                lat = ?,
-                lng = ?,
-                address = ?,
-                description = ?,
-                image_urls = ?,
-                popularity_score = ?,
-                rating_score = ?,
-                active = ?,
-                geohash = ?
-            WHERE id = ?
-            """.trimIndent(),
-            merged.name,
-            merged.category,
-            merged.city,
-            merged.lat.toBigDecimal(),
-            merged.lng.toBigDecimal(),
-            merged.address,
-            merged.description,
-            writeImages(merged.images),
-            merged.popularityScore,
-            merged.ratingScore.toBigDecimal(),
-            merged.active,
-            PoiGeohash.encode(merged.lat, merged.lng, 9),
-            poiId,
+        val affected = mapper.updateAdminPoi(
+            AdminPoiUpdateCommand(
+                id = poiId,
+                name = merged.name,
+                category = merged.category,
+                city = merged.city,
+                lat = merged.lat,
+                lng = merged.lng,
+                address = merged.address,
+                description = merged.description,
+                imageUrls = writeImages(merged.images),
+                popularityScore = merged.popularityScore,
+                ratingScore = merged.ratingScore,
+                active = merged.active,
+                geohash = PoiGeohash.encode(merged.lat, merged.lng, 9),
+            ),
         )
 
         if (affected == 0) {
@@ -336,31 +294,11 @@ class PoiService(
     @Transactional
     fun backfillGeohash(limit: Int): PoiGeohashBackfillData {
         val batchSize = limit.coerceIn(1, 5000)
-        val rows = jdbcTemplate.query(
-            """
-            SELECT id, lat, lng
-            FROM poi
-            WHERE geohash IS NULL OR geohash = ''
-            ORDER BY id
-            LIMIT ?
-            """.trimIndent(),
-            { rs, _ ->
-                PoiCoordinate(
-                    id = rs.getLong("id"),
-                    lat = rs.getBigDecimal("lat").toDouble(),
-                    lng = rs.getBigDecimal("lng").toDouble(),
-                )
-            },
-            batchSize,
-        )
+        val rows = mapper.listPoiCoordinatesForGeohashBackfill(batchSize)
 
         var updated = 0
         rows.forEach { row ->
-            updated += jdbcTemplate.update(
-                "UPDATE poi SET geohash = ? WHERE id = ?",
-                PoiGeohash.encode(row.lat, row.lng, 9),
-                row.id,
-            )
+            updated += mapper.updatePoiGeohash(row.id, PoiGeohash.encode(row.lat, row.lng, 9))
         }
 
         if (updated > 0) {
@@ -379,139 +317,28 @@ class PoiService(
         fetchLimit: Int,
         center: PoiCenter?,
     ): List<PoiRecord> {
-        val prefixes = geohashPrefixPlanner.resolvePrefixes(bbox)
-
-        val sql = StringBuilder(
-            """
-            SELECT id, name, category, city, lat, lng, address, description,
-                   image_urls, popularity_score, rating_score, active, geohash
-            FROM poi
-            WHERE active = 1
-              AND lat BETWEEN ? AND ?
-              AND lng BETWEEN ? AND ?
-            """.trimIndent(),
+        return mapper.listNearbyCandidates(
+            PoiNearbyCandidateQuery(
+                swLat = bbox.swLat,
+                neLat = bbox.neLat,
+                swLng = bbox.swLng,
+                neLng = bbox.neLng,
+                category = category,
+                geohashPrefixes = geohashPrefixPlanner.resolvePrefixes(bbox),
+                centerLat = center?.lat,
+                centerLng = center?.lng,
+                limit = fetchLimit.coerceIn(200, 5000),
+            ),
         )
-
-        val params = mutableListOf<Any>(
-            bbox.swLat,
-            bbox.neLat,
-            bbox.swLng,
-            bbox.neLng,
-        )
-
-        if (!category.isNullOrBlank()) {
-            sql.append(" AND category = ?")
-            params += category
-        }
-
-        if (prefixes.isNotEmpty()) {
-            sql.append(" AND (geohash IS NULL OR geohash = '' OR ")
-            prefixes.forEachIndexed { index, prefix ->
-                if (index > 0) {
-                    sql.append(" OR ")
-                }
-                sql.append("geohash LIKE ?")
-                params += "$prefix%"
-            }
-            sql.append(")")
-        }
-
-        sql.append(" ORDER BY ")
-        if (center != null) {
-            sql.append("((lat - ?) * (lat - ?) + (lng - ?) * (lng - ?)) ASC, ")
-            params += center.lat
-            params += center.lat
-            params += center.lng
-            params += center.lng
-        }
-        sql.append("id LIMIT ?")
-        params += fetchLimit.coerceIn(200, 5000)
-
-        return jdbcTemplate.query(
-            sql.toString(),
-            { rs, _ ->
-                PoiRecord(
-                    id = rs.getLong("id"),
-                    name = rs.getString("name"),
-                    category = rs.getString("category"),
-                    city = rs.getString("city"),
-                    lat = rs.getBigDecimal("lat").toDouble(),
-                    lng = rs.getBigDecimal("lng").toDouble(),
-                    address = rs.getString("address"),
-                    description = rs.getString("description"),
-                    images = readImages(rs.getString("image_urls")),
-                    popularityScore = rs.getInt("popularity_score"),
-                    ratingScore = rs.getBigDecimal("rating_score")?.toDouble() ?: 0.0,
-                    active = rs.getBoolean("active"),
-                    geohash = rs.getString("geohash"),
-                )
-            },
-            *params.toTypedArray(),
-        )
+            .map { row -> row.toPoiRecord() }
     }
 
     private fun loadPoi(id: Long, activeOnly: Boolean): PoiRecord? {
-        val sql = buildString {
-            append(
-                """
-                SELECT id, name, category, city, lat, lng, address, description,
-                       image_urls, popularity_score, rating_score, active, geohash
-                FROM poi
-                WHERE id = ?
-                """.trimIndent(),
-            )
-            if (activeOnly) {
-                append(" AND active = 1")
-            }
-        }
-
-        return jdbcTemplate.query(
-            sql,
-            { rs, _ ->
-                PoiRecord(
-                    id = rs.getLong("id"),
-                    name = rs.getString("name"),
-                    category = rs.getString("category"),
-                    city = rs.getString("city"),
-                    lat = rs.getBigDecimal("lat").toDouble(),
-                    lng = rs.getBigDecimal("lng").toDouble(),
-                    address = rs.getString("address"),
-                    description = rs.getString("description"),
-                    images = readImages(rs.getString("image_urls")),
-                    popularityScore = rs.getInt("popularity_score"),
-                    ratingScore = rs.getBigDecimal("rating_score")?.toDouble() ?: 0.0,
-                    active = rs.getBoolean("active"),
-                    geohash = rs.getString("geohash"),
-                )
-            },
-            id,
-        ).firstOrNull()
+        return mapper.findPoiById(id, activeOnly)?.toPoiRecord()
     }
 
     private fun loadRelatedProperties(poi: PoiRecord): List<PoiRelatedProperty> {
-        val rows = jdbcTemplate.query(
-            """
-            SELECT id, name, city, rating, thumbnail_url, lat, lng
-            FROM property
-            WHERE status = 'ACTIVE'
-              AND (? IS NULL OR city = ?)
-            ORDER BY id DESC
-            LIMIT 40
-            """.trimIndent(),
-            { rs, _ ->
-                RelatedPropertyRow(
-                    id = rs.getLong("id"),
-                    name = rs.getString("name"),
-                    city = rs.getString("city"),
-                    rating = rs.getBigDecimal("rating")?.toDouble() ?: 0.0,
-                    thumbnailUrl = rs.getString("thumbnail_url"),
-                    lat = rs.getBigDecimal("lat")?.toDouble(),
-                    lng = rs.getBigDecimal("lng")?.toDouble(),
-                )
-            },
-            poi.city,
-            poi.city,
-        )
+        val rows = mapper.listRelatedProperties(poi.city)
 
         return rows
             .sortedBy { row ->
@@ -534,27 +361,15 @@ class PoiService(
     }
 
     private fun loadRelatedProducts(poi: PoiRecord): List<PoiRelatedProduct> {
-        val rows = jdbcTemplate.query(
-            """
-            SELECT id, name, product_type, city
-            FROM product
-            WHERE status = 'ACTIVE'
-              AND (? IS NULL OR city = ?)
-            ORDER BY id DESC
-            LIMIT 4
-            """.trimIndent(),
-            { rs, _ ->
+        return mapper.listRelatedProducts(poi.city)
+            .map { row ->
                 PoiRelatedProduct(
-                    product_id = rs.getLong("id"),
-                    name = rs.getString("name"),
-                    category = rs.getString("product_type"),
-                    city = rs.getString("city"),
+                    product_id = row.id,
+                    name = row.name,
+                    category = row.productType,
+                    city = row.city,
                 )
-            },
-            poi.city,
-            poi.city,
-        )
-        return rows
+            }
     }
 
     private fun nearbyCacheKey(
@@ -650,12 +465,6 @@ class PoiService(
         return digest.joinToString("") { "%02x".format(it) }
     }
 
-    private data class PoiCoordinate(
-        val id: Long,
-        val lat: Double,
-        val lng: Double,
-    )
-
     private data class NearbyCandidate(
         val row: PoiRecord,
         val distanceMeters: Double,
@@ -677,13 +486,291 @@ class PoiService(
         val geohash: String?,
     )
 
-    private data class RelatedPropertyRow(
-        val id: Long,
-        val name: String,
-        val city: String?,
-        val rating: Double,
-        val thumbnailUrl: String?,
-        val lat: Double?,
-        val lng: Double?,
+    private fun PoiRecordRow.toPoiRecord(): PoiRecord {
+        return PoiRecord(
+            id = id,
+            name = name,
+            category = category,
+            city = city,
+            lat = lat,
+            lng = lng,
+            address = address,
+            description = description,
+            images = readImages(imageUrls),
+            popularityScore = popularityScore,
+            ratingScore = ratingScore,
+            active = active,
+            geohash = geohash,
+        )
+    }
+}
+
+data class AdminPoiCreateCommand(
+    var id: Long? = null,
+    val name: String,
+    val category: String?,
+    val city: String?,
+    val lat: Double,
+    val lng: Double,
+    val address: String?,
+    val description: String?,
+    val imageUrls: String?,
+    val popularityScore: Int,
+    val ratingScore: Double,
+    val active: Boolean,
+    val geohash: String?,
+)
+
+data class AdminPoiUpdateCommand(
+    val id: Long,
+    val name: String,
+    val category: String?,
+    val city: String?,
+    val lat: Double,
+    val lng: Double,
+    val address: String?,
+    val description: String?,
+    val imageUrls: String?,
+    val popularityScore: Int,
+    val ratingScore: Double,
+    val active: Boolean,
+    val geohash: String?,
+)
+
+data class PoiNearbyCandidateQuery(
+    val swLat: Double,
+    val neLat: Double,
+    val swLng: Double,
+    val neLng: Double,
+    val category: String?,
+    val geohashPrefixes: List<String>,
+    val centerLat: Double?,
+    val centerLng: Double?,
+    val limit: Int,
+)
+
+data class PoiCoordinateRow(
+    val id: Long,
+    val lat: Double,
+    val lng: Double,
+)
+
+data class PoiRecordRow(
+    val id: Long,
+    val name: String,
+    val category: String?,
+    val city: String?,
+    val lat: Double,
+    val lng: Double,
+    val address: String?,
+    val description: String?,
+    val imageUrls: String?,
+    val popularityScore: Int,
+    val ratingScore: Double,
+    val active: Boolean,
+    val geohash: String?,
+)
+
+data class PoiRelatedPropertyRow(
+    val id: Long,
+    val name: String,
+    val city: String?,
+    val rating: Double,
+    val thumbnailUrl: String?,
+    val lat: Double?,
+    val lng: Double?,
+)
+
+data class PoiRelatedProductRow(
+    val id: Long,
+    val name: String,
+    val productType: String,
+    val city: String?,
+)
+
+@Mapper
+interface PoiMapper {
+    @Select(
+        """
+        <script>
+        SELECT id, name, category, city, lat, lng, address, active
+        FROM poi
+        WHERE 1 = 1
+          <if test="keyword != null">
+            AND (name LIKE #{keywordLike} OR category LIKE #{keywordLike} OR city LIKE #{keywordLike})
+          </if>
+        ORDER BY id DESC
+        LIMIT #{limit} OFFSET #{offset}
+        </script>
+        """,
     )
+    fun listAdminPois(
+        @Param("keyword") keyword: String?,
+        @Param("keywordLike") keywordLike: String?,
+        @Param("limit") limit: Int,
+        @Param("offset") offset: Int,
+    ): List<AdminPoiSummary>
+
+    @Insert(
+        """
+        INSERT INTO poi(
+          name, category, city, lat, lng, address, description,
+          image_urls, popularity_score, rating_score, active, geohash
+        )
+        VALUES (
+          #{name}, #{category}, #{city}, #{lat}, #{lng}, #{address}, #{description},
+          #{imageUrls}, #{popularityScore}, #{ratingScore}, #{active}, #{geohash}
+        )
+        """,
+    )
+    @Options(useGeneratedKeys = true, keyProperty = "id", keyColumn = "id")
+    fun insertAdminPoi(command: AdminPoiCreateCommand): Int
+
+    @Update(
+        """
+        UPDATE poi
+        SET name = #{name},
+            category = #{category},
+            city = #{city},
+            lat = #{lat},
+            lng = #{lng},
+            address = #{address},
+            description = #{description},
+            image_urls = #{imageUrls},
+            popularity_score = #{popularityScore},
+            rating_score = #{ratingScore},
+            active = #{active},
+            geohash = #{geohash}
+        WHERE id = #{id}
+        """,
+    )
+    fun updateAdminPoi(command: AdminPoiUpdateCommand): Int
+
+    @Select(
+        """
+        SELECT id, lat, lng
+        FROM poi
+        WHERE geohash IS NULL OR geohash = ''
+        ORDER BY id
+        LIMIT #{limit}
+        """,
+    )
+    fun listPoiCoordinatesForGeohashBackfill(@Param("limit") limit: Int): List<PoiCoordinateRow>
+
+    @Update("UPDATE poi SET geohash = #{geohash} WHERE id = #{id}")
+    fun updatePoiGeohash(
+        @Param("id") id: Long,
+        @Param("geohash") geohash: String,
+    ): Int
+
+    @Select(
+        """
+        <script>
+        SELECT id,
+               name,
+               category,
+               city,
+               lat,
+               lng,
+               address,
+               description,
+               image_urls AS imageUrls,
+               popularity_score AS popularityScore,
+               COALESCE(rating_score, 0) AS ratingScore,
+               active,
+               geohash
+        FROM poi
+        WHERE active = 1
+          AND lat BETWEEN #{swLat} AND #{neLat}
+          AND lng BETWEEN #{swLng} AND #{neLng}
+          <if test="category != null">
+            AND category = #{category}
+          </if>
+          <if test="geohashPrefixes != null and !geohashPrefixes.isEmpty()">
+            AND (
+              geohash IS NULL
+              OR geohash = ''
+              <foreach collection="geohashPrefixes" item="prefix">
+                OR geohash LIKE CONCAT(#{prefix}, '%')
+              </foreach>
+            )
+          </if>
+        ORDER BY
+          <if test="centerLat != null and centerLng != null">
+            ((lat - #{centerLat}) * (lat - #{centerLat}) + (lng - #{centerLng}) * (lng - #{centerLng})) ASC,
+          </if>
+          id
+        LIMIT #{limit}
+        </script>
+        """,
+    )
+    fun listNearbyCandidates(query: PoiNearbyCandidateQuery): List<PoiRecordRow>
+
+    @Select(
+        """
+        <script>
+        SELECT id,
+               name,
+               category,
+               city,
+               lat,
+               lng,
+               address,
+               description,
+               image_urls AS imageUrls,
+               popularity_score AS popularityScore,
+               COALESCE(rating_score, 0) AS ratingScore,
+               active,
+               geohash
+        FROM poi
+        WHERE id = #{id}
+          <if test="activeOnly">
+            AND active = 1
+          </if>
+        LIMIT 1
+        </script>
+        """,
+    )
+    fun findPoiById(
+        @Param("id") id: Long,
+        @Param("activeOnly") activeOnly: Boolean,
+    ): PoiRecordRow?
+
+    @Select(
+        """
+        <script>
+        SELECT id,
+               name,
+               city,
+               COALESCE(rating, 0) AS rating,
+               thumbnail_url AS thumbnailUrl,
+               lat,
+               lng
+        FROM property
+        WHERE status = 'ACTIVE'
+          <if test="city != null">
+            AND city = #{city}
+          </if>
+        ORDER BY id DESC
+        LIMIT 40
+        </script>
+        """,
+    )
+    fun listRelatedProperties(@Param("city") city: String?): List<PoiRelatedPropertyRow>
+
+    @Select(
+        """
+        <script>
+        SELECT id, name, product_type AS productType, city
+        FROM product
+        WHERE status = 'ACTIVE'
+          <if test="city != null">
+            AND city = #{city}
+          </if>
+        ORDER BY id DESC
+        LIMIT 4
+        </script>
+        """,
+    )
+    fun listRelatedProducts(@Param("city") city: String?): List<PoiRelatedProductRow>
 }

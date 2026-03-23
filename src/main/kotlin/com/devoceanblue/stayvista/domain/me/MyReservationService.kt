@@ -7,12 +7,14 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
-import org.springframework.jdbc.core.JdbcTemplate
+import org.apache.ibatis.annotations.Mapper
+import org.apache.ibatis.annotations.Param
+import org.apache.ibatis.annotations.Select
 import org.springframework.stereotype.Service
 
 @Service
 class MyReservationService(
-    private val jdbcTemplate: JdbcTemplate,
+    private val mapper: MyReservationMapper,
     private val domainSupportService: DomainSupportService,
     private val meterRegistry: MeterRegistry,
 ) {
@@ -51,135 +53,92 @@ class MyReservationService(
     }
 
     private fun countByTable(tableName: String, userId: Long): Int {
-        val total = jdbcTemplate.queryForObject(
-            "SELECT COUNT(*) FROM $tableName WHERE user_id = ?",
-            Long::class.java,
-            userId,
-        ) ?: 0L
-        return total.toInt()
+        return when (tableName) {
+            "booking" -> mapper.countBookings(userId)
+            "ticket_order" -> mapper.countTicketOrders(userId)
+            "package_order" -> mapper.countPackageOrders(userId)
+            else -> 0
+        }
     }
 
     private fun loadBookingItems(userId: Long, limit: Int): List<ReservationWithSortAt> {
-        return jdbcTemplate.query(
-            """
-            SELECT b.id, b.status, b.check_in, b.check_out, b.rooms, b.total_amount, b.currency,
-                   b.created_at, b.expires_at, b.confirmed_at,
-                   COALESCE(p.name, '숙소 정보 없음') AS property_name,
-                   COALESCE(rt.name, '객실 정보 없음') AS room_name
-            FROM booking b
-            LEFT JOIN property p ON p.id = b.property_id
-            LEFT JOIN room_type rt ON rt.id = b.room_type_id
-            WHERE b.user_id = ?
-            ORDER BY b.created_at DESC
-            LIMIT ?
-            """.trimIndent(),
-            { rs, _ ->
-                val createdAt = rs.getTimestamp("created_at")?.toInstant() ?: Instant.EPOCH
+        return mapper.listBookings(userId = userId, limit = limit)
+            .map { row ->
+                val createdAt = row.createdAt?.toInstant() ?: Instant.EPOCH
                 ReservationWithSortAt(
                     createdAt = createdAt,
                     item = MyReservationItem(
                         type = "BOOKING",
-                        reservation_id = "bkg_${rs.getLong("id")}",
-                        status = rs.getString("status"),
-                        title = rs.getString("property_name"),
-                        subtitle = "${toDateLabel(rs.getDate("check_in")?.toLocalDate())} ~ ${toDateLabel(rs.getDate("check_out")?.toLocalDate())} · ${rs.getInt("rooms")}객실 · ${rs.getString("room_name")}",
+                        reservation_id = "bkg_${row.id}",
+                        status = row.status,
+                        title = row.propertyName,
+                        subtitle = "${toDateLabel(row.checkIn)} ~ ${toDateLabel(row.checkOut)} · ${row.rooms}객실 · ${row.roomName}",
                         amount = ReservationAmount(
-                            currency = rs.getString("currency") ?: "KRW",
-                            amount_total = rs.getLong("total_amount"),
+                            currency = row.currency ?: "KRW",
+                            amount_total = row.totalAmount,
                         ),
                         created_at = createdAt.toString(),
-                        expires_at = rs.getTimestamp("expires_at")?.toInstant()?.toString(),
-                        confirmed_at = rs.getTimestamp("confirmed_at")?.toInstant()?.toString(),
-                        booking_id = "bkg_${rs.getLong("id")}",
+                        expires_at = row.expiresAt?.toInstant()?.toString(),
+                        confirmed_at = row.confirmedAt?.toInstant()?.toString(),
+                        booking_id = "bkg_${row.id}",
                     ),
                 )
-            },
-            userId,
-            limit,
-        )
+            }
     }
 
     private fun loadTicketItems(userId: Long, limit: Int): List<ReservationWithSortAt> {
-        return jdbcTemplate.query(
-            """
-            SELECT t.id, t.status, t.qty, t.total_amount, t.currency, t.created_at, t.expires_at, t.confirmed_at,
-                   te.start_time AS event_start_time,
-                   COALESCE(p.name, '티켓 상품 정보 없음') AS product_name
-            FROM ticket_order t
-            LEFT JOIN ticket_event te ON te.id = t.event_id
-            LEFT JOIN product p ON p.id = te.product_id
-            WHERE t.user_id = ?
-            ORDER BY t.created_at DESC
-            LIMIT ?
-            """.trimIndent(),
-            { rs, _ ->
-                val createdAt = rs.getTimestamp("created_at")?.toInstant() ?: Instant.EPOCH
+        return mapper.listTickets(userId = userId, limit = limit)
+            .map { row ->
+                val createdAt = row.createdAt?.toInstant() ?: Instant.EPOCH
                 ReservationWithSortAt(
                     createdAt = createdAt,
                     item = MyReservationItem(
                         type = "TICKET",
-                        reservation_id = "tord_${rs.getLong("id")}",
-                        status = rs.getString("status"),
-                        title = rs.getString("product_name"),
-                        subtitle = "${toDateTimeLabel(rs.getTimestamp("event_start_time"))} · ${rs.getInt("qty")}매",
+                        reservation_id = "tord_${row.id}",
+                        status = row.status,
+                        title = row.productName,
+                        subtitle = "${toDateTimeLabel(row.eventStartTime)} · ${row.qty}매",
                         amount = ReservationAmount(
-                            currency = rs.getString("currency") ?: "KRW",
-                            amount_total = rs.getLong("total_amount"),
+                            currency = row.currency ?: "KRW",
+                            amount_total = row.totalAmount,
                         ),
                         created_at = createdAt.toString(),
-                        expires_at = rs.getTimestamp("expires_at")?.toInstant()?.toString(),
-                        confirmed_at = rs.getTimestamp("confirmed_at")?.toInstant()?.toString(),
-                        order_id = "tord_${rs.getLong("id")}",
+                        expires_at = row.expiresAt?.toInstant()?.toString(),
+                        confirmed_at = row.confirmedAt?.toInstant()?.toString(),
+                        order_id = "tord_${row.id}",
                     ),
                 )
-            },
-            userId,
-            limit,
-        )
+            }
     }
 
     private fun loadPackageItems(userId: Long, limit: Int): List<ReservationWithSortAt> {
-        return jdbcTemplate.query(
-            """
-            SELECT po.id, po.status, po.booking_id, po.ticket_order_id, po.created_at, po.updated_at, po.expires_at,
-                   COALESCE(pp.name, '패키지 상품 정보 없음') AS package_name,
-                   COALESCE(pp.currency, 'KRW') AS currency,
-                   COALESCE(pp.amount_total, 0) AS amount_total
-            FROM package_order po
-            LEFT JOIN package_product pp ON pp.id = po.package_id
-            WHERE po.user_id = ?
-            ORDER BY po.created_at DESC
-            LIMIT ?
-            """.trimIndent(),
-            { rs, _ ->
-                val createdAt = rs.getTimestamp("created_at")?.toInstant() ?: Instant.EPOCH
-                val bookingId = rs.getLong("booking_id").takeIf { !rs.wasNull() }?.let { "bkg_$it" }
-                val ticketOrderId = rs.getLong("ticket_order_id").takeIf { !rs.wasNull() }?.let { "tord_$it" }
-                val status = rs.getString("status")
+        return mapper.listPackages(userId = userId, limit = limit)
+            .map { row ->
+                val createdAt = row.createdAt?.toInstant() ?: Instant.EPOCH
+                val bookingId = row.bookingId?.let { "bkg_$it" }
+                val ticketOrderId = row.ticketOrderId?.let { "tord_$it" }
+                val status = row.status
                 ReservationWithSortAt(
                     createdAt = createdAt,
                     item = MyReservationItem(
                         type = "PACKAGE",
-                        reservation_id = "pkg_${rs.getLong("id")}",
+                        reservation_id = "pkg_${row.id}",
                         status = status,
-                        title = rs.getString("package_name"),
+                        title = row.packageName,
                         subtitle = "숙소 ${bookingId ?: "-"} · 티켓 ${ticketOrderId ?: "-"}",
                         amount = ReservationAmount(
-                            currency = rs.getString("currency"),
-                            amount_total = rs.getLong("amount_total"),
+                            currency = row.currency,
+                            amount_total = row.amountTotal,
                         ),
                         created_at = createdAt.toString(),
-                        expires_at = rs.getTimestamp("expires_at")?.toInstant()?.toString(),
-                        confirmed_at = if (status == "CONFIRMED") rs.getTimestamp("updated_at")?.toInstant()?.toString() else null,
-                        package_order_id = "pkg_${rs.getLong("id")}",
+                        expires_at = row.expiresAt?.toInstant()?.toString(),
+                        confirmed_at = if (status == "CONFIRMED") row.updatedAt?.toInstant()?.toString() else null,
+                        package_order_id = "pkg_${row.id}",
                         booking_id = bookingId,
                         order_id = ticketOrderId,
                     ),
                 )
-            },
-            userId,
-            limit,
-        )
+            }
     }
 
     private fun toDateLabel(date: LocalDate?): String {
@@ -237,3 +196,132 @@ private data class ReservationWithSortAt(
     val createdAt: Instant,
     val item: MyReservationItem,
 )
+
+data class MyReservationBookingRow(
+    val id: Long,
+    val status: String,
+    val checkIn: LocalDate?,
+    val checkOut: LocalDate?,
+    val rooms: Int,
+    val totalAmount: Long,
+    val currency: String?,
+    val createdAt: Timestamp?,
+    val expiresAt: Timestamp?,
+    val confirmedAt: Timestamp?,
+    val propertyName: String,
+    val roomName: String,
+)
+
+data class MyReservationTicketRow(
+    val id: Long,
+    val status: String,
+    val qty: Int,
+    val totalAmount: Long,
+    val currency: String?,
+    val createdAt: Timestamp?,
+    val expiresAt: Timestamp?,
+    val confirmedAt: Timestamp?,
+    val eventStartTime: Timestamp?,
+    val productName: String,
+)
+
+data class MyReservationPackageRow(
+    val id: Long,
+    val status: String,
+    val bookingId: Long?,
+    val ticketOrderId: Long?,
+    val createdAt: Timestamp?,
+    val updatedAt: Timestamp?,
+    val expiresAt: Timestamp?,
+    val packageName: String,
+    val currency: String,
+    val amountTotal: Long,
+)
+
+@Mapper
+interface MyReservationMapper {
+    @Select("SELECT COUNT(*) FROM booking WHERE user_id = #{userId}")
+    fun countBookings(@Param("userId") userId: Long): Int
+
+    @Select("SELECT COUNT(*) FROM ticket_order WHERE user_id = #{userId}")
+    fun countTicketOrders(@Param("userId") userId: Long): Int
+
+    @Select("SELECT COUNT(*) FROM package_order WHERE user_id = #{userId}")
+    fun countPackageOrders(@Param("userId") userId: Long): Int
+
+    @Select(
+        """
+        SELECT b.id,
+               b.status,
+               b.check_in AS checkIn,
+               b.check_out AS checkOut,
+               b.rooms,
+               b.total_amount AS totalAmount,
+               b.currency,
+               b.created_at AS createdAt,
+               b.expires_at AS expiresAt,
+               b.confirmed_at AS confirmedAt,
+               COALESCE(p.name, '숙소 정보 없음') AS propertyName,
+               COALESCE(rt.name, '객실 정보 없음') AS roomName
+        FROM booking b
+        LEFT JOIN property p ON p.id = b.property_id
+        LEFT JOIN room_type rt ON rt.id = b.room_type_id
+        WHERE b.user_id = #{userId}
+        ORDER BY b.created_at DESC
+        LIMIT #{limit}
+        """,
+    )
+    fun listBookings(
+        @Param("userId") userId: Long,
+        @Param("limit") limit: Int,
+    ): List<MyReservationBookingRow>
+
+    @Select(
+        """
+        SELECT t.id,
+               t.status,
+               t.qty,
+               t.total_amount AS totalAmount,
+               t.currency,
+               t.created_at AS createdAt,
+               t.expires_at AS expiresAt,
+               t.confirmed_at AS confirmedAt,
+               te.start_time AS eventStartTime,
+               COALESCE(p.name, '티켓 상품 정보 없음') AS productName
+        FROM ticket_order t
+        LEFT JOIN ticket_event te ON te.id = t.event_id
+        LEFT JOIN product p ON p.id = te.product_id
+        WHERE t.user_id = #{userId}
+        ORDER BY t.created_at DESC
+        LIMIT #{limit}
+        """,
+    )
+    fun listTickets(
+        @Param("userId") userId: Long,
+        @Param("limit") limit: Int,
+    ): List<MyReservationTicketRow>
+
+    @Select(
+        """
+        SELECT po.id,
+               po.status,
+               po.booking_id AS bookingId,
+               po.ticket_order_id AS ticketOrderId,
+               po.created_at AS createdAt,
+               po.updated_at AS updatedAt,
+               po.expires_at AS expiresAt,
+               COALESCE(pp.name, '패키지 상품 정보 없음') AS packageName,
+               COALESCE(pp.currency, 'KRW') AS currency,
+               COALESCE(pp.amount_total, 0) AS amountTotal
+        FROM package_order po
+        LEFT JOIN package_product pp ON pp.id = po.package_id
+        WHERE po.user_id = #{userId}
+        ORDER BY po.created_at DESC
+        LIMIT #{limit}
+        """,
+    )
+    fun listPackages(
+        @Param("userId") userId: Long,
+        @Param("limit") limit: Int,
+    ): List<MyReservationPackageRow>
+}

@@ -9,6 +9,12 @@ import com.devoceanblue.stayvista.domain.common.DomainSupportService
 import com.devoceanblue.stayvista.domain.payment.PaymentAuthorizationRequest
 import com.devoceanblue.stayvista.domain.payment.PaymentGateway
 import io.micrometer.core.instrument.MeterRegistry
+import org.apache.ibatis.annotations.Insert
+import org.apache.ibatis.annotations.Mapper
+import org.apache.ibatis.annotations.Options
+import org.apache.ibatis.annotations.Param
+import org.apache.ibatis.annotations.Select
+import org.apache.ibatis.annotations.Update
 import java.sql.Date
 import java.sql.Timestamp
 import java.time.Clock
@@ -16,15 +22,13 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneOffset
 import org.springframework.beans.factory.annotation.Value
-import org.springframework.jdbc.core.JdbcTemplate
-import org.springframework.jdbc.support.GeneratedKeyHolder
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Service
 import org.springframework.transaction.support.TransactionTemplate
 
 @Service
 class BookingService(
-    private val jdbcTemplate: JdbcTemplate,
+    private val mapper: BookingMapper,
     private val idempotencyService: IdempotencyService,
     private val retryExecutor: DbRetryExecutor,
     private val transactionTemplate: TransactionTemplate,
@@ -92,17 +96,7 @@ class BookingService(
 
     @Scheduled(fixedDelay = 60000, initialDelay = 30000)
     fun expireHoldsBatch() {
-        val bookingIds = jdbcTemplate.query(
-            """
-            SELECT id
-            FROM booking
-            WHERE status='HOLD'
-              AND expires_at < NOW(3)
-            ORDER BY id
-            LIMIT 200
-            """.trimIndent(),
-            { rs, _ -> rs.getLong("id") },
-        )
+        val bookingIds = mapper.listExpiredHoldIds(limit = 200)
         bookingIds.forEach { bookingId ->
             transactionTemplate.execute {
                 expireHoldTx(bookingId)
@@ -121,23 +115,8 @@ class BookingService(
 
         domainSupportService.ensureUserExists(userId)
 
-        val room = jdbcTemplate.query(
-            """
-            SELECT rt.id as room_type_id, rt.status as room_status, p.id as property_id, p.status as property_status
-            FROM room_type rt
-            JOIN property p ON p.id = rt.property_id
-            WHERE rt.id = ?
-            """.trimIndent(),
-            { rs, _ ->
-                RoomLookup(
-                    roomTypeId = rs.getLong("room_type_id"),
-                    roomStatus = rs.getString("room_status"),
-                    propertyId = rs.getLong("property_id"),
-                    propertyStatus = rs.getString("property_status"),
-                )
-            },
-            request.room_type_id,
-        ).firstOrNull() ?: throw DomainException(ErrorCode.NOT_FOUND, "Room type not found")
+        val room = mapper.findRoomLookup(request.room_type_id)
+            ?: throw DomainException(ErrorCode.NOT_FOUND, "Room type not found")
 
         if (room.roomStatus != "ACTIVE" || room.propertyStatus != "ACTIVE") {
             throw DomainException(ErrorCode.NOT_FOUND, "Room type is not available")
@@ -158,35 +137,13 @@ class BookingService(
         )
         if (reusable != null) {
             val refreshedExpiresAt = Instant.now(clock).plusSeconds(holdTtlMinutes * 60)
-            jdbcTemplate.update(
-                """
-                UPDATE booking
-                SET expires_at = ?,
-                    currency = ?,
-                    total_amount = ?,
-                    updated_at = NOW(3)
-                WHERE id = ?
-                """.trimIndent(),
-                Timestamp.from(refreshedExpiresAt),
-                request.price.currency,
-                request.price.amount_total,
-                reusable.id,
+            mapper.refreshReusableHold(
+                bookingId = reusable.id,
+                expiresAt = Timestamp.from(refreshedExpiresAt),
+                currency = request.price.currency,
+                totalAmount = request.price.amount_total,
             )
-            val heldNights = jdbcTemplate.query(
-                """
-                SELECT stay_date, rooms
-                FROM booking_night
-                WHERE booking_id = ?
-                ORDER BY stay_date
-                """.trimIndent(),
-                { rs, _ ->
-                    BookingNight(
-                        stay_date = rs.getDate("stay_date").toLocalDate(),
-                        rooms = rs.getInt("rooms"),
-                    )
-                },
-                reusable.id,
-            )
+            val heldNights = mapper.listBookingNights(reusable.id)
             meterRegistry.counter("booking_hold_reused_total").increment()
             return BookingHoldData(
                 booking_id = toBookingId(reusable.id),
@@ -201,18 +158,10 @@ class BookingService(
         }
 
         nights.forEach { stayDate ->
-            val affected = jdbcTemplate.update(
-                """
-                UPDATE inventory_night
-                SET hold = hold + ?
-                WHERE room_type_id = ?
-                  AND stay_date = ?
-                  AND (hold + sold + ?) <= total
-                """.trimIndent(),
-                request.rooms,
-                request.room_type_id,
-                Date.valueOf(stayDate),
-                request.rooms,
+            val affected = mapper.increaseInventoryHold(
+                roomTypeId = request.room_type_id,
+                stayDate = Date.valueOf(stayDate),
+                rooms = request.rooms,
             )
             if (affected != 1) {
                 meterRegistry.counter("inventory_update_failed_total").increment()
@@ -226,38 +175,26 @@ class BookingService(
         }
 
         val expiresAt = Instant.now(clock).plusSeconds(holdTtlMinutes * 60)
-        val keyHolder = GeneratedKeyHolder()
-        jdbcTemplate.update({ connection ->
-            val ps = connection.prepareStatement(
-                """
-                INSERT INTO booking(user_id, property_id, room_type_id, check_in, check_out, rooms, status, expires_at, currency, total_amount, idempotency_key)
-                VALUES (?, ?, ?, ?, ?, ?, 'HOLD', ?, ?, ?, ?)
-                """.trimIndent(),
-                arrayOf("id"),
-            )
-            ps.setLong(1, userId)
-            ps.setLong(2, room.propertyId)
-            ps.setLong(3, request.room_type_id)
-            ps.setDate(4, Date.valueOf(request.check_in))
-            ps.setDate(5, Date.valueOf(request.check_out))
-            ps.setInt(6, request.rooms)
-            ps.setTimestamp(7, Timestamp.from(expiresAt))
-            ps.setString(8, request.price.currency)
-            ps.setLong(9, request.price.amount_total)
-            ps.setString(10, idempotencyKey)
-            ps
-        }, keyHolder)
-        val bookingId = resolveGeneratedBookingId(keyHolder)
+        val command = BookingInsertCommand(
+            userId = userId,
+            propertyId = room.propertyId,
+            roomTypeId = request.room_type_id,
+            checkIn = Date.valueOf(request.check_in),
+            checkOut = Date.valueOf(request.check_out),
+            rooms = request.rooms,
+            expiresAt = Timestamp.from(expiresAt),
+            currency = request.price.currency,
+            totalAmount = request.price.amount_total,
+            idempotencyKey = idempotencyKey,
+        )
+        mapper.insertBooking(command)
+        val bookingId = command.id ?: throw DomainException(ErrorCode.INTERNAL, "Failed to create booking")
 
         nights.forEach { stayDate ->
-            jdbcTemplate.update(
-                """
-                INSERT INTO booking_night(booking_id, stay_date, rooms)
-                VALUES (?, ?, ?)
-                """.trimIndent(),
-                bookingId,
-                Date.valueOf(stayDate),
-                request.rooms,
+            mapper.insertBookingNight(
+                bookingId = bookingId,
+                stayDate = Date.valueOf(stayDate),
+                rooms = request.rooms,
             )
         }
 
@@ -274,23 +211,11 @@ class BookingService(
     }
 
     private fun releaseExpiredHoldsForWindow(roomTypeId: Long, checkIn: LocalDate, checkOut: LocalDate) {
-        val expiredBookingIds = jdbcTemplate.query(
-            """
-            SELECT DISTINCT b.id
-            FROM booking b
-            JOIN booking_night bn ON bn.booking_id = b.id
-            WHERE b.status = 'HOLD'
-              AND b.room_type_id = ?
-              AND b.expires_at < NOW(3)
-              AND bn.stay_date >= ?
-              AND bn.stay_date < ?
-            ORDER BY b.id
-            LIMIT 100
-            """.trimIndent(),
-            { rs, _ -> rs.getLong("id") },
-            roomTypeId,
-            Date.valueOf(checkIn),
-            Date.valueOf(checkOut),
+        val expiredBookingIds = mapper.listExpiredHoldIdsForWindow(
+            roomTypeId = roomTypeId,
+            checkIn = Date.valueOf(checkIn),
+            checkOut = Date.valueOf(checkOut),
+            limit = 100,
         )
         expiredBookingIds.forEach { expireHoldTx(it) }
         if (expiredBookingIds.isNotEmpty()) {
@@ -305,53 +230,21 @@ class BookingService(
         checkOut: LocalDate,
         rooms: Int,
     ): ReusableHoldRow? {
-        return jdbcTemplate.query(
-            """
-            SELECT id
-            FROM booking
-            WHERE user_id = ?
-              AND room_type_id = ?
-              AND check_in = ?
-              AND check_out = ?
-              AND rooms = ?
-              AND status = 'HOLD'
-              AND expires_at > NOW(3)
-            ORDER BY expires_at DESC, id DESC
-            LIMIT 1
-            FOR UPDATE
-            """.trimIndent(),
-            { rs, _ -> ReusableHoldRow(id = rs.getLong("id")) },
-            userId,
-            roomTypeId,
-            Date.valueOf(checkIn),
-            Date.valueOf(checkOut),
-            rooms,
-        ).firstOrNull()
+        return mapper.findReusableHold(
+            userId = userId,
+            roomTypeId = roomTypeId,
+            checkIn = Date.valueOf(checkIn),
+            checkOut = Date.valueOf(checkOut),
+            rooms = rooms,
+        )
     }
 
     private fun confirmTx(userId: Long, bookingId: Long, request: BookingConfirmRequest): BookingConfirmData {
         domainSupportService.ensureUserExists(userId)
-        val booking = jdbcTemplate.query(
-            """
-            SELECT id, room_type_id, rooms, status, expires_at, total_amount, currency
-            FROM booking
-            WHERE id = ? AND user_id = ?
-            FOR UPDATE
-            """.trimIndent(),
-            { rs, _ ->
-                BookingRow(
-                    id = rs.getLong("id"),
-                    roomTypeId = rs.getLong("room_type_id"),
-                    rooms = rs.getInt("rooms"),
-                    status = rs.getString("status"),
-                    expiresAt = rs.getTimestamp("expires_at")?.toInstant(),
-                    totalAmount = rs.getLong("total_amount"),
-                    currency = rs.getString("currency"),
-                )
-            },
-            bookingId,
-            userId,
-        ).firstOrNull() ?: throw DomainException(ErrorCode.NOT_FOUND, "Booking not found")
+        val booking = mapper.findBookingForUpdate(
+            bookingId = bookingId,
+            userId = userId,
+        ) ?: throw DomainException(ErrorCode.NOT_FOUND, "Booking not found")
 
         if (booking.status != "HOLD") {
             throw DomainException(ErrorCode.BOOKING_STATE_CONFLICT, "Booking cannot be confirmed from status ${booking.status}")
@@ -371,30 +264,12 @@ class BookingService(
             ),
         )
 
-        val nights = jdbcTemplate.query(
-            "SELECT stay_date, rooms FROM booking_night WHERE booking_id = ? ORDER BY stay_date",
-            { rs, _ ->
-                BookingNight(
-                    stay_date = rs.getDate("stay_date").toLocalDate(),
-                    rooms = rs.getInt("rooms"),
-                )
-            },
-            bookingId,
-        )
+        val nights = mapper.listBookingNights(bookingId)
         nights.forEach { night ->
-            val affected = jdbcTemplate.update(
-                """
-                UPDATE inventory_night
-                SET hold = hold - ?, sold = sold + ?
-                WHERE room_type_id = ?
-                  AND stay_date = ?
-                  AND hold >= ?
-                """.trimIndent(),
-                night.rooms,
-                night.rooms,
-                booking.roomTypeId,
-                Date.valueOf(night.stay_date),
-                night.rooms,
+            val affected = mapper.moveHoldToSold(
+                roomTypeId = booking.roomTypeId,
+                stayDate = Date.valueOf(night.stay_date),
+                rooms = night.rooms,
             )
             if (affected != 1) {
                 meterRegistry.counter("booking_confirm_inventory_conflict_total").increment()
@@ -407,16 +282,7 @@ class BookingService(
             }
         }
 
-        jdbcTemplate.update(
-            """
-            UPDATE booking
-            SET status='CONFIRMED',
-                confirmed_at=NOW(3),
-                updated_at=NOW(3)
-            WHERE id=?
-            """.trimIndent(),
-            bookingId,
-        )
+        mapper.markBookingConfirmed(bookingId)
         domainSupportService.appendOutbox(
             aggregateType = "BOOKING",
             aggregateId = bookingId.toString(),
@@ -433,67 +299,29 @@ class BookingService(
 
     private fun cancelTx(userId: Long, bookingId: Long, request: BookingCancelRequest): BookingCancelData {
         domainSupportService.ensureUserExists(userId)
-        val booking = jdbcTemplate.query(
-            """
-            SELECT id, room_type_id, status
-            FROM booking
-            WHERE id = ? AND user_id = ?
-            FOR UPDATE
-            """.trimIndent(),
-            { rs, _ ->
-                BookingCancelRow(
-                    id = rs.getLong("id"),
-                    roomTypeId = rs.getLong("room_type_id"),
-                    status = rs.getString("status"),
-                )
-            },
-            bookingId,
-            userId,
-        ).firstOrNull() ?: throw DomainException(ErrorCode.NOT_FOUND, "Booking not found")
+        val booking = mapper.findCancelBookingForUpdate(
+            bookingId = bookingId,
+            userId = userId,
+        ) ?: throw DomainException(ErrorCode.NOT_FOUND, "Booking not found")
 
         if (booking.status == "CANCELED" || booking.status == "EXPIRED") {
             throw DomainException(ErrorCode.BOOKING_STATE_CONFLICT, "Booking already closed")
         }
 
-        val nights = jdbcTemplate.query(
-            "SELECT stay_date, rooms FROM booking_night WHERE booking_id = ? ORDER BY stay_date",
-            { rs, _ ->
-                BookingNight(
-                    stay_date = rs.getDate("stay_date").toLocalDate(),
-                    rooms = rs.getInt("rooms"),
-                )
-            },
-            bookingId,
-        )
+        val nights = mapper.listBookingNights(bookingId)
 
         nights.forEach { night ->
             val affected = when (booking.status) {
-                "HOLD" -> jdbcTemplate.update(
-                    """
-                    UPDATE inventory_night
-                    SET hold = hold - ?
-                    WHERE room_type_id = ?
-                      AND stay_date = ?
-                      AND hold >= ?
-                    """.trimIndent(),
-                    night.rooms,
-                    booking.roomTypeId,
-                    Date.valueOf(night.stay_date),
-                    night.rooms,
+                "HOLD" -> mapper.decreaseInventoryHold(
+                    roomTypeId = booking.roomTypeId,
+                    stayDate = Date.valueOf(night.stay_date),
+                    rooms = night.rooms,
                 )
 
-                "CONFIRMED" -> jdbcTemplate.update(
-                    """
-                    UPDATE inventory_night
-                    SET sold = sold - ?
-                    WHERE room_type_id = ?
-                      AND stay_date = ?
-                      AND sold >= ?
-                    """.trimIndent(),
-                    night.rooms,
-                    booking.roomTypeId,
-                    Date.valueOf(night.stay_date),
-                    night.rooms,
+                "CONFIRMED" -> mapper.decreaseInventorySold(
+                    roomTypeId = booking.roomTypeId,
+                    stayDate = Date.valueOf(night.stay_date),
+                    rooms = night.rooms,
                 )
 
                 else -> throw DomainException(ErrorCode.BOOKING_STATE_CONFLICT, "Booking cannot be cancelled from ${booking.status}")
@@ -504,16 +332,7 @@ class BookingService(
         }
 
         val now = Instant.now(clock)
-        jdbcTemplate.update(
-            """
-            UPDATE booking
-            SET status='CANCELED',
-                cancelled_at=NOW(3),
-                updated_at=NOW(3)
-            WHERE id=?
-            """.trimIndent(),
-            bookingId,
-        )
+        mapper.markBookingCancelled(bookingId)
         domainSupportService.appendOutbox(
             aggregateType = "BOOKING",
             aggregateId = bookingId.toString(),
@@ -529,26 +348,7 @@ class BookingService(
     }
 
     private fun expireHoldTx(bookingId: Long) {
-        val booking = jdbcTemplate.query(
-            """
-            SELECT id, room_type_id, rooms, status, expires_at, total_amount, currency
-            FROM booking
-            WHERE id = ?
-            FOR UPDATE
-            """.trimIndent(),
-            { rs, _ ->
-                BookingRow(
-                    id = rs.getLong("id"),
-                    roomTypeId = rs.getLong("room_type_id"),
-                    rooms = rs.getInt("rooms"),
-                    status = rs.getString("status"),
-                    expiresAt = rs.getTimestamp("expires_at")?.toInstant(),
-                    totalAmount = rs.getLong("total_amount"),
-                    currency = rs.getString("currency"),
-                )
-            },
-            bookingId,
-        ).firstOrNull() ?: return
+        val booking = mapper.findBookingByIdForUpdate(bookingId) ?: return
 
         if (booking.status != "HOLD") {
             return
@@ -557,29 +357,12 @@ class BookingService(
             return
         }
 
-        val nights = jdbcTemplate.query(
-            "SELECT stay_date, rooms FROM booking_night WHERE booking_id = ? ORDER BY stay_date",
-            { rs, _ ->
-                BookingNight(
-                    stay_date = rs.getDate("stay_date").toLocalDate(),
-                    rooms = rs.getInt("rooms"),
-                )
-            },
-            bookingId,
-        )
+        val nights = mapper.listBookingNights(bookingId)
         nights.forEach { night ->
-            val affected = jdbcTemplate.update(
-                """
-                UPDATE inventory_night
-                SET hold = hold - ?
-                WHERE room_type_id = ?
-                  AND stay_date = ?
-                  AND hold >= ?
-                """.trimIndent(),
-                night.rooms,
-                booking.roomTypeId,
-                Date.valueOf(night.stay_date),
-                night.rooms,
+            val affected = mapper.decreaseInventoryHold(
+                roomTypeId = booking.roomTypeId,
+                stayDate = Date.valueOf(night.stay_date),
+                rooms = night.rooms,
             )
             if (affected != 1) {
                 meterRegistry.counter("booking_expiry_fail_total").increment()
@@ -590,16 +373,7 @@ class BookingService(
                 )
             }
         }
-        jdbcTemplate.update(
-            """
-            UPDATE booking
-            SET status='EXPIRED',
-                expired_at=NOW(3),
-                updated_at=NOW(3)
-            WHERE id=?
-            """.trimIndent(),
-            bookingId,
-        )
+        mapper.markBookingExpired(bookingId)
         meterRegistry.counter("booking_expired_total").increment()
         domainSupportService.appendOutbox(
             aggregateType = "BOOKING",
@@ -607,28 +381,6 @@ class BookingService(
             eventType = "BookingExpired",
             payload = mapOf("booking_id" to bookingId),
         )
-    }
-
-    private fun resolveGeneratedBookingId(keyHolder: GeneratedKeyHolder): Long {
-        keyHolder.key?.toLong()?.let { return it }
-
-        val fromSingle = keyHolder.keys?.entries
-            ?.firstOrNull { it.key.equals("id", ignoreCase = true) }
-            ?.value
-        if (fromSingle is Number) {
-            return fromSingle.toLong()
-        }
-
-        val fromRows = keyHolder.keyList
-            .asSequence()
-            .flatMap { it.entries.asSequence() }
-            .firstOrNull { it.key.equals("id", ignoreCase = true) }
-            ?.value
-        if (fromRows is Number) {
-            return fromRows.toLong()
-        }
-
-        throw DomainException(ErrorCode.INTERNAL, "Failed to create booking")
     }
 
     private fun parseBookingId(rawBookingId: String): Long {
@@ -699,14 +451,14 @@ data class BookingCancelData(
     val cancelled_at: String,
 )
 
-private data class RoomLookup(
+data class RoomLookup(
     val roomTypeId: Long,
     val roomStatus: String,
     val propertyId: Long,
     val propertyStatus: String,
 )
 
-private data class BookingRow(
+data class BookingRow(
     val id: Long,
     val roomTypeId: Long,
     val rooms: Int,
@@ -716,12 +468,291 @@ private data class BookingRow(
     val currency: String,
 )
 
-private data class BookingCancelRow(
+data class BookingCancelRow(
     val id: Long,
     val roomTypeId: Long,
     val status: String,
 )
 
-private data class ReusableHoldRow(
+data class ReusableHoldRow(
     val id: Long,
 )
+
+data class BookingInsertCommand(
+    val userId: Long,
+    val propertyId: Long,
+    val roomTypeId: Long,
+    val checkIn: Date,
+    val checkOut: Date,
+    val rooms: Int,
+    val expiresAt: Timestamp,
+    val currency: String,
+    val totalAmount: Long,
+    val idempotencyKey: String,
+    var id: Long? = null,
+)
+
+@Mapper
+interface BookingMapper {
+    @Select(
+        """
+        SELECT id
+        FROM booking
+        WHERE status='HOLD'
+          AND expires_at < NOW(3)
+        ORDER BY id
+        LIMIT #{limit}
+        """,
+    )
+    fun listExpiredHoldIds(@Param("limit") limit: Int): List<Long>
+
+    @Select(
+        """
+        SELECT rt.id AS roomTypeId,
+               rt.status AS roomStatus,
+               p.id AS propertyId,
+               p.status AS propertyStatus
+        FROM room_type rt
+        JOIN property p ON p.id = rt.property_id
+        WHERE rt.id = #{roomTypeId}
+        LIMIT 1
+        """,
+    )
+    fun findRoomLookup(@Param("roomTypeId") roomTypeId: Long): RoomLookup?
+
+    @Update(
+        """
+        UPDATE booking
+        SET expires_at = #{expiresAt},
+            currency = #{currency},
+            total_amount = #{totalAmount},
+            updated_at = NOW(3)
+        WHERE id = #{bookingId}
+        """,
+    )
+    fun refreshReusableHold(
+        @Param("bookingId") bookingId: Long,
+        @Param("expiresAt") expiresAt: Timestamp,
+        @Param("currency") currency: String,
+        @Param("totalAmount") totalAmount: Long,
+    ): Int
+
+    @Select(
+        """
+        SELECT stay_date AS stay_date, rooms
+        FROM booking_night
+        WHERE booking_id = #{bookingId}
+        ORDER BY stay_date
+        """,
+    )
+    fun listBookingNights(@Param("bookingId") bookingId: Long): List<BookingNight>
+
+    @Update(
+        """
+        UPDATE inventory_night
+        SET hold = hold + #{rooms}
+        WHERE room_type_id = #{roomTypeId}
+          AND stay_date = #{stayDate}
+          AND (hold + sold + #{rooms}) <= total
+        """,
+    )
+    fun increaseInventoryHold(
+        @Param("roomTypeId") roomTypeId: Long,
+        @Param("stayDate") stayDate: Date,
+        @Param("rooms") rooms: Int,
+    ): Int
+
+    @Insert(
+        """
+        INSERT INTO booking(user_id, property_id, room_type_id, check_in, check_out, rooms, status, expires_at, currency, total_amount, idempotency_key)
+        VALUES (#{userId}, #{propertyId}, #{roomTypeId}, #{checkIn}, #{checkOut}, #{rooms}, 'HOLD', #{expiresAt}, #{currency}, #{totalAmount}, #{idempotencyKey})
+        """,
+    )
+    @Options(useGeneratedKeys = true, keyProperty = "id", keyColumn = "id")
+    fun insertBooking(command: BookingInsertCommand): Int
+
+    @Insert(
+        """
+        INSERT INTO booking_night(booking_id, stay_date, rooms)
+        VALUES (#{bookingId}, #{stayDate}, #{rooms})
+        """,
+    )
+    fun insertBookingNight(
+        @Param("bookingId") bookingId: Long,
+        @Param("stayDate") stayDate: Date,
+        @Param("rooms") rooms: Int,
+    ): Int
+
+    @Select(
+        """
+        SELECT DISTINCT b.id
+        FROM booking b
+        JOIN booking_night bn ON bn.booking_id = b.id
+        WHERE b.status = 'HOLD'
+          AND b.room_type_id = #{roomTypeId}
+          AND b.expires_at < NOW(3)
+          AND bn.stay_date >= #{checkIn}
+          AND bn.stay_date < #{checkOut}
+        ORDER BY b.id
+        LIMIT #{limit}
+        """,
+    )
+    fun listExpiredHoldIdsForWindow(
+        @Param("roomTypeId") roomTypeId: Long,
+        @Param("checkIn") checkIn: Date,
+        @Param("checkOut") checkOut: Date,
+        @Param("limit") limit: Int,
+    ): List<Long>
+
+    @Select(
+        """
+        SELECT id
+        FROM booking
+        WHERE user_id = #{userId}
+          AND room_type_id = #{roomTypeId}
+          AND check_in = #{checkIn}
+          AND check_out = #{checkOut}
+          AND rooms = #{rooms}
+          AND status = 'HOLD'
+          AND expires_at > NOW(3)
+        ORDER BY expires_at DESC, id DESC
+        LIMIT 1
+        FOR UPDATE
+        """,
+    )
+    fun findReusableHold(
+        @Param("userId") userId: Long,
+        @Param("roomTypeId") roomTypeId: Long,
+        @Param("checkIn") checkIn: Date,
+        @Param("checkOut") checkOut: Date,
+        @Param("rooms") rooms: Int,
+    ): ReusableHoldRow?
+
+    @Select(
+        """
+        SELECT id,
+               room_type_id AS roomTypeId,
+               rooms,
+               status,
+               expires_at AS expiresAt,
+               total_amount AS totalAmount,
+               currency
+        FROM booking
+        WHERE id = #{bookingId} AND user_id = #{userId}
+        FOR UPDATE
+        """,
+    )
+    fun findBookingForUpdate(
+        @Param("bookingId") bookingId: Long,
+        @Param("userId") userId: Long,
+    ): BookingRow?
+
+    @Update(
+        """
+        UPDATE inventory_night
+        SET hold = hold - #{rooms}, sold = sold + #{rooms}
+        WHERE room_type_id = #{roomTypeId}
+          AND stay_date = #{stayDate}
+          AND hold >= #{rooms}
+        """,
+    )
+    fun moveHoldToSold(
+        @Param("roomTypeId") roomTypeId: Long,
+        @Param("stayDate") stayDate: Date,
+        @Param("rooms") rooms: Int,
+    ): Int
+
+    @Update(
+        """
+        UPDATE booking
+        SET status='CONFIRMED',
+            confirmed_at=NOW(3),
+            updated_at=NOW(3)
+        WHERE id=#{bookingId}
+        """,
+    )
+    fun markBookingConfirmed(@Param("bookingId") bookingId: Long): Int
+
+    @Select(
+        """
+        SELECT id,
+               room_type_id AS roomTypeId,
+               status
+        FROM booking
+        WHERE id = #{bookingId} AND user_id = #{userId}
+        FOR UPDATE
+        """,
+    )
+    fun findCancelBookingForUpdate(
+        @Param("bookingId") bookingId: Long,
+        @Param("userId") userId: Long,
+    ): BookingCancelRow?
+
+    @Update(
+        """
+        UPDATE inventory_night
+        SET hold = hold - #{rooms}
+        WHERE room_type_id = #{roomTypeId}
+          AND stay_date = #{stayDate}
+          AND hold >= #{rooms}
+        """,
+    )
+    fun decreaseInventoryHold(
+        @Param("roomTypeId") roomTypeId: Long,
+        @Param("stayDate") stayDate: Date,
+        @Param("rooms") rooms: Int,
+    ): Int
+
+    @Update(
+        """
+        UPDATE inventory_night
+        SET sold = sold - #{rooms}
+        WHERE room_type_id = #{roomTypeId}
+          AND stay_date = #{stayDate}
+          AND sold >= #{rooms}
+        """,
+    )
+    fun decreaseInventorySold(
+        @Param("roomTypeId") roomTypeId: Long,
+        @Param("stayDate") stayDate: Date,
+        @Param("rooms") rooms: Int,
+    ): Int
+
+    @Update(
+        """
+        UPDATE booking
+        SET status='CANCELED',
+            cancelled_at=NOW(3),
+            updated_at=NOW(3)
+        WHERE id=#{bookingId}
+        """,
+    )
+    fun markBookingCancelled(@Param("bookingId") bookingId: Long): Int
+
+    @Select(
+        """
+        SELECT id,
+               room_type_id AS roomTypeId,
+               rooms,
+               status,
+               expires_at AS expiresAt,
+               total_amount AS totalAmount,
+               currency
+        FROM booking
+        WHERE id = #{bookingId}
+        FOR UPDATE
+        """,
+    )
+    fun findBookingByIdForUpdate(@Param("bookingId") bookingId: Long): BookingRow?
+
+    @Update(
+        """
+        UPDATE booking
+        SET status='EXPIRED',
+            expired_at=NOW(3),
+            updated_at=NOW(3)
+        WHERE id=#{bookingId}
+        """,
+    )
+    fun markBookingExpired(@Param("bookingId") bookingId: Long): Int
+}

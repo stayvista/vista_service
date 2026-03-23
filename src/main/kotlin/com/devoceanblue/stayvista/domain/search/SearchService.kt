@@ -13,13 +13,16 @@ import java.sql.Date
 import java.time.Duration
 import java.time.LocalDate
 import java.util.Locale
+import org.apache.ibatis.annotations.Mapper
+import org.apache.ibatis.annotations.Param
+import org.apache.ibatis.annotations.Select
+import org.apache.ibatis.annotations.SelectProvider
 import org.springframework.beans.factory.annotation.Value
-import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Service
 
 @Service
 class SearchService(
-    private val jdbcTemplate: JdbcTemplate,
+    private val mapper: SearchMapper,
     private val cache: SimpleTtlCache,
     private val meterRegistry: MeterRegistry,
     private val openSearchClient: OpenSearchClient,
@@ -107,70 +110,58 @@ class SearchService(
         val page = (request.page ?: 1).coerceAtLeast(1)
         val offset = (page - 1) * size
         val cursor = request.cursor?.toLongOrNull()
-
         val center = resolveCenter(request)
+        val distanceExpr = buildDistanceExpr(center)
+        val availabilityFilter = resolveAvailabilityFilter(request)
+        val guestRatingThreshold = minThreshold(request.guest_rating_bands)
+        val locationRatingThreshold = minThreshold(request.location_rating_bands)
+        val brandIds = request.brands.mapNotNull { it.toLongOrNull() }
+        val brandNames = request.brands.filter { it.toLongOrNull() == null }
+        val cursorPaging = request.page == null && cursor != null
+        val queryLimit = if (cursorPaging) size + 1 else size
+
         val where = mutableListOf<String>()
-        val params = mutableListOf<Any?>()
         where += "p.status = 'ACTIVE'"
 
         if (request.property_id != null) {
-            where += "p.id = ?"
-            params += request.property_id
+            where += "p.id = #{propertyId}"
         } else if (!request.city.isNullOrBlank()) {
-            where += "p.city = ?"
-            params += request.city
+            where += "p.city = #{city}"
         }
         if (!request.q.isNullOrBlank()) {
-            where += "p.name LIKE ?"
-            params += "%${request.q.trim()}%"
+            where += "p.name LIKE #{qLike}"
         }
         if (request.min_rating != null) {
-            where += "COALESCE(p.rating, 0) >= ?"
-            params += request.min_rating
+            where += "COALESCE(p.rating, 0) >= #{minRating}"
         }
         if (request.min_guest_rating != null) {
-            where += "COALESCE(p.rating, 0) >= ?"
-            params += request.min_guest_rating
+            where += "COALESCE(p.rating, 0) >= #{minGuestRating}"
         }
         if (request.min_location_rating != null) {
-            where += "COALESCE(p.location_rating, 0) >= ?"
-            params += request.min_location_rating
+            where += "COALESCE(p.location_rating, 0) >= #{minLocationRating}"
         }
-        if (request.guest_rating_bands.isNotEmpty()) {
-            val threshold = minThreshold(request.guest_rating_bands)
-            if (threshold != null) {
-                where += "COALESCE(p.rating, 0) >= ?"
-                params += threshold
-            }
+        if (guestRatingThreshold != null) {
+            where += "COALESCE(p.rating, 0) >= #{guestRatingThreshold}"
         }
-        if (request.location_rating_bands.isNotEmpty()) {
-            val threshold = minThreshold(request.location_rating_bands)
-            if (threshold != null) {
-                where += "COALESCE(p.location_rating, 0) >= ?"
-                params += threshold
-            }
+        if (locationRatingThreshold != null) {
+            where += "COALESCE(p.location_rating, 0) >= #{locationRatingThreshold}"
         }
         if (request.stars.isNotEmpty()) {
-            where += "COALESCE(p.star_rating, 0) IN (${request.stars.joinToString(",") { "?" }})"
-            params.addAll(request.stars.map { it as Any? })
+            where += "COALESCE(p.star_rating, 0) IN (${placeholderList("stars", request.stars.size)})"
         }
         if (request.property_type.isNotEmpty()) {
-            where += "COALESCE(p.property_type_code, '') IN (${request.property_type.joinToString(",") { "?" }})"
-            params.addAll(request.property_type.map { it as Any? })
+            where += "COALESCE(p.property_type_code, '') IN (${placeholderList("propertyTypes", request.property_type.size)})"
         }
         if (request.districts.isNotEmpty()) {
-            where += "COALESCE(p.district_name, '') IN (${request.districts.joinToString(",") { "?" }})"
-            params.addAll(request.districts.map { it as Any? })
+            where += "COALESCE(p.district_name, '') IN (${placeholderList("districts", request.districts.size)})"
         }
         if (request.min_price != null || request.max_price != null) {
             val pricePredicates = mutableListOf<String>()
             request.min_price?.let {
-                pricePredicates += "rt2.base_price >= ?"
-                params += it
+                pricePredicates += "rt2.base_price >= #{minPrice}"
             }
             request.max_price?.let {
-                pricePredicates += "rt2.base_price <= ?"
-                params += it
+                pricePredicates += "rt2.base_price <= #{maxPrice}"
             }
             where += """
               EXISTS (
@@ -189,10 +180,9 @@ class SearchService(
                 FROM room_type rt3
                 WHERE rt3.property_id = p.id
                   AND rt3.status = 'ACTIVE'
-                  AND COALESCE(rt3.bed_type, '') IN (${request.bed_types.joinToString(",") { "?" }})
+                  AND COALESCE(rt3.bed_type, '') IN (${placeholderList("bedTypes", request.bed_types.size)})
               )
             """.trimIndent()
-            params.addAll(request.bed_types.map { it as Any? })
         }
         if (request.bedrooms != null) {
             where += """
@@ -201,10 +191,9 @@ class SearchService(
                 FROM room_type rt4
                 WHERE rt4.property_id = p.id
                   AND rt4.status = 'ACTIVE'
-                  AND COALESCE(rt4.bedrooms, 1) >= ?
+                  AND COALESCE(rt4.bedrooms, 1) >= #{bedrooms}
               )
             """.trimIndent()
-            params += request.bedrooms
         }
         if (request.amenities.isNotEmpty()) {
             where += """
@@ -212,10 +201,9 @@ class SearchService(
                 SELECT 1
                 FROM property_amenity pa
                 WHERE pa.property_id = p.id
-                  AND pa.amenity_code IN (${request.amenities.joinToString(",") { "?" }})
+                  AND pa.amenity_code IN (${placeholderList("amenities", request.amenities.size)})
               )
             """.trimIndent()
-            params.addAll(request.amenities.map { it as Any? })
         }
         if (request.themes.isNotEmpty()) {
             where += """
@@ -223,10 +211,9 @@ class SearchService(
                 SELECT 1
                 FROM property_theme pt
                 WHERE pt.property_id = p.id
-                  AND pt.theme_code IN (${request.themes.joinToString(",") { "?" }})
+                  AND pt.theme_code IN (${placeholderList("themes", request.themes.size)})
               )
             """.trimIndent()
-            params.addAll(request.themes.map { it as Any? })
         }
         if (request.payment_options.isNotEmpty()) {
             where += """
@@ -234,22 +221,17 @@ class SearchService(
                 SELECT 1
                 FROM property_payment_option ppo
                 WHERE ppo.property_id = p.id
-                  AND ppo.payment_option_code IN (${request.payment_options.joinToString(",") { "?" }})
+                  AND ppo.payment_option_code IN (${placeholderList("paymentOptions", request.payment_options.size)})
               )
             """.trimIndent()
-            params.addAll(request.payment_options.map { it as Any? })
         }
         if (request.brands.isNotEmpty()) {
-            val brandNames = request.brands.filter { it.toLongOrNull() == null }
-            val brandIds = request.brands.mapNotNull { it.toLongOrNull() }
             val brandConditions = mutableListOf<String>()
             if (brandIds.isNotEmpty()) {
-                brandConditions += "pb.brand_id IN (${brandIds.joinToString(",") { "?" }})"
-                params.addAll(brandIds.map { it as Any? })
+                brandConditions += "pb.brand_id IN (${placeholderList("brandIds", brandIds.size)})"
             }
             if (brandNames.isNotEmpty()) {
-                brandConditions += "b.name IN (${brandNames.joinToString(",") { "?" }})"
-                params.addAll(brandNames.map { it as Any? })
+                brandConditions += "b.name IN (${placeholderList("brandNames", brandNames.size)})"
             }
             if (brandConditions.isNotEmpty()) {
                 where += """
@@ -264,7 +246,6 @@ class SearchService(
             }
         }
 
-        val availabilityFilter = resolveAvailabilityFilter(request)
         if (availabilityFilter != null) {
             where += """
               EXISTS (
@@ -273,17 +254,13 @@ class SearchService(
                 JOIN inventory_night inv ON inv.room_type_id = rt_inv.id
                 WHERE rt_inv.property_id = p.id
                   AND rt_inv.status = 'ACTIVE'
-                  AND inv.stay_date >= ?
-                  AND inv.stay_date < ?
+                  AND inv.stay_date >= #{availabilityCheckIn}
+                  AND inv.stay_date < #{availabilityCheckOut}
                 GROUP BY rt_inv.id
-                HAVING COUNT(*) = ?
-                   AND MIN(inv.total - inv.hold - inv.sold) >= ?
+                HAVING COUNT(*) = #{availabilityNights}
+                   AND MIN(inv.total - inv.hold - inv.sold) >= #{availabilityRooms}
               )
             """.trimIndent()
-            params += Date.valueOf(availabilityFilter.checkIn)
-            params += Date.valueOf(availabilityFilter.checkOut)
-            params += availabilityFilter.nights
-            params += availabilityFilter.rooms
         }
 
         if (request.family_options.any { it == "kid_free_stay" || it == "child_free_stay" }) {
@@ -297,7 +274,7 @@ class SearchService(
               EXISTS (
                 SELECT 1
                 FROM poi pfx
-                WHERE pfx.id IN (${request.nearby_attractions.joinToString(",") { "?" }})
+                WHERE pfx.id IN (${placeholderList("nearbyAttractions", request.nearby_attractions.size)})
                   AND pfx.active = 1
                   AND pfx.city = p.city
                   AND (
@@ -309,41 +286,17 @@ class SearchService(
                   ) <= 5000
               )
             """.trimIndent()
-            params.addAll(request.nearby_attractions.map { it as Any? })
         }
-
-        val distanceExpr = buildDistanceExpr(center)
         if (distanceExpr != null && request.distance_bands.isNotEmpty()) {
             where += "p.lat IS NOT NULL AND p.lng IS NOT NULL"
             val bandPredicates = mutableListOf<String>()
             request.distance_bands.forEach { band ->
                 when (band) {
-                    "center" -> {
-                        bandPredicates += "$distanceExpr <= ?"
-                        params += 1000
-                    }
-
-                    "under_2km" -> {
-                        bandPredicates += "$distanceExpr <= ?"
-                        params += 2000
-                    }
-
-                    "2_5km" -> {
-                        bandPredicates += "($distanceExpr > ? AND $distanceExpr <= ?)"
-                        params += 2000
-                        params += 5000
-                    }
-
-                    "5_10km" -> {
-                        bandPredicates += "($distanceExpr > ? AND $distanceExpr <= ?)"
-                        params += 5000
-                        params += 10000
-                    }
-
-                    "under_10km" -> {
-                        bandPredicates += "$distanceExpr <= ?"
-                        params += 10000
-                    }
+                    "center" -> bandPredicates += "$distanceExpr <= 1000"
+                    "under_2km" -> bandPredicates += "$distanceExpr <= 2000"
+                    "2_5km" -> bandPredicates += "($distanceExpr > 2000 AND $distanceExpr <= 5000)"
+                    "5_10km" -> bandPredicates += "($distanceExpr > 5000 AND $distanceExpr <= 10000)"
+                    "under_10km" -> bandPredicates += "$distanceExpr <= 10000"
                 }
             }
             if (bandPredicates.isNotEmpty()) {
@@ -352,78 +305,78 @@ class SearchService(
         }
         if (request.max_distance_m != null && distanceExpr != null) {
             where += "p.lat IS NOT NULL AND p.lng IS NOT NULL"
-            where += "$distanceExpr <= ?"
-            params += request.max_distance_m
+            where += "$distanceExpr <= #{maxDistanceM}"
         }
         if (cursor != null && request.page == null) {
-            where += "p.id > ?"
-            params += cursor
+            where += "p.id > #{cursor}"
         }
 
-        val whereClause = where.joinToString(" AND ")
-        val order = when (request.sort) {
-            "price_asc" -> "price_min ASC, p.id ASC"
-            "price_desc" -> "price_min DESC, p.id DESC"
+        val orderBy = when (request.sort) {
+            "price_asc" -> "priceMin ASC, p.id ASC"
+            "price_desc" -> "priceMin DESC, p.id DESC"
             "rating_desc" -> "rating DESC, p.id ASC"
             "distance", "distance_asc" -> if (distanceExpr != null) "$distanceExpr ASC, p.id ASC" else "p.id ASC"
             "best_match" -> "COALESCE(p.popularity_score, 0) DESC, rating DESC, p.id ASC"
             else -> "p.id ASC"
         }
 
-        val selectDistance = if (distanceExpr != null) "$distanceExpr AS distance_m" else "NULL AS distance_m"
-        val selectSql = """
-            SELECT
-              p.id,
-              p.name,
-              p.city,
-              p.district_name,
-              p.star_rating,
-              COALESCE(MIN(rt.base_price), 0) AS price_min,
-              COALESCE(p.rating, 0) AS rating,
-              COALESCE(p.location_rating, 0) AS location_rating,
-              COALESCE(p.review_count, 0) AS review_count,
-              p.thumbnail_url,
-              $selectDistance
-            FROM property p
-            LEFT JOIN room_type rt ON rt.property_id = p.id AND rt.status = 'ACTIVE'
-            WHERE $whereClause
-            GROUP BY p.id, p.name, p.city, p.district_name, p.star_rating, p.rating, p.location_rating, p.review_count, p.thumbnail_url, p.lat, p.lng
-            ORDER BY $order
-            LIMIT ?
-        """.trimIndent()
-
-        val selectParams = mutableListOf<Any?>().apply {
-            addAll(params)
-            add(if (request.page == null && cursor != null) size + 1 else size)
-            if (request.page != null) {
-                add(offset)
-            }
-        }
-
-        val finalSelectSql = if (request.page != null) "$selectSql OFFSET ?" else selectSql
-        val rows = jdbcTemplate.query(
-            finalSelectSql,
-            { rs, _ ->
-                SearchItem(
-                    property_id = rs.getLong("id"),
-                    name = rs.getString("name"),
-                    city = rs.getString("city"),
-                    district = rs.getString("district_name"),
-                    price_min = rs.getLong("price_min"),
-                    rating = rs.getBigDecimal("rating")?.toDouble() ?: 0.0,
-                    location_rating = rs.getBigDecimal("location_rating")?.toDouble() ?: 0.0,
-                    star_rating = rs.getInt("star_rating"),
-                    review_count = rs.getInt("review_count"),
-                    thumbnail_url = rs.getString("thumbnail_url"),
-                    distance_m = rs.getDouble("distance_m").takeIf { !rs.wasNull() }?.toInt(),
-                    currency = request.currency,
-                )
-            },
-            *selectParams.toTypedArray(),
+        val spec = SearchQuerySpec(
+            whereClause = where.joinToString(" AND "),
+            orderBy = orderBy,
+            selectDistance = distanceExpr,
+            queryLimit = queryLimit,
+            offset = if (request.page != null) offset else null,
+            propertyId = request.property_id,
+            city = request.city,
+            qLike = request.q?.let { "%$it%" },
+            minRating = request.min_rating,
+            minGuestRating = request.min_guest_rating,
+            minLocationRating = request.min_location_rating,
+            guestRatingThreshold = guestRatingThreshold,
+            locationRatingThreshold = locationRatingThreshold,
+            stars = request.stars,
+            propertyTypes = request.property_type,
+            districts = request.districts,
+            minPrice = request.min_price,
+            maxPrice = request.max_price,
+            bedTypes = request.bed_types,
+            bedrooms = request.bedrooms,
+            amenities = request.amenities,
+            themes = request.themes,
+            paymentOptions = request.payment_options,
+            brandIds = brandIds,
+            brandNames = brandNames,
+            availabilityCheckIn = availabilityFilter?.let { Date.valueOf(it.checkIn) },
+            availabilityCheckOut = availabilityFilter?.let { Date.valueOf(it.checkOut) },
+            availabilityNights = availabilityFilter?.nights,
+            availabilityRooms = availabilityFilter?.rooms,
+            nearbyAttractions = request.nearby_attractions,
+            maxDistanceM = request.max_distance_m,
+            cursor = cursor,
+            centerLat = center?.lat,
+            centerLng = center?.lng,
         )
 
-        val hasNext = request.page == null && cursor != null && rows.size > size
-        val pagedItems = if (hasNext) rows.dropLast(1) else rows
+        val rows = mapper.search(spec)
+        val items = rows.map { row ->
+            SearchItem(
+                property_id = row.propertyId,
+                name = row.name,
+                city = row.city,
+                district = row.district,
+                price_min = row.priceMin,
+                rating = row.rating,
+                location_rating = row.locationRating,
+                star_rating = row.starRating,
+                review_count = row.reviewCount,
+                thumbnail_url = row.thumbnailUrl,
+                distance_m = row.distanceM?.toInt(),
+                currency = request.currency,
+            )
+        }
+
+        val hasNext = cursorPaging && items.size > size
+        val pagedItems = if (hasNext) items.dropLast(1) else items
         val convertedItems = pagedItems.map { item ->
             item.copy(
                 price_min = fxService.convert(item.price_min, "KRW", request.currency),
@@ -431,12 +384,7 @@ class SearchService(
             )
         }
 
-        val countSql = """
-            SELECT COUNT(*)
-            FROM property p
-            WHERE $whereClause
-        """.trimIndent()
-        val total = jdbcTemplate.queryForObject(countSql, Long::class.java, *params.toTypedArray()) ?: convertedItems.size.toLong()
+        val total = mapper.count(spec)
 
         val data = SearchData(
             items = convertedItems,
@@ -455,14 +403,12 @@ class SearchService(
 
     private fun buildDistanceExpr(center: LatLng?): String? {
         if (center == null) return null
-        val lat = center.lat
-        val lng = center.lng
         return """
           (
             6371000 * ACOS(
-              COS(RADIANS($lat)) * COS(RADIANS(p.lat)) *
-              COS(RADIANS(p.lng) - RADIANS($lng)) +
-              SIN(RADIANS($lat)) * SIN(RADIANS(p.lat))
+              COS(RADIANS(#{centerLat})) * COS(RADIANS(p.lat)) *
+              COS(RADIANS(p.lng) - RADIANS(#{centerLng})) +
+              SIN(RADIANS(#{centerLat})) * SIN(RADIANS(p.lat))
             )
           )
         """.trimIndent()
@@ -474,20 +420,12 @@ class SearchService(
             return when (placeId.type) {
                 PlaceType.PROPERTY -> {
                     val propertyId = placeId.canonicalId.toLongOrNull() ?: return null
-                    jdbcTemplate.query(
-                        "SELECT lat, lng FROM property WHERE id = ? LIMIT 1",
-                        { rs, _ -> LatLng(rs.getDouble("lat"), rs.getDouble("lng")) },
-                        propertyId,
-                    ).firstOrNull()
+                    mapper.findPropertyCenter(propertyId).toLatLng()
                 }
 
                 PlaceType.POI -> {
                     val poiId = placeId.canonicalId.toLongOrNull() ?: return null
-                    jdbcTemplate.query(
-                        "SELECT lat, lng FROM poi WHERE id = ? LIMIT 1",
-                        { rs, _ -> LatLng(rs.getDouble("lat"), rs.getDouble("lng")) },
-                        poiId,
-                    ).firstOrNull()
+                    mapper.findPoiCenter(poiId).toLatLng()
                 }
 
                 PlaceType.CITY -> cityCenter(placeId.canonicalId)
@@ -500,22 +438,7 @@ class SearchService(
     }
 
     private fun cityCenter(city: String): LatLng? {
-        return jdbcTemplate.query(
-            """
-            SELECT AVG(lat) AS lat, AVG(lng) AS lng
-            FROM property
-            WHERE city = ?
-              AND status = 'ACTIVE'
-              AND lat IS NOT NULL
-              AND lng IS NOT NULL
-            """.trimIndent(),
-            { rs, _ ->
-                val lat = rs.getDouble("lat")
-                val lng = rs.getDouble("lng")
-                if (rs.wasNull()) null else LatLng(lat, lng)
-            },
-            city,
-        ).firstOrNull()
+        return mapper.findCityCenter(city).toLatLng()
     }
 
     private fun enrichSearchData(
@@ -705,17 +628,19 @@ class SearchService(
 
     private fun resolvePoiCity(canonicalId: String): String? {
         val poiId = canonicalId.toLongOrNull() ?: return null
-        return jdbcTemplate.query(
-            """
-            SELECT city
-            FROM poi
-            WHERE id = ?
-            LIMIT 1
-            """.trimIndent(),
-            { rs, _ -> rs.getString("city") },
-            poiId,
-        ).firstOrNull()
+        return mapper.findPoiCity(poiId)
             ?.takeIf { it.isNotBlank() }
+    }
+
+    private fun placeholderList(field: String, size: Int): String {
+        return List(size) { index -> "#{$field[$index]}" }.joinToString(",")
+    }
+
+    private fun SearchLatLngRow?.toLatLng(): LatLng? {
+        val row = this ?: return null
+        val lat = row.lat ?: return null
+        val lng = row.lng ?: return null
+        return LatLng(lat, lng)
     }
 }
 
@@ -831,3 +756,124 @@ private data class SearchAvailabilityWindow(
     val nights: Int,
     val rooms: Int,
 )
+
+data class SearchQuerySpec(
+    val whereClause: String,
+    val orderBy: String,
+    val selectDistance: String?,
+    val queryLimit: Int,
+    val offset: Int?,
+    val propertyId: Long?,
+    val city: String?,
+    val qLike: String?,
+    val minRating: Double?,
+    val minGuestRating: Double?,
+    val minLocationRating: Double?,
+    val guestRatingThreshold: Double?,
+    val locationRatingThreshold: Double?,
+    val stars: List<Int>,
+    val propertyTypes: List<String>,
+    val districts: List<String>,
+    val minPrice: Long?,
+    val maxPrice: Long?,
+    val bedTypes: List<String>,
+    val bedrooms: Int?,
+    val amenities: List<String>,
+    val themes: List<String>,
+    val paymentOptions: List<String>,
+    val brandIds: List<Long>,
+    val brandNames: List<String>,
+    val availabilityCheckIn: Date?,
+    val availabilityCheckOut: Date?,
+    val availabilityNights: Int?,
+    val availabilityRooms: Int?,
+    val nearbyAttractions: List<Long>,
+    val maxDistanceM: Int?,
+    val cursor: Long?,
+    val centerLat: Double?,
+    val centerLng: Double?,
+)
+
+data class SearchRow(
+    val propertyId: Long,
+    val name: String,
+    val city: String?,
+    val district: String?,
+    val priceMin: Long,
+    val rating: Double,
+    val locationRating: Double,
+    val starRating: Int,
+    val reviewCount: Int,
+    val thumbnailUrl: String?,
+    val distanceM: Double?,
+)
+
+data class SearchLatLngRow(
+    val lat: Double?,
+    val lng: Double?,
+)
+
+class SearchMapperSqlProvider {
+    fun selectSearch(spec: SearchQuerySpec): String {
+        val selectDistance = spec.selectDistance?.let { "$it AS distanceM" } ?: "NULL AS distanceM"
+        val offsetClause = if (spec.offset != null) " OFFSET #{offset}" else ""
+        return """
+            SELECT
+              p.id AS propertyId,
+              p.name,
+              p.city,
+              p.district_name AS district,
+              COALESCE(p.star_rating, 0) AS starRating,
+              COALESCE(MIN(rt.base_price), 0) AS priceMin,
+              COALESCE(p.rating, 0) AS rating,
+              COALESCE(p.location_rating, 0) AS locationRating,
+              COALESCE(p.review_count, 0) AS reviewCount,
+              p.thumbnail_url AS thumbnailUrl,
+              $selectDistance
+            FROM property p
+            LEFT JOIN room_type rt ON rt.property_id = p.id AND rt.status = 'ACTIVE'
+            WHERE ${spec.whereClause}
+            GROUP BY p.id, p.name, p.city, p.district_name, p.star_rating, p.rating, p.location_rating, p.review_count, p.thumbnail_url, p.lat, p.lng
+            ORDER BY ${spec.orderBy}
+            LIMIT #{queryLimit}$offsetClause
+        """.trimIndent()
+    }
+
+    fun countSearch(spec: SearchQuerySpec): String {
+        return """
+            SELECT COUNT(*)
+            FROM property p
+            WHERE ${spec.whereClause}
+        """.trimIndent()
+    }
+}
+
+@Mapper
+interface SearchMapper {
+    @SelectProvider(type = SearchMapperSqlProvider::class, method = "selectSearch")
+    fun search(spec: SearchQuerySpec): List<SearchRow>
+
+    @SelectProvider(type = SearchMapperSqlProvider::class, method = "countSearch")
+    fun count(spec: SearchQuerySpec): Long
+
+    @Select("SELECT lat, lng FROM property WHERE id = #{propertyId} LIMIT 1")
+    fun findPropertyCenter(@Param("propertyId") propertyId: Long): SearchLatLngRow?
+
+    @Select("SELECT lat, lng FROM poi WHERE id = #{poiId} LIMIT 1")
+    fun findPoiCenter(@Param("poiId") poiId: Long): SearchLatLngRow?
+
+    @Select(
+        """
+        SELECT AVG(lat) AS lat, AVG(lng) AS lng
+        FROM property
+        WHERE city = #{city}
+          AND status = 'ACTIVE'
+          AND lat IS NOT NULL
+          AND lng IS NOT NULL
+        """,
+    )
+    fun findCityCenter(@Param("city") city: String): SearchLatLngRow?
+
+    @Select("SELECT city FROM poi WHERE id = #{poiId} LIMIT 1")
+    fun findPoiCity(@Param("poiId") poiId: Long): String?
+}

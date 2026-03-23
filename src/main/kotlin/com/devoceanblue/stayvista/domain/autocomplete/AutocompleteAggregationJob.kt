@@ -6,8 +6,11 @@ import java.sql.Timestamp
 import java.time.Duration
 import java.time.Instant
 import java.time.temporal.ChronoUnit
+import org.apache.ibatis.annotations.Insert
+import org.apache.ibatis.annotations.Mapper
+import org.apache.ibatis.annotations.Param
+import org.apache.ibatis.annotations.Select
 import org.springframework.beans.factory.annotation.Value
-import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Component
 import tools.jackson.databind.JsonNode
@@ -15,7 +18,7 @@ import tools.jackson.databind.ObjectMapper
 
 @Component
 class AutocompleteAggregationJob(
-    private val jdbcTemplate: JdbcTemplate,
+    private val mapper: AutocompleteAggregationMapper,
     private val objectMapper: ObjectMapper,
     private val openSearchGateway: AutocompleteOpenSearchGateway,
     private val cacheService: AutocompleteCacheService,
@@ -55,23 +58,9 @@ class AutocompleteAggregationJob(
     private fun aggregateRecentEvents(): List<AutocompleteMetricRow> {
         val fromInstant = Instant.now().minus(Duration.ofHours(lookbackHours.coerceAtLeast(1)))
 
-        val rows = jdbcTemplate.query(
-            """
-            SELECT event_type, payload_json
-            FROM outbox_event
-            WHERE event_type IN ('ac_impression', 'ac_select')
-              AND created_at >= ?
-            ORDER BY id DESC
-            LIMIT ?
-            """.trimIndent(),
-            { rs, _ ->
-                OutboxPayload(
-                    eventType = rs.getString("event_type"),
-                    payloadJson = rs.getString("payload_json"),
-                )
-            },
-            Timestamp.from(fromInstant.truncatedTo(ChronoUnit.MILLIS)),
-            scanLimit.coerceAtLeast(100),
+        val rows = mapper.findRecentEvents(
+            createdAfter = Timestamp.from(fromInstant.truncatedTo(ChronoUnit.MILLIS)),
+            limit = scanLimit.coerceAtLeast(100),
         )
 
         val aggregates = linkedMapOf<String, MutableAggregate>()
@@ -113,31 +102,13 @@ class AutocompleteAggregationJob(
 
     private fun upsertMetrics(rows: List<AutocompleteMetricRow>) {
         rows.forEach { row ->
-            jdbcTemplate.update(
-                """
-                INSERT INTO ac_suggest_metric(
-                    type,
-                    canonical_id,
-                    impressions_7d,
-                    selects_7d,
-                    ctr_7d,
-                    popularity_7d,
-                    updated_at
-                )
-                VALUES (?, ?, ?, ?, ?, ?, NOW(3))
-                ON DUPLICATE KEY UPDATE
-                    impressions_7d = VALUES(impressions_7d),
-                    selects_7d = VALUES(selects_7d),
-                    ctr_7d = VALUES(ctr_7d),
-                    popularity_7d = VALUES(popularity_7d),
-                    updated_at = VALUES(updated_at)
-                """.trimIndent(),
-                row.type.name,
-                row.canonicalId,
-                row.impressions7d,
-                row.selects7d,
-                row.ctr7d,
-                row.popularity7d,
+            mapper.upsertMetric(
+                type = row.type.name,
+                canonicalId = row.canonicalId,
+                impressions7d = row.impressions7d,
+                selects7d = row.selects7d,
+                ctr7d = row.ctr7d,
+                popularity7d = row.popularity7d,
             )
         }
     }
@@ -152,11 +123,6 @@ class AutocompleteAggregationJob(
         return TypedItem(type = type, canonicalId = canonicalId)
     }
 
-    private data class OutboxPayload(
-        val eventType: String,
-        val payloadJson: String,
-    )
-
     private data class TypedItem(
         val type: PlaceType,
         val canonicalId: String,
@@ -168,4 +134,56 @@ class AutocompleteAggregationJob(
         var impressions: Long = 0,
         var selects: Long = 0,
     )
+}
+
+data class AutocompleteOutboxPayload(
+    val eventType: String,
+    val payloadJson: String,
+)
+
+@Mapper
+interface AutocompleteAggregationMapper {
+    @Select(
+        """
+        SELECT event_type AS eventType, payload_json AS payloadJson
+        FROM outbox_event
+        WHERE event_type IN ('ac_impression', 'ac_select')
+          AND created_at >= #{createdAfter}
+        ORDER BY id DESC
+        LIMIT #{limit}
+        """,
+    )
+    fun findRecentEvents(
+        @Param("createdAfter") createdAfter: Timestamp,
+        @Param("limit") limit: Int,
+    ): List<AutocompleteOutboxPayload>
+
+    @Insert(
+        """
+        INSERT INTO ac_suggest_metric(
+            type,
+            canonical_id,
+            impressions_7d,
+            selects_7d,
+            ctr_7d,
+            popularity_7d,
+            updated_at
+        )
+        VALUES (#{type}, #{canonicalId}, #{impressions7d}, #{selects7d}, #{ctr7d}, #{popularity7d}, NOW(3))
+        ON DUPLICATE KEY UPDATE
+            impressions_7d = VALUES(impressions_7d),
+            selects_7d = VALUES(selects_7d),
+            ctr_7d = VALUES(ctr_7d),
+            popularity_7d = VALUES(popularity_7d),
+            updated_at = VALUES(updated_at)
+        """,
+    )
+    fun upsertMetric(
+        @Param("type") type: String,
+        @Param("canonicalId") canonicalId: String,
+        @Param("impressions7d") impressions7d: Long,
+        @Param("selects7d") selects7d: Long,
+        @Param("ctr7d") ctr7d: Double,
+        @Param("popularity7d") popularity7d: Long,
+    ): Int
 }

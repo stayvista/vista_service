@@ -4,43 +4,38 @@ import com.devoceanblue.stayvista.common.api.DomainException
 import com.devoceanblue.stayvista.common.api.ErrorCode
 import com.devoceanblue.stayvista.common.time.DateRange
 import com.devoceanblue.stayvista.domain.common.DomainSupportService
+import org.apache.ibatis.annotations.Insert
+import org.apache.ibatis.annotations.Mapper
+import org.apache.ibatis.annotations.Options
+import org.apache.ibatis.annotations.Param
+import org.apache.ibatis.annotations.Select
+import org.apache.ibatis.annotations.Update
 import java.sql.Date
-import java.sql.PreparedStatement
 import java.time.LocalDate
 import kotlin.math.round
-import org.springframework.jdbc.core.JdbcTemplate
-import org.springframework.jdbc.support.GeneratedKeyHolder
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 
 @Service
 class CatalogService(
-    private val jdbcTemplate: JdbcTemplate,
+    private val mapper: CatalogMapper,
     private val domainSupportService: DomainSupportService,
 ) {
     @Transactional
     fun createProperty(request: CreatePropertyRequest): Long {
         domainSupportService.ensurePartnerExists(request.partner_id)
-        val keyHolder = GeneratedKeyHolder()
-        jdbcTemplate.update({ connection ->
-            val ps = connection.prepareStatement(
-                """
-                INSERT INTO property(partner_id, name, country, city, address1, lat, lng, status)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """.trimIndent(),
-                PreparedStatement.RETURN_GENERATED_KEYS,
-            )
-            ps.setLong(1, request.partner_id)
-            ps.setString(2, request.name)
-            ps.setString(3, request.country)
-            ps.setString(4, request.city)
-            ps.setString(5, request.address1)
-            ps.setBigDecimal(6, request.lat?.toBigDecimal())
-            ps.setBigDecimal(7, request.lng?.toBigDecimal())
-            ps.setString(8, request.status)
-            ps
-        }, keyHolder)
-        val id = keyHolder.key?.toLong() ?: throw DomainException(ErrorCode.INTERNAL, "Failed to create property")
+        val command = PropertyInsertCommand(
+            partnerId = request.partner_id,
+            name = request.name,
+            country = request.country,
+            city = request.city,
+            address1 = request.address1,
+            lat = request.lat?.toBigDecimal(),
+            lng = request.lng?.toBigDecimal(),
+            status = request.status,
+        )
+        mapper.insertProperty(command)
+        val id = command.id ?: throw DomainException(ErrorCode.INTERNAL, "Failed to create property")
         domainSupportService.appendOutbox(
             aggregateType = "PROPERTY",
             aggregateId = id.toString(),
@@ -52,27 +47,15 @@ class CatalogService(
 
     @Transactional
     fun patchProperty(propertyId: Long, request: PatchPropertyRequest) {
-        val affected = jdbcTemplate.update(
-            """
-            UPDATE property
-            SET name = COALESCE(?, name),
-                country = COALESCE(?, country),
-                city = COALESCE(?, city),
-                address1 = COALESCE(?, address1),
-                lat = COALESCE(?, lat),
-                lng = COALESCE(?, lng),
-                status = COALESCE(?, status),
-                updated_at = NOW(3)
-            WHERE id = ?
-            """.trimIndent(),
-            request.name,
-            request.country,
-            request.city,
-            request.address1,
-            request.lat?.toBigDecimal(),
-            request.lng?.toBigDecimal(),
-            request.status,
-            propertyId,
+        val affected = mapper.patchProperty(
+            propertyId = propertyId,
+            name = request.name,
+            country = request.country,
+            city = request.city,
+            address1 = request.address1,
+            lat = request.lat?.toBigDecimal(),
+            lng = request.lng?.toBigDecimal(),
+            status = request.status,
         )
         if (affected == 0) {
             throw DomainException(ErrorCode.NOT_FOUND, "Property not found")
@@ -87,32 +70,19 @@ class CatalogService(
 
     @Transactional
     fun createRoomType(propertyId: Long, request: CreateRoomTypeRequest): Long {
-        val propertyExists = jdbcTemplate.queryForObject(
-            "SELECT COUNT(*) FROM property WHERE id = ?",
-            Long::class.java,
-            propertyId,
-        ) ?: 0L
+        val propertyExists = mapper.countProperty(propertyId)
         if (propertyExists == 0L) {
             throw DomainException(ErrorCode.NOT_FOUND, "Property not found")
         }
-        val keyHolder = GeneratedKeyHolder()
-        jdbcTemplate.update({ connection ->
-            val ps = connection.prepareStatement(
-                """
-                INSERT INTO room_type(property_id, name, capacity_adults, capacity_children, status, base_price)
-                VALUES (?, ?, ?, ?, ?, ?)
-                """.trimIndent(),
-                PreparedStatement.RETURN_GENERATED_KEYS,
-            )
-            ps.setLong(1, propertyId)
-            ps.setString(2, request.name)
-            ps.setInt(3, request.max_guests)
-            ps.setInt(4, 0)
-            ps.setString(5, request.status)
-            ps.setLong(6, request.base_price.amount)
-            ps
-        }, keyHolder)
-        val id = keyHolder.key?.toLong() ?: throw DomainException(ErrorCode.INTERNAL, "Failed to create room type")
+        val command = RoomTypeInsertCommand(
+            propertyId = propertyId,
+            name = request.name,
+            capacityAdults = request.max_guests,
+            status = request.status,
+            basePrice = request.base_price.amount,
+        )
+        mapper.insertRoomType(command)
+        val id = command.id ?: throw DomainException(ErrorCode.INTERNAL, "Failed to create room type")
         domainSupportService.appendOutbox(
             aggregateType = "ROOM_TYPE",
             aggregateId = id.toString(),
@@ -124,21 +94,12 @@ class CatalogService(
 
     @Transactional
     fun patchRoomType(roomTypeId: Long, request: PatchRoomTypeRequest) {
-        val affected = jdbcTemplate.update(
-            """
-            UPDATE room_type
-            SET name = COALESCE(?, name),
-                capacity_adults = COALESCE(?, capacity_adults),
-                status = COALESCE(?, status),
-                base_price = COALESCE(?, base_price),
-                updated_at = NOW(3)
-            WHERE id = ?
-            """.trimIndent(),
-            request.name,
-            request.max_guests,
-            request.status,
-            request.base_price?.amount,
-            roomTypeId,
+        val affected = mapper.patchRoomType(
+            roomTypeId = roomTypeId,
+            name = request.name,
+            maxGuests = request.max_guests,
+            status = request.status,
+            basePrice = request.base_price?.amount,
         )
         if (affected == 0) {
             throw DomainException(ErrorCode.NOT_FOUND, "Room type not found")
@@ -158,22 +119,12 @@ class CatalogService(
             throw DomainException(ErrorCode.VALIDATION_ERROR, "start_date must be before end_date")
         }
 
-        val conflict = jdbcTemplate.query(
-            """
-            SELECT stay_date, hold, sold
-            FROM inventory_night
-            WHERE room_type_id = ?
-              AND stay_date >= ?
-              AND stay_date < ?
-              AND ? < (hold + sold)
-            LIMIT 1
-            """.trimIndent(),
-            { rs, _ -> rs.getDate("stay_date").toLocalDate() },
-            roomTypeId,
-            Date.valueOf(request.start_date),
-            Date.valueOf(request.end_date),
-            request.total,
-        ).firstOrNull()
+        val conflict = mapper.findInventoryConflictDate(
+            roomTypeId = roomTypeId,
+            startDate = Date.valueOf(request.start_date),
+            endDate = Date.valueOf(request.end_date),
+            total = request.total,
+        )
         if (conflict != null) {
             throw DomainException(
                 ErrorCode.INVENTORY_TOTAL_BELOW_COMMITTED,
@@ -183,95 +134,20 @@ class CatalogService(
         }
 
         nights.forEach { day ->
-            jdbcTemplate.update(
-                """
-                INSERT INTO inventory_night(room_type_id, stay_date, total, hold, sold)
-                VALUES (?, ?, ?, 0, 0)
-                ON DUPLICATE KEY UPDATE total = VALUES(total), updated_at = NOW(3)
-                """.trimIndent(),
-                roomTypeId,
-                Date.valueOf(day),
-                request.total,
+            mapper.upsertInventoryNight(
+                roomTypeId = roomTypeId,
+                stayDate = Date.valueOf(day),
+                total = request.total,
             )
         }
         return nights.size
     }
 
     fun getProperty(propertyId: Long): PropertyDetail {
-        val detail = jdbcTemplate.query(
-            """
-            SELECT p.id,
-                   p.name,
-                   p.city,
-                   p.country,
-                   p.address1,
-                   p.lat,
-                   p.lng,
-                   p.status,
-                   p.rating,
-                   p.thumbnail_url,
-                   p.district_name,
-                   p.property_type_code,
-                   pt.label_ko AS property_type_label,
-                   p.star_rating,
-                   p.location_rating,
-                   p.review_count,
-                   p.beach_distance_m,
-                   p.is_beachfront,
-                   p.kid_free_stay,
-                   p.popularity_score
-            FROM property p
-            LEFT JOIN property_type pt ON pt.code = p.property_type_code
-            WHERE p.id = ?
-            """.trimIndent(),
-            { rs, _ ->
-                PropertyDetail(
-                    property_id = rs.getLong("id"),
-                    name = rs.getString("name"),
-                    city = rs.getString("city"),
-                    country = rs.getString("country"),
-                    address1 = rs.getString("address1"),
-                    lat = rs.getBigDecimal("lat")?.toDouble(),
-                    lng = rs.getBigDecimal("lng")?.toDouble(),
-                    status = rs.getString("status"),
-                    rating = rs.getBigDecimal("rating")?.toDouble() ?: 0.0,
-                    thumbnail_url = rs.getString("thumbnail_url"),
-                    district_name = rs.getString("district_name"),
-                    property_type_code = rs.getString("property_type_code"),
-                    property_type_label = rs.getString("property_type_label"),
-                    star_rating = rs.getInt("star_rating"),
-                    location_rating = rs.getBigDecimal("location_rating")?.toDouble() ?: 0.0,
-                    review_count = rs.getInt("review_count"),
-                    beach_distance_m = rs.getInt("beach_distance_m").let { if (rs.wasNull()) null else it },
-                    is_beachfront = rs.getBoolean("is_beachfront"),
-                    kid_free_stay = rs.getBoolean("kid_free_stay"),
-                    popularity_score = rs.getInt("popularity_score"),
-                    brand_names = emptyList(),
-                    amenity_groups = emptyList(),
-                    payment_options = emptyList(),
-                    themes = emptyList(),
-                )
-            },
-            propertyId,
-        ).firstOrNull() ?: throw DomainException(ErrorCode.NOT_FOUND, "Property not found")
+        val detail = mapper.findPropertyDetail(propertyId)
+            ?: throw DomainException(ErrorCode.NOT_FOUND, "Property not found")
 
-        val amenityRows = jdbcTemplate.query(
-            """
-            SELECT a.group_code, a.code, a.label_ko
-            FROM property_amenity pa
-            JOIN amenity a ON a.code = pa.amenity_code
-            WHERE pa.property_id = ?
-            ORDER BY a.group_code, a.label_ko
-            """.trimIndent(),
-            { rs, _ ->
-                AmenityRow(
-                    groupCode = rs.getString("group_code"),
-                    code = rs.getString("code"),
-                    label = rs.getString("label_ko"),
-                )
-            },
-            propertyId,
-        )
+        val amenityRows = mapper.listAmenityRows(propertyId)
 
         val amenityGroups = amenityRows.groupBy { it.groupCode }
             .toSortedMap()
@@ -282,53 +158,31 @@ class CatalogService(
                 )
             }
 
-        val paymentOptions = jdbcTemplate.query(
-            """
-            SELECT po.code, po.label_ko
-            FROM property_payment_option ppo
-            JOIN payment_option po ON po.code = ppo.payment_option_code
-            WHERE ppo.property_id = ?
-            ORDER BY po.label_ko
-            """.trimIndent(),
-            { rs, _ ->
-                PropertyCodeLabel(
-                    code = rs.getString("code"),
-                    label = rs.getString("label_ko"),
-                )
-            },
-            propertyId,
-        )
+        val paymentOptions = mapper.listPaymentOptions(propertyId)
+        val themes = mapper.listThemes(propertyId)
+        val brands = mapper.listBrands(propertyId)
 
-        val themes = jdbcTemplate.query(
-            """
-            SELECT t.code, t.label_ko
-            FROM property_theme pt
-            JOIN theme t ON t.code = pt.theme_code
-            WHERE pt.property_id = ?
-            ORDER BY t.label_ko
-            """.trimIndent(),
-            { rs, _ ->
-                PropertyCodeLabel(
-                    code = rs.getString("code"),
-                    label = rs.getString("label_ko"),
-                )
-            },
-            propertyId,
-        )
-
-        val brands = jdbcTemplate.query(
-            """
-            SELECT b.name
-            FROM property_brand pb
-            JOIN brand b ON b.id = pb.brand_id
-            WHERE pb.property_id = ?
-            ORDER BY b.name
-            """.trimIndent(),
-            { rs, _ -> rs.getString("name") },
-            propertyId,
-        )
-
-        return detail.copy(
+        return PropertyDetail(
+            property_id = detail.propertyId,
+            name = detail.name,
+            city = detail.city,
+            country = detail.country,
+            address1 = detail.address1,
+            lat = detail.lat,
+            lng = detail.lng,
+            status = detail.status,
+            rating = detail.rating,
+            thumbnail_url = detail.thumbnailUrl,
+            district_name = detail.districtName,
+            property_type_code = detail.propertyTypeCode,
+            property_type_label = detail.propertyTypeLabel,
+            star_rating = detail.starRating,
+            location_rating = detail.locationRating,
+            review_count = detail.reviewCount,
+            beach_distance_m = detail.beachDistanceM,
+            is_beachfront = detail.isBeachfront,
+            kid_free_stay = detail.kidFreeStay,
+            popularity_score = detail.popularityScore,
             brand_names = brands,
             amenity_groups = amenityGroups,
             payment_options = paymentOptions,
@@ -338,28 +192,7 @@ class CatalogService(
 
     fun listProperties(limit: Int, cursor: Long?): PropertyListData {
         val fetchLimit = limit.coerceIn(1, 50)
-        val rows = jdbcTemplate.query(
-            """
-            SELECT id, name, city, rating, thumbnail_url
-            FROM property
-            WHERE status='ACTIVE'
-              AND (? IS NULL OR id > ?)
-            ORDER BY id
-            LIMIT ?
-            """.trimIndent(),
-            { rs, _ ->
-                PropertySummary(
-                    property_id = rs.getLong("id"),
-                    name = rs.getString("name"),
-                    city = rs.getString("city"),
-                    rating = rs.getBigDecimal("rating")?.toDouble() ?: 0.0,
-                    thumbnail_url = rs.getString("thumbnail_url"),
-                )
-            },
-            cursor,
-            cursor,
-            fetchLimit + 1,
-        )
+        val rows = mapper.listProperties(cursor = cursor, limit = fetchLimit + 1)
         val hasNext = rows.size > fetchLimit
         val items = if (hasNext) rows.dropLast(1) else rows
         val nextCursor = if (hasNext) items.last().property_id.toString() else null
@@ -375,115 +208,17 @@ class CatalogService(
     ): RoomTypeListData {
         val availabilityWindow = resolveAvailabilityWindow(checkIn = checkIn, checkOut = checkOut)
         val rows = if (availabilityWindow == null) {
-            jdbcTemplate.query(
-                """
-                SELECT id, name, capacity_adults, status, base_price, bed_type, view_type, bedrooms
-                FROM room_type
-                WHERE property_id = ? AND status='ACTIVE'
-                ORDER BY id
-                """.trimIndent(),
-                { rs, _ ->
-                    RoomTypeSummary(
-                        room_type_id = rs.getLong("id"),
-                        name = rs.getString("name"),
-                        max_guests = rs.getInt("capacity_adults"),
-                        status = rs.getString("status"),
-                        base_price = Money(
-                            currency = "KRW",
-                            amount = rs.getLong("base_price"),
-                        ),
-                        bed_type = rs.getString("bed_type"),
-                        view_type = rs.getString("view_type"),
-                        bedrooms = rs.getInt("bedrooms").takeIf { !rs.wasNull() },
-                    )
-                },
-                propertyId,
-            )
+            mapper.listRoomTypesBasic(propertyId)
+                .map { it.toSummary() }
         } else {
-            jdbcTemplate.query(
-                """
-                SELECT rt.id,
-                       rt.name,
-                       rt.capacity_adults,
-                       rt.status,
-                       rt.base_price,
-                       rt.bed_type,
-                       rt.view_type,
-                       rt.bedrooms,
-                       inv.available_rooms,
-                       inv.covered_nights,
-                       hold.booking_id AS active_hold_booking_id,
-                       hold.expires_at AS active_hold_expires_at,
-                       CASE
-                         WHEN inv.covered_nights = ? AND inv.available_rooms >= ? THEN 1
-                         ELSE 0
-                       END AS is_available
-                FROM room_type rt
-                LEFT JOIN (
-                  SELECT room_type_id,
-                         MIN(total - hold - sold) AS available_rooms,
-                         COUNT(*) AS covered_nights
-                  FROM inventory_night
-                  WHERE stay_date >= ?
-                    AND stay_date < ?
-                  GROUP BY room_type_id
-                ) inv ON inv.room_type_id = rt.id
-                LEFT JOIN (
-                  SELECT room_type_id,
-                         MAX(id) AS booking_id,
-                         MAX(expires_at) AS expires_at
-                  FROM booking
-                  WHERE ? IS NOT NULL
-                    AND user_id = ?
-                    AND status = 'HOLD'
-                    AND check_in = ?
-                    AND check_out = ?
-                    AND rooms = ?
-                    AND expires_at > NOW(3)
-                  GROUP BY room_type_id
-                ) hold ON hold.room_type_id = rt.id
-                WHERE rt.property_id = ?
-                  AND rt.status = 'ACTIVE'
-                ORDER BY rt.id
-                """.trimIndent(),
-                { rs, _ ->
-                    val availableRooms = rs.getInt("available_rooms").takeIf { !rs.wasNull() }
-                    val isAvailable = rs.getInt("is_available") == 1
-                    val activeHoldBookingId = rs.getLong("active_hold_booking_id")
-                        .takeIf { !rs.wasNull() }
-                        ?.let { toBookingId(it) }
-                    val activeHoldExpiresAt = rs.getTimestamp("active_hold_expires_at")
-                        ?.toInstant()
-                        ?.toString()
-                    RoomTypeSummary(
-                        room_type_id = rs.getLong("id"),
-                        name = rs.getString("name"),
-                        max_guests = rs.getInt("capacity_adults"),
-                        status = rs.getString("status"),
-                        base_price = Money(
-                            currency = "KRW",
-                            amount = rs.getLong("base_price"),
-                        ),
-                        bed_type = rs.getString("bed_type"),
-                        view_type = rs.getString("view_type"),
-                        bedrooms = rs.getInt("bedrooms").takeIf { !rs.wasNull() },
-                        available_rooms = availableRooms,
-                        is_available = isAvailable,
-                        active_hold_booking_id = activeHoldBookingId,
-                        active_hold_expires_at = activeHoldExpiresAt,
-                    )
-                },
-                availabilityWindow.nights,
-                rooms.coerceAtLeast(1),
-                Date.valueOf(availabilityWindow.checkIn),
-                Date.valueOf(availabilityWindow.checkOut),
-                userId,
-                userId,
-                Date.valueOf(availabilityWindow.checkIn),
-                Date.valueOf(availabilityWindow.checkOut),
-                rooms.coerceAtLeast(1),
-                propertyId,
-            )
+            mapper.listRoomTypesWithAvailability(
+                nights = availabilityWindow.nights,
+                rooms = rooms.coerceAtLeast(1),
+                checkIn = Date.valueOf(availabilityWindow.checkIn),
+                checkOut = Date.valueOf(availabilityWindow.checkOut),
+                userId = userId,
+                propertyId = propertyId,
+            ).map { it.toSummary() }
         }
         return RoomTypeListData(items = rows)
     }
@@ -521,41 +256,12 @@ class CatalogService(
         val normalizedSize = size.coerceIn(1, 50)
         val normalizedTag = tag?.trim()?.takeIf { it.isNotEmpty() }
 
-        val exists = jdbcTemplate.queryForObject(
-            "SELECT COUNT(*) FROM property WHERE id = ?",
-            Long::class.java,
-            propertyId,
-        ) ?: 0L
+        val exists = mapper.countProperty(propertyId)
         if (exists == 0L) {
             throw DomainException(ErrorCode.NOT_FOUND, "Property not found")
         }
 
-        val summary = jdbcTemplate.query(
-            """
-            SELECT COUNT(*) AS total_count,
-                   AVG(pr.score_overall) AS avg_score,
-                   AVG(pr.score_service) AS service_score,
-                   AVG(pr.score_cleanliness) AS cleanliness_score,
-                   AVG(pr.score_facility) AS facility_score,
-                   AVG(pr.score_value) AS value_score,
-                   AVG(pr.score_location) AS location_score
-            FROM property_review pr
-            WHERE pr.property_id = ?
-              AND pr.status = 'PUBLISHED'
-            """.trimIndent(),
-            { rs, _ ->
-                PropertyReviewSummary(
-                    total = rs.getLong("total_count"),
-                    avg_score = roundToOne(rs.getDouble("avg_score")),
-                    service = roundToOne(rs.getDouble("service_score")),
-                    cleanliness = roundToOne(rs.getDouble("cleanliness_score")),
-                    facility = roundToOne(rs.getDouble("facility_score")),
-                    value_for_money = roundToOne(rs.getDouble("value_score")),
-                    location = roundToOne(rs.getDouble("location_score")),
-                )
-            },
-            propertyId,
-        ).firstOrNull() ?: PropertyReviewSummary(
+        val summary = mapper.reviewSummary(propertyId)?.toSummary() ?: PropertyReviewSummary(
             total = 0L,
             avg_score = 0.0,
             service = 0.0,
@@ -565,90 +271,24 @@ class CatalogService(
             location = 0.0,
         )
 
-        val tags = jdbcTemplate.query(
-            """
-            SELECT prt.tag, COUNT(*) AS cnt
-            FROM property_review pr
-            JOIN property_review_tag prt ON prt.review_id = pr.id
-            WHERE pr.property_id = ?
-              AND pr.status = 'PUBLISHED'
-            GROUP BY prt.tag
-            ORDER BY cnt DESC, prt.tag ASC
-            """.trimIndent(),
-            { rs, _ ->
-                PropertyReviewTagCount(
-                    tag = rs.getString("tag"),
-                    count = rs.getLong("cnt"),
-                )
-            },
-            propertyId,
+        val tags = mapper.reviewTags(propertyId)
+
+        val totalFiltered = mapper.countFilteredReviews(
+            propertyId = propertyId,
+            tag = normalizedTag,
         )
 
-        val where = mutableListOf(
-            "pr.property_id = ?",
-            "pr.status = 'PUBLISHED'",
-        )
-        val whereParams = mutableListOf<Any?>(propertyId)
-        if (normalizedTag != null) {
-            where += "EXISTS (SELECT 1 FROM property_review_tag prt WHERE prt.review_id = pr.id AND prt.tag = ?)"
-            whereParams += normalizedTag
-        }
-        val whereClause = where.joinToString(" AND ")
-
-        val totalFiltered = jdbcTemplate.queryForObject(
-            "SELECT COUNT(*) FROM property_review pr WHERE $whereClause",
-            Long::class.java,
-            *whereParams.toTypedArray(),
-        ) ?: 0L
-
-        val reviewRows = jdbcTemplate.query(
-            """
-            SELECT pr.id,
-                   pr.reviewer_name,
-                   pr.traveler_type,
-                   pr.stay_date,
-                   pr.score_overall,
-                   pr.title,
-                   pr.body
-            FROM property_review pr
-            WHERE $whereClause
-            ORDER BY pr.stay_date DESC, pr.id DESC
-            LIMIT ?
-            OFFSET ?
-            """.trimIndent(),
-            { rs, _ ->
-                PropertyReviewRow(
-                    reviewId = rs.getLong("id"),
-                    reviewer = rs.getString("reviewer_name"),
-                    travelerType = rs.getString("traveler_type"),
-                    stayMonth = formatStayMonth(rs.getDate("stay_date").toLocalDate()),
-                    score = roundToOne(rs.getDouble("score_overall")),
-                    title = rs.getString("title"),
-                    body = rs.getString("body"),
-                )
-            },
-            *(whereParams + listOf(normalizedSize, (normalizedPage - 1) * normalizedSize)).toTypedArray(),
-        )
+        val reviewRows = mapper.listReviews(
+            propertyId = propertyId,
+            tag = normalizedTag,
+            limit = normalizedSize,
+            offset = (normalizedPage - 1) * normalizedSize,
+        ).map { it.toReviewRow() }
 
         val reviewTagsById = if (reviewRows.isEmpty()) {
             emptyMap()
         } else {
-            val placeholders = reviewRows.joinToString(",") { "?" }
-            jdbcTemplate.query(
-                """
-                SELECT review_id, tag
-                FROM property_review_tag
-                WHERE review_id IN ($placeholders)
-                ORDER BY review_id, tag
-                """.trimIndent(),
-                { rs, _ ->
-                    PropertyReviewTagRow(
-                        reviewId = rs.getLong("review_id"),
-                        tag = rs.getString("tag"),
-                    )
-                },
-                *reviewRows.map { it.reviewId }.toTypedArray(),
-            ).groupBy { it.reviewId }
+            mapper.listReviewTags(reviewRows.map { it.reviewId }).groupBy { it.reviewId }
                 .mapValues { (_, rows) -> rows.map { it.tag } }
         }
 
@@ -834,13 +474,13 @@ data class Money(
     val amount: Long,
 )
 
-private data class AmenityRow(
+data class AmenityRow(
     val groupCode: String,
     val code: String,
     val label: String,
 )
 
-private data class PropertyReviewRow(
+data class PropertyReviewRow(
     val reviewId: Long,
     val reviewer: String,
     val travelerType: String,
@@ -850,9 +490,123 @@ private data class PropertyReviewRow(
     val body: String,
 )
 
-private data class PropertyReviewTagRow(
+data class PropertyReviewTagRow(
     val reviewId: Long,
     val tag: String,
+)
+
+data class PropertyDetailRow(
+    val propertyId: Long,
+    val name: String,
+    val city: String?,
+    val country: String?,
+    val address1: String?,
+    val lat: Double?,
+    val lng: Double?,
+    val status: String,
+    val rating: Double,
+    val thumbnailUrl: String?,
+    val districtName: String?,
+    val propertyTypeCode: String?,
+    val propertyTypeLabel: String?,
+    val starRating: Int,
+    val locationRating: Double,
+    val reviewCount: Int,
+    val beachDistanceM: Int?,
+    val isBeachfront: Boolean,
+    val kidFreeStay: Boolean,
+    val popularityScore: Int,
+)
+
+data class RoomTypeRow(
+    val id: Long,
+    val name: String,
+    val capacityAdults: Int,
+    val status: String,
+    val basePrice: Long,
+    val bedType: String?,
+    val viewType: String?,
+    val bedrooms: Int?,
+    val availableRooms: Int? = null,
+    val isAvailable: Int? = null,
+    val activeHoldBookingId: Long? = null,
+    val activeHoldExpiresAt: java.sql.Timestamp? = null,
+) {
+    fun toSummary(): RoomTypeSummary = RoomTypeSummary(
+        room_type_id = id,
+        name = name,
+        max_guests = capacityAdults,
+        status = status,
+        base_price = Money(currency = "KRW", amount = basePrice),
+        bed_type = bedType,
+        view_type = viewType,
+        bedrooms = bedrooms,
+        available_rooms = availableRooms,
+        is_available = isAvailable?.let { it == 1 },
+        active_hold_booking_id = activeHoldBookingId?.let { "bkg_$it" },
+        active_hold_expires_at = activeHoldExpiresAt?.toInstant()?.toString(),
+    )
+}
+
+data class PropertyReviewSummaryRow(
+    val totalCount: Long,
+    val avgScore: Double?,
+    val serviceScore: Double?,
+    val cleanlinessScore: Double?,
+    val facilityScore: Double?,
+    val valueScore: Double?,
+    val locationScore: Double?,
+) {
+    fun toSummary(): PropertyReviewSummary = PropertyReviewSummary(
+        total = totalCount,
+        avg_score = roundToOne(avgScore ?: 0.0),
+        service = roundToOne(serviceScore ?: 0.0),
+        cleanliness = roundToOne(cleanlinessScore ?: 0.0),
+        facility = roundToOne(facilityScore ?: 0.0),
+        value_for_money = roundToOne(valueScore ?: 0.0),
+        location = roundToOne(locationScore ?: 0.0),
+    )
+}
+
+data class PropertyReviewQueryRow(
+    val reviewId: Long,
+    val reviewer: String,
+    val travelerType: String,
+    val stayDate: LocalDate,
+    val scoreOverall: Double,
+    val title: String,
+    val body: String,
+) {
+    fun toReviewRow(): PropertyReviewRow = PropertyReviewRow(
+        reviewId = reviewId,
+        reviewer = reviewer,
+        travelerType = travelerType,
+        stayMonth = formatStayMonth(stayDate),
+        score = roundToOne(scoreOverall),
+        title = title,
+        body = body,
+    )
+}
+
+data class PropertyInsertCommand(
+    val partnerId: Long,
+    val name: String,
+    val country: String?,
+    val city: String?,
+    val address1: String?,
+    val lat: java.math.BigDecimal?,
+    val lng: java.math.BigDecimal?,
+    val status: String,
+    var id: Long? = null,
+)
+
+data class RoomTypeInsertCommand(
+    val propertyId: Long,
+    val name: String,
+    val capacityAdults: Int,
+    val status: String,
+    val basePrice: Long,
+    var id: Long? = null,
 )
 
 private data class AvailabilityWindow(
@@ -867,3 +621,364 @@ private fun roundToOne(value: Double): Double {
 }
 
 private fun formatStayMonth(date: LocalDate): String = "${date.year}년 ${date.monthValue}월"
+
+@Mapper
+interface CatalogMapper {
+    @Insert(
+        """
+        INSERT INTO property(partner_id, name, country, city, address1, lat, lng, status)
+        VALUES (#{partnerId}, #{name}, #{country}, #{city}, #{address1}, #{lat}, #{lng}, #{status})
+        """,
+    )
+    @Options(useGeneratedKeys = true, keyProperty = "id", keyColumn = "id")
+    fun insertProperty(command: PropertyInsertCommand): Int
+
+    @Update(
+        """
+        UPDATE property
+        SET name = COALESCE(#{name}, name),
+            country = COALESCE(#{country}, country),
+            city = COALESCE(#{city}, city),
+            address1 = COALESCE(#{address1}, address1),
+            lat = COALESCE(#{lat}, lat),
+            lng = COALESCE(#{lng}, lng),
+            status = COALESCE(#{status}, status),
+            updated_at = NOW(3)
+        WHERE id = #{propertyId}
+        """,
+    )
+    fun patchProperty(
+        @Param("propertyId") propertyId: Long,
+        @Param("name") name: String?,
+        @Param("country") country: String?,
+        @Param("city") city: String?,
+        @Param("address1") address1: String?,
+        @Param("lat") lat: java.math.BigDecimal?,
+        @Param("lng") lng: java.math.BigDecimal?,
+        @Param("status") status: String?,
+    ): Int
+
+    @Select("SELECT COUNT(*) FROM property WHERE id = #{propertyId}")
+    fun countProperty(@Param("propertyId") propertyId: Long): Long
+
+    @Insert(
+        """
+        INSERT INTO room_type(property_id, name, capacity_adults, capacity_children, status, base_price)
+        VALUES (#{propertyId}, #{name}, #{capacityAdults}, 0, #{status}, #{basePrice})
+        """,
+    )
+    @Options(useGeneratedKeys = true, keyProperty = "id", keyColumn = "id")
+    fun insertRoomType(command: RoomTypeInsertCommand): Int
+
+    @Update(
+        """
+        UPDATE room_type
+        SET name = COALESCE(#{name}, name),
+            capacity_adults = COALESCE(#{maxGuests}, capacity_adults),
+            status = COALESCE(#{status}, status),
+            base_price = COALESCE(#{basePrice}, base_price),
+            updated_at = NOW(3)
+        WHERE id = #{roomTypeId}
+        """,
+    )
+    fun patchRoomType(
+        @Param("roomTypeId") roomTypeId: Long,
+        @Param("name") name: String?,
+        @Param("maxGuests") maxGuests: Int?,
+        @Param("status") status: String?,
+        @Param("basePrice") basePrice: Long?,
+    ): Int
+
+    @Select(
+        """
+        SELECT stay_date
+        FROM inventory_night
+        WHERE room_type_id = #{roomTypeId}
+          AND stay_date >= #{startDate}
+          AND stay_date < #{endDate}
+          AND #{total} < (hold + sold)
+        LIMIT 1
+        """,
+    )
+    fun findInventoryConflictDate(
+        @Param("roomTypeId") roomTypeId: Long,
+        @Param("startDate") startDate: Date,
+        @Param("endDate") endDate: Date,
+        @Param("total") total: Int,
+    ): LocalDate?
+
+    @Insert(
+        """
+        INSERT INTO inventory_night(room_type_id, stay_date, total, hold, sold)
+        VALUES (#{roomTypeId}, #{stayDate}, #{total}, 0, 0)
+        ON DUPLICATE KEY UPDATE total = VALUES(total), updated_at = NOW(3)
+        """,
+    )
+    fun upsertInventoryNight(
+        @Param("roomTypeId") roomTypeId: Long,
+        @Param("stayDate") stayDate: Date,
+        @Param("total") total: Int,
+    ): Int
+
+    @Select(
+        """
+        SELECT p.id AS propertyId,
+               p.name,
+               p.city,
+               p.country,
+               p.address1,
+               p.lat,
+               p.lng,
+               p.status,
+               COALESCE(p.rating, 0) AS rating,
+               p.thumbnail_url AS thumbnailUrl,
+               p.district_name AS districtName,
+               p.property_type_code AS propertyTypeCode,
+               pt.label_ko AS propertyTypeLabel,
+               p.star_rating AS starRating,
+               COALESCE(p.location_rating, 0) AS locationRating,
+               p.review_count AS reviewCount,
+               p.beach_distance_m AS beachDistanceM,
+               p.is_beachfront AS isBeachfront,
+               p.kid_free_stay AS kidFreeStay,
+               p.popularity_score AS popularityScore
+        FROM property p
+        LEFT JOIN property_type pt ON pt.code = p.property_type_code
+        WHERE p.id = #{propertyId}
+        LIMIT 1
+        """,
+    )
+    fun findPropertyDetail(@Param("propertyId") propertyId: Long): PropertyDetailRow?
+
+    @Select(
+        """
+        SELECT a.group_code AS groupCode, a.code, a.label_ko AS label
+        FROM property_amenity pa
+        JOIN amenity a ON a.code = pa.amenity_code
+        WHERE pa.property_id = #{propertyId}
+        ORDER BY a.group_code, a.label_ko
+        """,
+    )
+    fun listAmenityRows(@Param("propertyId") propertyId: Long): List<AmenityRow>
+
+    @Select(
+        """
+        SELECT po.code, po.label_ko AS label
+        FROM property_payment_option ppo
+        JOIN payment_option po ON po.code = ppo.payment_option_code
+        WHERE ppo.property_id = #{propertyId}
+        ORDER BY po.label_ko
+        """,
+    )
+    fun listPaymentOptions(@Param("propertyId") propertyId: Long): List<PropertyCodeLabel>
+
+    @Select(
+        """
+        SELECT t.code, t.label_ko AS label
+        FROM property_theme pt
+        JOIN theme t ON t.code = pt.theme_code
+        WHERE pt.property_id = #{propertyId}
+        ORDER BY t.label_ko
+        """,
+    )
+    fun listThemes(@Param("propertyId") propertyId: Long): List<PropertyCodeLabel>
+
+    @Select(
+        """
+        SELECT b.name
+        FROM property_brand pb
+        JOIN brand b ON b.id = pb.brand_id
+        WHERE pb.property_id = #{propertyId}
+        ORDER BY b.name
+        """,
+    )
+    fun listBrands(@Param("propertyId") propertyId: Long): List<String>
+
+    @Select(
+        """
+        SELECT id AS property_id,
+               name,
+               city,
+               COALESCE(rating, 0) AS rating,
+               thumbnail_url AS thumbnail_url
+        FROM property
+        WHERE status='ACTIVE'
+          AND (#{cursor} IS NULL OR id > #{cursor})
+        ORDER BY id
+        LIMIT #{limit}
+        """,
+    )
+    fun listProperties(
+        @Param("cursor") cursor: Long?,
+        @Param("limit") limit: Int,
+    ): List<PropertySummary>
+
+    @Select(
+        """
+        SELECT id,
+               name,
+               capacity_adults AS capacityAdults,
+               status,
+               base_price AS basePrice,
+               bed_type AS bedType,
+               view_type AS viewType,
+               bedrooms
+        FROM room_type
+        WHERE property_id = #{propertyId} AND status='ACTIVE'
+        ORDER BY id
+        """,
+    )
+    fun listRoomTypesBasic(@Param("propertyId") propertyId: Long): List<RoomTypeRow>
+
+    @Select(
+        """
+        SELECT rt.id,
+               rt.name,
+               rt.capacity_adults AS capacityAdults,
+               rt.status,
+               rt.base_price AS basePrice,
+               rt.bed_type AS bedType,
+               rt.view_type AS viewType,
+               rt.bedrooms,
+               inv.available_rooms AS availableRooms,
+               CASE
+                 WHEN inv.covered_nights = #{nights} AND inv.available_rooms >= #{rooms} THEN 1
+                 ELSE 0
+               END AS isAvailable,
+               hold.booking_id AS activeHoldBookingId,
+               hold.expires_at AS activeHoldExpiresAt
+        FROM room_type rt
+        LEFT JOIN (
+          SELECT room_type_id,
+                 MIN(total - hold - sold) AS available_rooms,
+                 COUNT(*) AS covered_nights
+          FROM inventory_night
+          WHERE stay_date >= #{checkIn}
+            AND stay_date < #{checkOut}
+          GROUP BY room_type_id
+        ) inv ON inv.room_type_id = rt.id
+        LEFT JOIN (
+          SELECT room_type_id,
+                 MAX(id) AS booking_id,
+                 MAX(expires_at) AS expires_at
+          FROM booking
+          WHERE #{userId} IS NOT NULL
+            AND user_id = #{userId}
+            AND status = 'HOLD'
+            AND check_in = #{checkIn}
+            AND check_out = #{checkOut}
+            AND rooms = #{rooms}
+            AND expires_at > NOW(3)
+          GROUP BY room_type_id
+        ) hold ON hold.room_type_id = rt.id
+        WHERE rt.property_id = #{propertyId}
+          AND rt.status = 'ACTIVE'
+        ORDER BY rt.id
+        """,
+    )
+    fun listRoomTypesWithAvailability(
+        @Param("nights") nights: Int,
+        @Param("rooms") rooms: Int,
+        @Param("checkIn") checkIn: Date,
+        @Param("checkOut") checkOut: Date,
+        @Param("userId") userId: Long?,
+        @Param("propertyId") propertyId: Long,
+    ): List<RoomTypeRow>
+
+    @Select(
+        """
+        SELECT COUNT(*) AS totalCount,
+               AVG(pr.score_overall) AS avgScore,
+               AVG(pr.score_service) AS serviceScore,
+               AVG(pr.score_cleanliness) AS cleanlinessScore,
+               AVG(pr.score_facility) AS facilityScore,
+               AVG(pr.score_value) AS valueScore,
+               AVG(pr.score_location) AS locationScore
+        FROM property_review pr
+        WHERE pr.property_id = #{propertyId}
+          AND pr.status = 'PUBLISHED'
+        """,
+    )
+    fun reviewSummary(@Param("propertyId") propertyId: Long): PropertyReviewSummaryRow?
+
+    @Select(
+        """
+        SELECT prt.tag AS tag, COUNT(*) AS count
+        FROM property_review pr
+        JOIN property_review_tag prt ON prt.review_id = pr.id
+        WHERE pr.property_id = #{propertyId}
+          AND pr.status = 'PUBLISHED'
+        GROUP BY prt.tag
+        ORDER BY count DESC, prt.tag ASC
+        """,
+    )
+    fun reviewTags(@Param("propertyId") propertyId: Long): List<PropertyReviewTagCount>
+
+    @Select(
+        """
+        <script>
+        SELECT COUNT(*)
+        FROM property_review pr
+        WHERE pr.property_id = #{propertyId}
+          AND pr.status = 'PUBLISHED'
+          <if test="tag != null">
+            AND EXISTS (
+              SELECT 1 FROM property_review_tag prt
+              WHERE prt.review_id = pr.id AND prt.tag = #{tag}
+            )
+          </if>
+        </script>
+        """,
+    )
+    fun countFilteredReviews(
+        @Param("propertyId") propertyId: Long,
+        @Param("tag") tag: String?,
+    ): Long
+
+    @Select(
+        """
+        <script>
+        SELECT pr.id AS reviewId,
+               pr.reviewer_name AS reviewer,
+               pr.traveler_type AS travelerType,
+               pr.stay_date AS stayDate,
+               pr.score_overall AS scoreOverall,
+               pr.title,
+               pr.body
+        FROM property_review pr
+        WHERE pr.property_id = #{propertyId}
+          AND pr.status = 'PUBLISHED'
+          <if test="tag != null">
+            AND EXISTS (
+              SELECT 1 FROM property_review_tag prt
+              WHERE prt.review_id = pr.id AND prt.tag = #{tag}
+            )
+          </if>
+        ORDER BY pr.stay_date DESC, pr.id DESC
+        LIMIT #{limit}
+        OFFSET #{offset}
+        </script>
+        """,
+    )
+    fun listReviews(
+        @Param("propertyId") propertyId: Long,
+        @Param("tag") tag: String?,
+        @Param("limit") limit: Int,
+        @Param("offset") offset: Int,
+    ): List<PropertyReviewQueryRow>
+
+    @Select(
+        """
+        <script>
+        SELECT review_id AS reviewId, tag
+        FROM property_review_tag
+        WHERE review_id IN
+        <foreach collection="reviewIds" item="reviewId" open="(" separator="," close=")">
+          #{reviewId}
+        </foreach>
+        ORDER BY review_id, tag
+        </script>
+        """,
+    )
+    fun listReviewTags(@Param("reviewIds") reviewIds: List<Long>): List<PropertyReviewTagRow>
+}
