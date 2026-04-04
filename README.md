@@ -112,6 +112,7 @@ curl -X POST -H "X-Admin-Id: 1" "http://localhost:18765/v1/admin/search/reindex?
 
 ## 문서
 - `AGENTS.md` — 에이전트 작업 규칙
+- `docs/TECHNICAL_GUIDE.md` — 코드 기준 통합 기술 가이드
 - `PLANS.md` — 단계별 로드맵
 - `ARCHITECTURE.md` — 서비스/데이터/동시성 설계
 - `RUNBOOK.md` — 운영 가이드(SLO/알람/장애 대응)

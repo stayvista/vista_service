@@ -160,6 +160,7 @@ export function HomePage() {
   }, [initialSearch]);
 
   useEffect(() => {
+    let cancelled = false;
     setFeaturedLoading(true);
     setFeaturedError(null);
 
@@ -170,23 +171,34 @@ export function HomePage() {
       city: "Seoul",
     });
 
-    Promise.all([
-      apiGet<{ items: FeaturedHotel[]; meta?: SearchMeta }>(`/v1/search/properties?${query.toString()}`),
-      apiGet<HomeContentData>("/v1/home/content"),
-    ])
-      .then(([featuredResponse, homeContentResponse]) => {
+    void apiGet<{ items: FeaturedHotel[]; meta?: SearchMeta }>(`/v1/search/properties?${query.toString()}`)
+      .then((featuredResponse) => {
+        if (cancelled) return;
         setFeaturedHotels(pickFeaturedHotels(featuredResponse.data.items ?? []));
-        setHomeContent(homeContentResponse.data);
       })
       .catch((e: unknown) => {
+        if (cancelled) return;
         const err = e as ApiError;
         setFeaturedHotels([]);
-        setHomeContent(null);
         setFeaturedError(`${err.code ?? "ERROR"}: ${err.message ?? "추천 호텔 조회 실패"}`);
       })
       .finally(() => {
+        if (cancelled) return;
         setFeaturedLoading(false);
       });
+
+    void apiGet<HomeContentData>("/v1/home/content")
+      .then((homeContentResponse) => {
+        if (cancelled) return;
+        setHomeContent(homeContentResponse.data);
+      })
+      .catch(() => {
+        if (cancelled) return;
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, [locale.currency]);
 
   useEffect(() => {

@@ -90,16 +90,49 @@ class TicketService(
 
     fun listProducts(): TicketProductListData {
         val rows = mapper.listProducts()
-        return TicketProductListData(rows)
+        return TicketProductListData(
+            items = rows.map { row ->
+                TicketProductSummary(
+                    product_id = row.productId,
+                    name = row.name,
+                    category = row.category,
+                    city = row.city,
+                    status = row.status,
+                    image_url = row.imageUrl,
+                )
+            },
+        )
     }
 
     fun getProduct(productId: Long): TicketProductDetail {
-        return mapper.findProduct(productId) ?: throw DomainException(ErrorCode.NOT_FOUND, "Ticket product not found")
+        val row = mapper.findProduct(productId) ?: throw DomainException(ErrorCode.NOT_FOUND, "Ticket product not found")
+        return TicketProductDetail(
+            product_id = row.productId,
+            name = row.name,
+            category = row.category,
+            city = row.city,
+            status = row.status,
+            image_url = row.imageUrl,
+        )
     }
 
     fun listEvents(productId: Long?, date: LocalDate?): TicketEventListData {
         val rows = mapper.listEvents(productId = productId, eventDate = date?.let(Date::valueOf))
-        return TicketEventListData(rows)
+        return TicketEventListData(
+            items = rows.map { row ->
+                TicketEventSummary(
+                    event_id = row.eventId,
+                    product_id = row.productId,
+                    event_date = row.eventDate,
+                    start_time = row.startTime,
+                    end_time = row.endTime,
+                    status = row.status,
+                    total = row.total,
+                    hold = row.hold,
+                    sold = row.sold,
+                )
+            },
+        )
     }
 
     fun hold(userId: Long, idempotencyKey: String, request: TicketHoldRequest): TicketHoldData {
@@ -143,7 +176,16 @@ class TicketService(
 
         return TicketVoucherListData(
             order_id = "tord_$orderId",
-            items = vouchers,
+            items = vouchers.map { row ->
+                TicketVoucherSummary(
+                    voucher_id = row.voucherId,
+                    sequence_no = row.sequenceNo,
+                    status = row.status,
+                    qr_payload = row.qrPayload,
+                    issued_at = row.issuedAt,
+                    redeemed_at = row.redeemedAt,
+                )
+            },
         )
     }
 
@@ -357,6 +399,27 @@ data class TicketEventListData(
     val items: List<TicketEventSummary>,
 )
 
+data class TicketProductRow(
+    val productId: Long,
+    val name: String,
+    val category: String,
+    val city: String?,
+    val status: String,
+    val imageUrl: String?,
+)
+
+data class TicketEventSummaryRow(
+    val eventId: Long,
+    val productId: Long,
+    val eventDate: LocalDate,
+    val startTime: LocalTime,
+    val endTime: LocalTime?,
+    val status: String,
+    val total: Int,
+    val hold: Int,
+    val sold: Int,
+)
+
 data class TicketHoldPrice(
     val currency: String,
     val amount_total: Long,
@@ -397,6 +460,15 @@ data class TicketVoucherSummary(
 data class TicketVoucherListData(
     val order_id: String,
     val items: List<TicketVoucherSummary>,
+)
+
+data class TicketVoucherRowData(
+    val voucherId: String,
+    val sequenceNo: Int,
+    val status: String,
+    val qrPayload: String,
+    val issuedAt: String?,
+    val redeemedAt: String?,
 )
 
 data class ValidateVoucherRequest(
@@ -512,42 +584,42 @@ interface TicketMapper {
 
     @Select(
         """
-        SELECT id AS product_id,
+        SELECT id AS productId,
                name,
                product_type AS category,
                city,
                status,
-               image_url AS image_url
+               image_url AS imageUrl
         FROM product
         WHERE status='ACTIVE'
         ORDER BY id DESC
         """,
     )
-    fun listProducts(): List<TicketProductSummary>
+    fun listProducts(): List<TicketProductRow>
 
     @Select(
         """
-        SELECT id AS product_id,
+        SELECT id AS productId,
                name,
                product_type AS category,
                city,
                status,
-               image_url AS image_url
+               image_url AS imageUrl
         FROM product
         WHERE id = #{productId}
         LIMIT 1
         """,
     )
-    fun findProduct(@Param("productId") productId: Long): TicketProductDetail?
+    fun findProduct(@Param("productId") productId: Long): TicketProductRow?
 
     @Select(
         """
         <script>
-        SELECT te.id AS event_id,
-               te.product_id AS product_id,
-               DATE(te.start_time) AS event_date,
-               TIME(te.start_time) AS start_time,
-               TIME(te.end_time) AS end_time,
+        SELECT te.id AS eventId,
+               te.product_id AS productId,
+               DATE(te.start_time) AS eventDate,
+               TIME(te.start_time) AS startTime,
+               TIME(te.end_time) AS endTime,
                te.status,
                COALESCE(ti.total, 0) AS total,
                COALESCE(ti.hold, 0) AS hold,
@@ -568,7 +640,7 @@ interface TicketMapper {
     fun listEvents(
         @Param("productId") productId: Long?,
         @Param("eventDate") eventDate: Date?,
-    ): List<TicketEventSummary>
+    ): List<TicketEventSummaryRow>
 
     @Select(
         """
@@ -584,12 +656,12 @@ interface TicketMapper {
 
     @Select(
         """
-        SELECT CONCAT('vch_', id) AS voucher_id,
-               sequence_no,
+        SELECT CONCAT('vch_', id) AS voucherId,
+               sequence_no AS sequenceNo,
                status,
-               qr_payload,
-               issued_at AS issued_at,
-               redeemed_at AS redeemed_at
+               qr_payload AS qrPayload,
+               issued_at AS issuedAt,
+               redeemed_at AS redeemedAt
         FROM voucher
         WHERE order_id = #{orderId} AND user_id = #{userId}
         ORDER BY sequence_no
@@ -598,7 +670,7 @@ interface TicketMapper {
     fun listOrderVouchers(
         @Param("orderId") orderId: Long,
         @Param("userId") userId: Long,
-    ): List<TicketVoucherSummary>
+    ): List<TicketVoucherRowData>
 
     @Select(
         """

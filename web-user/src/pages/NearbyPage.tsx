@@ -145,6 +145,9 @@ const OSM_RASTER_STYLE: StyleSpecification = {
 };
 
 function parseNumber(raw: string | null, fallback: number): number {
+  if (raw == null || raw.trim() === "") {
+    return fallback;
+  }
   const value = Number(raw);
   return Number.isFinite(value) ? value : fallback;
 }
