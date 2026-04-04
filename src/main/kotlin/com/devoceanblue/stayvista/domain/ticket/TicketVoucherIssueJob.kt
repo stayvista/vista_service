@@ -19,14 +19,20 @@ class TicketVoucherIssueJob(
 ) {
     @Scheduled(fixedDelay = 5000, initialDelay = 12000)
     fun issueRequestedVouchers() {
-        val rows = mapper.findRequestedRows(limit = 100)
+        val rows = mapper.findPublishedRows(limit = 100)
 
         rows.forEach { row ->
+            val claimed = mapper.claimForConsume(row.id)
+            if (claimed != 1) {
+                return@forEach
+            }
+
             try {
                 processOne(row)
                 mapper.markConsumed(row.id)
                 meterRegistry.counter("voucher_issue_total", "result", "success").increment()
             } catch (_: Exception) {
+                mapper.releaseForRetry(row.id)
                 meterRegistry.counter("voucher_issue_total", "result", "failed").increment()
             }
         }
@@ -72,12 +78,22 @@ interface TicketVoucherIssueMapper {
         SELECT id, payload_json AS payloadJson
         FROM outbox_event
         WHERE event_type = 'VoucherIssueRequested'
-          AND status IN ('PUBLISHED', 'FAILED')
+          AND status = 'PUBLISHED'
         ORDER BY id
         LIMIT #{limit}
         """,
     )
-    fun findRequestedRows(@Param("limit") limit: Int): List<VoucherIssueOutboxRow>
+    fun findPublishedRows(@Param("limit") limit: Int): List<VoucherIssueOutboxRow>
+
+    @Update(
+        """
+        UPDATE outbox_event
+        SET status='CONSUMING'
+        WHERE id=#{id}
+          AND status='PUBLISHED'
+        """,
+    )
+    fun claimForConsume(@Param("id") id: Long): Int
 
     @Update(
         """
@@ -85,9 +101,20 @@ interface TicketVoucherIssueMapper {
         SET status='CONSUMED',
             published_at=COALESCE(published_at, NOW(3))
         WHERE id=#{id}
+          AND status='CONSUMING'
         """,
     )
     fun markConsumed(@Param("id") id: Long): Int
+
+    @Update(
+        """
+        UPDATE outbox_event
+        SET status='PUBLISHED'
+        WHERE id=#{id}
+          AND status='CONSUMING'
+        """,
+    )
+    fun releaseForRetry(@Param("id") id: Long): Int
 
     @Select("SELECT COUNT(*) FROM voucher WHERE order_id = #{orderId}")
     fun countVouchers(@Param("orderId") orderId: Long): Int

@@ -194,8 +194,9 @@ class CatalogService(
         val fetchLimit = limit.coerceIn(1, 50)
         val rows = mapper.listProperties(cursor = cursor, limit = fetchLimit + 1)
         val hasNext = rows.size > fetchLimit
-        val items = if (hasNext) rows.dropLast(1) else rows
-        val nextCursor = if (hasNext) items.last().property_id.toString() else null
+        val visibleRows = if (hasNext) rows.dropLast(1) else rows
+        val items = visibleRows.map { it.toSummary() }
+        val nextCursor = if (hasNext) visibleRows.last().propertyId.toString() else null
         return PropertyListData(items = items, next_cursor = nextCursor)
     }
 
@@ -405,6 +406,22 @@ data class PropertySummary(
     val thumbnail_url: String?,
 )
 
+data class PropertySummaryRow(
+    val propertyId: Long,
+    val name: String,
+    val city: String?,
+    val rating: Double,
+    val thumbnailUrl: String?,
+) {
+    fun toSummary(): PropertySummary = PropertySummary(
+        property_id = propertyId,
+        name = name,
+        city = city,
+        rating = rating,
+        thumbnail_url = thumbnailUrl,
+    )
+}
+
 data class PropertyListData(
     val items: List<PropertySummary>,
     val next_cursor: String?,
@@ -527,10 +544,10 @@ data class RoomTypeRow(
     val bedType: String?,
     val viewType: String?,
     val bedrooms: Int?,
-    val availableRooms: Int? = null,
-    val isAvailable: Int? = null,
-    val activeHoldBookingId: Long? = null,
-    val activeHoldExpiresAt: java.sql.Timestamp? = null,
+    val availableRooms: Int?,
+    val isAvailable: Int?,
+    val activeHoldBookingId: Long?,
+    val activeHoldExpiresAt: java.sql.Timestamp?,
 ) {
     fun toSummary(): RoomTypeSummary = RoomTypeSummary(
         room_type_id = id,
@@ -796,11 +813,11 @@ interface CatalogMapper {
 
     @Select(
         """
-        SELECT id AS property_id,
+        SELECT id AS propertyId,
                name,
                city,
                COALESCE(rating, 0) AS rating,
-               thumbnail_url AS thumbnail_url
+               thumbnail_url AS thumbnailUrl
         FROM property
         WHERE status='ACTIVE'
           AND (#{cursor} IS NULL OR id > #{cursor})
@@ -811,7 +828,7 @@ interface CatalogMapper {
     fun listProperties(
         @Param("cursor") cursor: Long?,
         @Param("limit") limit: Int,
-    ): List<PropertySummary>
+    ): List<PropertySummaryRow>
 
     @Select(
         """
@@ -822,7 +839,11 @@ interface CatalogMapper {
                base_price AS basePrice,
                bed_type AS bedType,
                view_type AS viewType,
-               bedrooms
+               bedrooms,
+               NULL AS availableRooms,
+               NULL AS isAvailable,
+               NULL AS activeHoldBookingId,
+               NULL AS activeHoldExpiresAt
         FROM room_type
         WHERE property_id = #{propertyId} AND status='ACTIVE'
         ORDER BY id
@@ -840,9 +861,13 @@ interface CatalogMapper {
                rt.bed_type AS bedType,
                rt.view_type AS viewType,
                rt.bedrooms,
-               inv.available_rooms AS availableRooms,
                CASE
-                 WHEN inv.covered_nights = #{nights} AND inv.available_rooms >= #{rooms} THEN 1
+                 WHEN inv.covered_nights = #{nights} THEN inv.available_rooms
+                 ELSE NULL
+               END AS availableRooms,
+               CASE
+                 WHEN inv.covered_nights IS NULL OR inv.covered_nights < #{nights} THEN NULL
+                 WHEN inv.available_rooms >= #{rooms} THEN 1
                  ELSE 0
                END AS isAvailable,
                hold.booking_id AS activeHoldBookingId,

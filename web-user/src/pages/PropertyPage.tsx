@@ -549,8 +549,13 @@ export function PropertyPage() {
         : buildRoomSpecsFromType(room);
       const hasAvailabilitySignal = room.is_available != null && room.available_rooms != null;
       const hasActiveHold = hasActiveHoldForRoom(room);
-      const soldOut = !hasActiveHold && (room.is_available === false || ((room.available_rooms ?? 0) <= 0 && room.available_rooms != null));
-      const lowStock = !soldOut && room.available_rooms != null && room.available_rooms <= 3;
+      const soldOut = hasAvailabilitySignal
+        && !hasActiveHold
+        && (room.is_available === false || ((room.available_rooms ?? 0) <= 0 && room.available_rooms != null));
+      const lowStock = hasAvailabilitySignal
+        && !soldOut
+        && room.available_rooms != null
+        && room.available_rooms <= 3;
       const availability: RoomAvailability = !hasAvailabilitySignal
         ? { tone: "low", label: "재고 동기화 중", detail: "잠시 후 다시 확인해 주세요." }
         : hasActiveHold
@@ -603,7 +608,11 @@ export function PropertyPage() {
   }, [allRoomOffers]);
 
   const soldOutRoomTypeCount = useMemo(() => {
-    return allRoomOffers.filter((offer) => !offer.isBookable).length;
+    return allRoomOffers.filter((offer) => offer.availability.tone === "soldout").length;
+  }, [allRoomOffers]);
+
+  const inventoryUnknownRoomTypeCount = useMemo(() => {
+    return allRoomOffers.filter((offer) => offer.room.is_available == null || offer.room.available_rooms == null).length;
   }, [allRoomOffers]);
 
   const roomFilterChips = useMemo(() => {
@@ -1054,7 +1063,9 @@ export function PropertyPage() {
             <div className="section-headline">
               <h3>객실을 선택하세요</h3>
               <strong>
-                객실 종류 {roomOffers.length}개 · 예약 가능 {bookableRoomOffers.length}개
+                객실 종류 {roomOffers.length}개
+                {(bookableRoomOffers.length > 0 || inventoryUnknownRoomTypeCount === 0) ? ` · 예약 가능 ${bookableRoomOffers.length}개` : ""}
+                {inventoryUnknownRoomTypeCount > 0 ? ` · 재고 확인 필요 ${inventoryUnknownRoomTypeCount}개` : ""}
                 {soldOutRoomTypeCount > 0 ? ` · 판매 완료 ${soldOutRoomTypeCount}개` : ""}
               </strong>
             </div>

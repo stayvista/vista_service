@@ -938,7 +938,7 @@ WHERE p.id BETWEEN 100001 AND 100000 + @property_count
 ON DUPLICATE KEY UPDATE amenity_code = VALUES(amenity_code);
 
 -- Hot-key inventory scenario: one room_type has 365-day inventory total=1000
-INSERT INTO inventory_night(room_type_id, stay_date, total, hold, sold)
+INSERT IGNORE INTO inventory_night(room_type_id, stay_date, total, hold, sold)
 WITH RECURSIVE day_seq(day_offset) AS (
   SELECT 0
   UNION ALL
@@ -950,10 +950,33 @@ SELECT
   1000,
   0,
   0
-FROM day_seq
-ON DUPLICATE KEY UPDATE
-  total = VALUES(total),
-  updated_at = NOW(3);
+FROM day_seq;
+
+-- Demo inventory scenario: seed first 1,000 properties for room availability UI
+SET @demo_inventory_property_limit := 1000;
+SET @demo_inventory_start_offset := -120;
+SET @demo_inventory_end_offset := 365;
+
+INSERT IGNORE INTO inventory_night(room_type_id, stay_date, total, hold, sold)
+WITH RECURSIVE day_seq(day_offset) AS (
+  SELECT @demo_inventory_start_offset
+  UNION ALL
+  SELECT day_offset + 1 FROM day_seq WHERE day_offset + 1 <= @demo_inventory_end_offset
+),
+demo_room_type AS (
+  SELECT rt.id
+  FROM room_type rt
+  WHERE rt.property_id BETWEEN 100001 AND 100000 + LEAST(@property_count, @demo_inventory_property_limit)
+    AND rt.status = 'ACTIVE'
+)
+SELECT
+  drt.id,
+  DATE_ADD(CURDATE(), INTERVAL day_offset DAY),
+  8 + MOD(drt.id, 4),
+  MOD(drt.id + day_offset, 2),
+  MOD(drt.id + day_offset, 3)
+FROM demo_room_type drt
+CROSS JOIN day_seq;
 
 -- Ticket catalog + events
 INSERT INTO product(id, partner_id, product_type, name, city, lat, lng, status)

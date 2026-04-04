@@ -143,7 +143,7 @@ class BookingService(
                 currency = request.price.currency,
                 totalAmount = request.price.amount_total,
             )
-            val heldNights = mapper.listBookingNights(reusable.id)
+            val heldNights = mapper.listBookingNights(reusable.id).map { it.toData() }
             meterRegistry.counter("booking_hold_reused_total").increment()
             return BookingHoldData(
                 booking_id = toBookingId(reusable.id),
@@ -244,7 +244,7 @@ class BookingService(
         val booking = mapper.findBookingForUpdate(
             bookingId = bookingId,
             userId = userId,
-        ) ?: throw DomainException(ErrorCode.NOT_FOUND, "Booking not found")
+        )?.toRecord() ?: throw DomainException(ErrorCode.NOT_FOUND, "Booking not found")
 
         if (booking.status != "HOLD") {
             throw DomainException(ErrorCode.BOOKING_STATE_CONFLICT, "Booking cannot be confirmed from status ${booking.status}")
@@ -268,7 +268,7 @@ class BookingService(
         nights.forEach { night ->
             val affected = mapper.moveHoldToSold(
                 roomTypeId = booking.roomTypeId,
-                stayDate = Date.valueOf(night.stay_date),
+                stayDate = Date.valueOf(night.stayDate),
                 rooms = night.rooms,
             )
             if (affected != 1) {
@@ -277,7 +277,7 @@ class BookingService(
                 throw DomainException(
                     ErrorCode.BOOKING_OVERBOOKED,
                     "Room no longer available during confirm",
-                    details = mapOf("stay_date" to night.stay_date.toString()),
+                    details = mapOf("stay_date" to night.stayDate.toString()),
                 )
             }
         }
@@ -314,13 +314,13 @@ class BookingService(
             val affected = when (booking.status) {
                 "HOLD" -> mapper.decreaseInventoryHold(
                     roomTypeId = booking.roomTypeId,
-                    stayDate = Date.valueOf(night.stay_date),
+                    stayDate = Date.valueOf(night.stayDate),
                     rooms = night.rooms,
                 )
 
                 "CONFIRMED" -> mapper.decreaseInventorySold(
                     roomTypeId = booking.roomTypeId,
-                    stayDate = Date.valueOf(night.stay_date),
+                    stayDate = Date.valueOf(night.stayDate),
                     rooms = night.rooms,
                 )
 
@@ -353,15 +353,16 @@ class BookingService(
         if (booking.status != "HOLD") {
             return
         }
-        if (booking.expiresAt == null || booking.expiresAt.isAfter(Instant.now(clock))) {
+        val bookingRecord = booking.toRecord()
+        if (bookingRecord.expiresAt == null || bookingRecord.expiresAt.isAfter(Instant.now(clock))) {
             return
         }
 
         val nights = mapper.listBookingNights(bookingId)
         nights.forEach { night ->
             val affected = mapper.decreaseInventoryHold(
-                roomTypeId = booking.roomTypeId,
-                stayDate = Date.valueOf(night.stay_date),
+                roomTypeId = bookingRecord.roomTypeId,
+                stayDate = Date.valueOf(night.stayDate),
                 rooms = night.rooms,
             )
             if (affected != 1) {
@@ -429,6 +430,16 @@ data class BookingNight(
     val rooms: Int,
 )
 
+data class BookingNightRow(
+    val stayDate: LocalDate,
+    val rooms: Int,
+) {
+    fun toData(): BookingNight = BookingNight(
+        stay_date = stayDate,
+        rooms = rooms,
+    )
+}
+
 data class BookingConfirmRequest(
     val payment_method: String,
     val payment_token: String,
@@ -458,7 +469,7 @@ data class RoomLookup(
     val propertyStatus: String,
 )
 
-data class BookingRow(
+data class BookingRecord(
     val id: Long,
     val roomTypeId: Long,
     val rooms: Int,
@@ -467,6 +478,26 @@ data class BookingRow(
     val totalAmount: Long,
     val currency: String,
 )
+
+data class BookingRecordRow(
+    val id: Long,
+    val roomTypeId: Long,
+    val rooms: Int,
+    val status: String,
+    val expiresAt: Timestamp?,
+    val totalAmount: Long,
+    val currency: String,
+) {
+    fun toRecord(): BookingRecord = BookingRecord(
+        id = id,
+        roomTypeId = roomTypeId,
+        rooms = rooms,
+        status = status,
+        expiresAt = expiresAt?.toInstant(),
+        totalAmount = totalAmount,
+        currency = currency,
+    )
+}
 
 data class BookingCancelRow(
     val id: Long,
@@ -539,13 +570,13 @@ interface BookingMapper {
 
     @Select(
         """
-        SELECT stay_date AS stay_date, rooms
+        SELECT stay_date AS stayDate, rooms
         FROM booking_night
         WHERE booking_id = #{bookingId}
         ORDER BY stay_date
         """,
     )
-    fun listBookingNights(@Param("bookingId") bookingId: Long): List<BookingNight>
+    fun listBookingNights(@Param("bookingId") bookingId: Long): List<BookingNightRow>
 
     @Update(
         """
@@ -645,7 +676,7 @@ interface BookingMapper {
     fun findBookingForUpdate(
         @Param("bookingId") bookingId: Long,
         @Param("userId") userId: Long,
-    ): BookingRow?
+    ): BookingRecordRow?
 
     @Update(
         """
@@ -743,7 +774,8 @@ interface BookingMapper {
         FOR UPDATE
         """,
     )
-    fun findBookingByIdForUpdate(@Param("bookingId") bookingId: Long): BookingRow?
+    fun findBookingByIdForUpdate(@Param("bookingId") bookingId: Long): BookingRecordRow?
+
 
     @Update(
         """
