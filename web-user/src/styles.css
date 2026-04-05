@@ -522,10 +522,13 @@ button:disabled {
 
 .home-hero-layout {
   display: block;
+  position: relative;
+  z-index: 6;
 }
 
 .home-hero-layout .hero {
   margin: 0;
+  overflow: visible;
 }
 
 .concierge-backdrop {
@@ -3984,14 +3987,18 @@ button:disabled {
 .hero-searchbox {
   display: grid;
   gap: 14px;
+  min-width: 0;
+  overflow: visible;
 }
 
 .stay-search-form,
 .alt-search-form {
   display: grid;
-  grid-template-columns: 1.3fr 1fr 1fr auto;
+  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) minmax(0, 1fr) auto;
   gap: 10px;
   align-items: center;
+  min-width: 0;
+  overflow: visible;
 }
 
 .stay-search-form .search-place-input {
@@ -3999,7 +4006,7 @@ button:disabled {
 }
 
 .hero-searchbox.compact .stay-search-form {
-  grid-template-columns: 1.25fr 1fr 1fr auto;
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr) minmax(0, 1fr) auto;
 }
 
 .stay-search-form .search-cta,
@@ -4015,6 +4022,11 @@ button:disabled {
 .guests-picker,
 .date-picker {
   position: relative;
+  min-width: 0;
+}
+
+.search-place-input {
+  z-index: 45;
 }
 
 .ghost-input {
