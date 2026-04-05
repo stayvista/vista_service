@@ -5,6 +5,7 @@ import com.devoceanblue.stayvista.domain.common.PlaceType
 import org.apache.ibatis.annotations.Mapper
 import org.apache.ibatis.annotations.Param
 import org.apache.ibatis.annotations.Select
+import org.springframework.jdbc.BadSqlGrammarException
 import org.springframework.stereotype.Service
 
 @Service
@@ -24,10 +25,12 @@ class DestinationRecommendationService(
             city = city,
             country = country,
             lang = lang,
-            districts = loadDistricts(city, normalizedLimit),
-            pois = loadPois(city, normalizedLimit),
-            featured_properties = loadFeaturedProperties(city, normalizedLimit),
-            country_popular_cities = loadCountryPopularCities(country, city, normalizedLimit),
+            districts = safeSection(emptyList()) { loadDistricts(city, normalizedLimit) },
+            pois = safeSection(emptyList()) { loadPois(city, normalizedLimit) },
+            featured_properties = safeSection(emptyList()) { loadFeaturedProperties(city, normalizedLimit) },
+            country_popular_cities = safeSection(defaultPopularCities(country)) {
+                loadCountryPopularCities(country, city, normalizedLimit)
+            },
         )
     }
 
@@ -63,7 +66,7 @@ class DestinationRecommendationService(
     }
 
     private fun loadDistricts(city: String, limit: Int): List<DistrictRecommendation> {
-        val fromTable = mapper.listDistricts(city = city, limit = limit)
+        val fromTable = optionalQuery { mapper.listDistricts(city = city, limit = limit) }
         if (fromTable.isNotEmpty()) {
             return fromTable
         }
@@ -80,7 +83,7 @@ class DestinationRecommendationService(
     }
 
     private fun loadPois(city: String, limit: Int): List<PoiRecommendation> {
-        val ranked = mapper.listRankedPois(city = city, limit = limit)
+        val ranked = optionalQuery { mapper.listRankedPois(city = city, limit = limit) }
         if (ranked.isNotEmpty()) {
             return ranked
         }
@@ -89,7 +92,7 @@ class DestinationRecommendationService(
     }
 
     private fun loadFeaturedProperties(city: String, limit: Int): List<FeaturedPropertyRecommendation> {
-        val curated = mapper.listCuratedProperties(city = city, limit = limit)
+        val curated = optionalQuery { mapper.listCuratedProperties(city = city, limit = limit) }
         if (curated.isNotEmpty()) {
             return curated
         }
@@ -113,11 +116,7 @@ class DestinationRecommendationService(
             return candidates
         }
 
-        return listOf(
-            PopularCityRecommendation("Seoul", "KR", 0, "쇼핑, 레스토랑"),
-            PopularCityRecommendation("Busan", "KR", 0, "해변, 레스토랑"),
-            PopularCityRecommendation("Jeju", "KR", 0, "자연경관, 해변"),
-        )
+        return defaultPopularCities(country)
     }
 
     private fun cityHighlights(city: String): String {
@@ -126,6 +125,34 @@ class DestinationRecommendationService(
             return "인기 여행지"
         }
         return categories.joinToString(", ") { categoryLabel(it) }
+    }
+
+    private fun defaultPopularCities(country: String): List<PopularCityRecommendation> {
+        return when (country) {
+            "JP" -> listOf(
+                PopularCityRecommendation("Tokyo", "JP", 0, "쇼핑, 미식"),
+                PopularCityRecommendation("Osaka", "JP", 0, "먹거리, 관광"),
+                PopularCityRecommendation("Kyoto", "JP", 0, "전통, 문화유산"),
+            )
+
+            else -> listOf(
+                PopularCityRecommendation("Seoul", "KR", 0, "쇼핑, 레스토랑"),
+                PopularCityRecommendation("Busan", "KR", 0, "해변, 레스토랑"),
+                PopularCityRecommendation("Jeju", "KR", 0, "자연경관, 해변"),
+            )
+        }
+    }
+
+    private fun <T> optionalQuery(block: () -> List<T>): List<T> {
+        return try {
+            block()
+        } catch (_: BadSqlGrammarException) {
+            emptyList()
+        }
+    }
+
+    private fun <T> safeSection(fallback: T, block: () -> T): T {
+        return runCatching { block() }.getOrDefault(fallback)
     }
 
     private fun categoryLabel(code: String): String {

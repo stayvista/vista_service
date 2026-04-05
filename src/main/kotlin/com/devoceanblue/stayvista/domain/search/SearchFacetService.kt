@@ -7,6 +7,7 @@ import java.time.Duration
 import org.apache.ibatis.annotations.Mapper
 import org.apache.ibatis.annotations.Param
 import org.apache.ibatis.annotations.Select
+import org.springframework.jdbc.BadSqlGrammarException
 import org.springframework.stereotype.Service
 
 @Service
@@ -68,6 +69,14 @@ class SearchFacetService(
 
     private fun <T> safeList(block: () -> List<T>): List<T> {
         return runCatching { block() }.getOrDefault(emptyList())
+    }
+
+    private fun <T> optionalQuery(block: () -> List<T>): List<T> {
+        return try {
+            block()
+        } catch (_: BadSqlGrammarException) {
+            emptyList()
+        }
     }
 
     private fun resolveCity(placeId: String?, city: String?): String? {
@@ -135,7 +144,7 @@ class SearchFacetService(
     }
 
     private fun districtFacets(city: String?): List<FacetDistrict> {
-        val fromDistrict = mapper.listDistrictFacets(city)
+        val fromDistrict = optionalQuery { mapper.listDistrictFacets(city) }
             .map { row ->
                 FacetDistrict(
                     id = row.id,
@@ -160,7 +169,7 @@ class SearchFacetService(
 
     private fun nearbyAttractions(city: String?): List<FacetAttraction> {
         if (city != null) {
-            val fromPopularity = mapper.listCityPopularPois(city)
+            val fromPopularity = optionalQuery { mapper.listCityPopularPois(city) }
                 .map { row -> FacetAttraction(row.poiId, row.name, row.count) }
             if (fromPopularity.isNotEmpty()) {
                 return fromPopularity
