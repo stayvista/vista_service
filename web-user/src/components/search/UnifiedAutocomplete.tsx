@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { apiGet } from "../../api/client";
+import { apiGet, apiPost } from "../../api/client";
 import { ensureAnonId } from "../../auth/anon";
 import { PlaceSuggestion } from "./searchTypes";
 
@@ -13,6 +13,14 @@ type AutocompleteItem = {
 
 type AutocompleteResponse = {
   items: AutocompleteItem[];
+};
+
+type AutocompleteFeedbackItemPayload = {
+  id: string;
+  type: string;
+  display: string;
+  subtitle?: string;
+  position: number;
 };
 
 type DestinationRecommendationResponse = {
@@ -49,6 +57,8 @@ type Props = {
 };
 
 const AUTOCOMPLETE_TYPES = "city,property,poi,station,airport";
+const AUTOCOMPLETE_TYPE_LIST = AUTOCOMPLETE_TYPES.split(",");
+const FEEDBACK_SUPPORTED_TYPES = new Set(["CITY", "PROPERTY", "POI", "STATION", "AIRPORT"]);
 const RECENT_STORAGE_KEY = "stayvista.search.recent_places";
 
 const TYPE_LABELS: Record<string, string> = {
@@ -145,10 +155,15 @@ export function UnifiedAutocomplete({
         const nextSections = input
           ? buildTypedSections(autocompleteRows)
           : buildEmptySections(autocompleteRows, recommendationRows, loadLocalRecent(), recommendationRes?.country);
+        const nextFlatRows = nextSections.flatMap((section) => section.rows);
 
         setSections(nextSections);
-        const nextFlatRows = nextSections.flatMap((section) => section.rows);
         setActiveIndex(nextFlatRows.length > 0 ? 0 : -1);
+        void sendAutocompleteImpression({
+          anonId: anonIdRef.current,
+          q: input,
+          rows: nextFlatRows,
+        });
       } catch (e) {
         if ((e as Error).name === "AbortError") {
           return;
@@ -174,6 +189,13 @@ export function UnifiedAutocomplete({
   }
 
   function selectRow(row: PlaceSuggestion) {
+    void sendAutocompleteSelect({
+      anonId: anonIdRef.current,
+      q: value.normalize("NFC").trim(),
+      rows: flatRows,
+      selectedRow: row,
+      selectedIndex: rowIndexMap.get(rowIdentity(row)) ?? -1,
+    });
     saveLocalRecent(row);
     onSelect(row);
     setOpen(false);
@@ -295,6 +317,68 @@ function autocompleteItemToRow(item: AutocompleteItem): PlaceSuggestion {
   };
 }
 
+async function sendAutocompleteImpression({
+  anonId,
+  q,
+  rows,
+}: {
+  anonId: string;
+  q: string;
+  rows: PlaceSuggestion[];
+}) {
+  const items = rowsToFeedbackItems(rows);
+  if (!items.length) {
+    return;
+  }
+
+  await apiPost(
+    "/v1/autocomplete/feedback/impression",
+    {
+      anon_id: anonId,
+      q: q || null,
+      lang: "ko",
+      types: AUTOCOMPLETE_TYPE_LIST,
+      size: items.length,
+      items,
+    },
+    { "X-Anon-Id": anonId },
+  ).catch(() => undefined);
+}
+
+async function sendAutocompleteSelect({
+  anonId,
+  q,
+  rows,
+  selectedRow,
+  selectedIndex,
+}: {
+  anonId: string;
+  q: string;
+  rows: PlaceSuggestion[];
+  selectedRow: PlaceSuggestion;
+  selectedIndex: number;
+}) {
+  const selected = rowToFeedbackItem(selectedRow, selectedIndex);
+  if (!selected) {
+    return;
+  }
+
+  const items = rowsToFeedbackItems(rows);
+  await apiPost(
+    "/v1/autocomplete/feedback/select",
+    {
+      anon_id: anonId,
+      q: q || null,
+      lang: "ko",
+      types: AUTOCOMPLETE_TYPE_LIST,
+      size: items.length,
+      items,
+      selected,
+    },
+    { "X-Anon-Id": anonId },
+  ).catch(() => undefined);
+}
+
 function recommendationToRows(data: DestinationRecommendationResponse): RecommendationRows {
   const districtRows: PlaceSuggestion[] = data.districts.map((district) => ({
     id: `district:${data.city}:${district.id}`,
@@ -405,6 +489,42 @@ function buildEmptySections(
 
 function rowIdentity(row: PlaceSuggestion): string {
   return `${row.id}|${row.type}|${row.placeId ?? ""}`;
+}
+
+function rowsToFeedbackItems(rows: PlaceSuggestion[]): AutocompleteFeedbackItemPayload[] {
+  return rows
+    .map((row, index) => rowToFeedbackItem(row, index))
+    .filter((item): item is AutocompleteFeedbackItemPayload => item !== null);
+}
+
+function rowToFeedbackItem(row: PlaceSuggestion, position: number): AutocompleteFeedbackItemPayload | null {
+  const normalizedType = row.type.trim().toUpperCase();
+  if (!FEEDBACK_SUPPORTED_TYPES.has(normalizedType)) {
+    return null;
+  }
+
+  const id = (row.placeId ?? row.id)?.trim();
+  if (!id) {
+    return null;
+  }
+
+  const splitIndex = id.indexOf(":");
+  if (splitIndex <= 0 || splitIndex === id.length - 1) {
+    return null;
+  }
+
+  const encodedType = id.slice(0, splitIndex).trim().toUpperCase();
+  if (!FEEDBACK_SUPPORTED_TYPES.has(encodedType)) {
+    return null;
+  }
+
+  return {
+    id,
+    type: normalizedType,
+    display: row.display,
+    subtitle: row.subtitle,
+    position,
+  };
 }
 
 function dedupeRows(rows: PlaceSuggestion[]): PlaceSuggestion[] {

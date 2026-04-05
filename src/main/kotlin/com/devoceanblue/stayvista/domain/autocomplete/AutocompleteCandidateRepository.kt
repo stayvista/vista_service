@@ -217,11 +217,11 @@ interface AutocompleteCandidateMapper {
                city AS canonicalId,
                city AS display,
                'City' AS subtitle,
+               NULL AS lat,
+               NULL AS lng,
                COUNT(*) * 1.0 AS score,
                'db' AS source,
-               NULL AS bucket,
-               NULL AS lat,
-               NULL AS lng
+               NULL AS bucket
         FROM (
             SELECT city
             FROM property
@@ -248,14 +248,14 @@ interface AutocompleteCandidateMapper {
     @Select(
         """
         SELECT 'PROPERTY' AS type,
-               CAST(p.id AS CHAR) AS canonicalId,
+               CONCAT('', p.id) AS canonicalId,
                p.name AS display,
                p.city AS subtitle,
+               NULL AS lat,
+               NULL AS lng,
                COALESCE(p.rating, 0) AS score,
                'db' AS source,
-               NULL AS bucket,
-               NULL AS lat,
-               NULL AS lng
+               NULL AS bucket
         FROM property p
         WHERE p.status = 'ACTIVE'
           AND LOWER(p.name) LIKE #{sqlLike}
@@ -271,14 +271,14 @@ interface AutocompleteCandidateMapper {
     @Select(
         """
         SELECT 'POI' AS type,
-               CAST(id AS CHAR) AS canonicalId,
+               CONCAT('', id) AS canonicalId,
                name AS display,
-               TRIM(CONCAT(COALESCE(NULLIF(category, ''), ''), IF(city IS NOT NULL AND city <> '', CONCAT(' · ', city), ''))) AS subtitle,
+               TRIM(CONCAT(COALESCE(NULLIF(category, ''), ''), CASE WHEN city IS NOT NULL AND city <> '' THEN CONCAT(' · ', city) ELSE '' END)) AS subtitle,
+               lat,
+               lng,
                1.0 AS score,
                'db' AS source,
-               NULL AS bucket,
-               lat,
-               lng
+               NULL AS bucket
         FROM poi
         WHERE LOWER(name) LIKE #{sqlLike}
         ORDER BY id ASC
@@ -296,11 +296,11 @@ interface AutocompleteCandidateMapper {
                city AS canonicalId,
                city AS display,
                'Popular city' AS subtitle,
-               COUNT(*) * 1.0 AS score,
-               'popular' AS source,
-               'popular' AS bucket,
                NULL AS lat,
-               NULL AS lng
+               NULL AS lng,
+               COALESCE(m.popularity_7d * 1.0, COUNT(*) * 1.0) AS score,
+               'popular' AS source,
+               'popular' AS bucket
         FROM (
             SELECT city
             FROM property
@@ -313,8 +313,14 @@ interface AutocompleteCandidateMapper {
             WHERE city IS NOT NULL
               AND city <> ''
         ) c
-        GROUP BY city
-        ORDER BY score DESC, city ASC
+        LEFT JOIN ac_suggest_metric m
+          ON m.type = 'CITY'
+         AND m.canonical_id = c.city
+        GROUP BY city, m.popularity_7d, m.ctr_7d
+        ORDER BY COALESCE(m.popularity_7d, 0) DESC,
+                 COALESCE(m.ctr_7d, 0) DESC,
+                 COUNT(*) DESC,
+                 city ASC
         LIMIT #{limit}
         """,
     )
@@ -323,17 +329,23 @@ interface AutocompleteCandidateMapper {
     @Select(
         """
         SELECT 'PROPERTY' AS type,
-               CAST(p.id AS CHAR) AS canonicalId,
+               CONCAT('', p.id) AS canonicalId,
                p.name AS display,
                p.city AS subtitle,
-               COALESCE(p.rating, 0) AS score,
-               'popular' AS source,
-               'popular' AS bucket,
                NULL AS lat,
-               NULL AS lng
+               NULL AS lng,
+               COALESCE(m.popularity_7d * 1.0, COALESCE(p.rating, 0)) AS score,
+               'popular' AS source,
+               'popular' AS bucket
         FROM property p
+        LEFT JOIN ac_suggest_metric m
+          ON m.type = 'PROPERTY'
+         AND m.canonical_id = CONCAT('', p.id)
         WHERE p.status = 'ACTIVE'
-        ORDER BY score DESC, p.id ASC
+        ORDER BY COALESCE(m.popularity_7d, 0) DESC,
+                 COALESCE(m.ctr_7d, 0) DESC,
+                 COALESCE(p.rating, 0) DESC,
+                 p.id ASC
         LIMIT #{limit}
         """,
     )
@@ -342,16 +354,21 @@ interface AutocompleteCandidateMapper {
     @Select(
         """
         SELECT 'POI' AS type,
-               CAST(id AS CHAR) AS canonicalId,
+               CONCAT('', id) AS canonicalId,
                name AS display,
-               TRIM(CONCAT(COALESCE(NULLIF(category, ''), ''), IF(city IS NOT NULL AND city <> '', CONCAT(' · ', city), ''))) AS subtitle,
-               1.0 AS score,
-               'popular' AS source,
-               'popular' AS bucket,
+               TRIM(CONCAT(COALESCE(NULLIF(category, ''), ''), CASE WHEN city IS NOT NULL AND city <> '' THEN CONCAT(' · ', city) ELSE '' END)) AS subtitle,
                lat,
-               lng
+               lng,
+               COALESCE(m.popularity_7d * 1.0, 1.0) AS score,
+               'popular' AS source,
+               'popular' AS bucket
         FROM poi
-        ORDER BY id ASC
+        LEFT JOIN ac_suggest_metric m
+          ON m.type = 'POI'
+         AND m.canonical_id = CONCAT('', id)
+        ORDER BY COALESCE(m.popularity_7d, 0) DESC,
+                 COALESCE(m.ctr_7d, 0) DESC,
+                 id ASC
         LIMIT #{limit}
         """,
     )
