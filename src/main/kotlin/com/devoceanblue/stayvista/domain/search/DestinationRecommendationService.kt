@@ -267,9 +267,15 @@ interface DestinationRecommendationMapper {
         SELECT p.id AS poi_id, p.name, COALESCE(p.category, 'attraction') AS category, cpp.rank_score AS rank
         FROM city_poi_popular cpp
         JOIN poi p ON p.id = cpp.poi_id
+        LEFT JOIN ac_suggest_metric m
+          ON m.type = 'POI'
+         AND m.canonical_id = CONCAT('', p.id)
         WHERE cpp.city = #{city}
           AND p.active = 1
-        ORDER BY cpp.rank_score DESC, p.id ASC
+        ORDER BY cpp.rank_score DESC,
+                 COALESCE(m.popularity_7d, 0) DESC,
+                 COALESCE(m.ctr_7d, 0) DESC,
+                 p.id ASC
         LIMIT #{limit}
         """,
     )
@@ -282,9 +288,16 @@ interface DestinationRecommendationMapper {
         """
         SELECT id AS poi_id, name, COALESCE(category, 'attraction') AS category, popularity_score AS rank
         FROM poi
+        LEFT JOIN ac_suggest_metric m
+          ON m.type = 'POI'
+         AND m.canonical_id = CONCAT('', poi.id)
         WHERE city = #{city}
           AND active = 1
-        ORDER BY popularity_score DESC, rating_score DESC, id ASC
+        ORDER BY COALESCE(m.popularity_7d, 0) DESC,
+                 COALESCE(m.ctr_7d, 0) DESC,
+                 popularity_score DESC,
+                 rating_score DESC,
+                 id ASC
         LIMIT #{limit}
         """,
     )
@@ -298,9 +311,15 @@ interface DestinationRecommendationMapper {
         SELECT p.id AS property_id, p.name, p.thumbnail_url AS thumb, p.star_rating AS stars, cfp.rank_score AS rank
         FROM city_featured_property cfp
         JOIN property p ON p.id = cfp.property_id
+        LEFT JOIN ac_suggest_metric m
+          ON m.type = 'PROPERTY'
+         AND m.canonical_id = CONCAT('', p.id)
         WHERE cfp.city = #{city}
           AND p.status = 'ACTIVE'
-        ORDER BY cfp.rank_score DESC, p.id ASC
+        ORDER BY cfp.rank_score DESC,
+                 COALESCE(m.popularity_7d, 0) DESC,
+                 COALESCE(m.ctr_7d, 0) DESC,
+                 p.id ASC
         LIMIT #{limit}
         """,
     )
@@ -313,9 +332,16 @@ interface DestinationRecommendationMapper {
         """
         SELECT id AS property_id, name, thumbnail_url AS thumb, star_rating AS stars, popularity_score AS rank
         FROM property
+        LEFT JOIN ac_suggest_metric m
+          ON m.type = 'PROPERTY'
+         AND m.canonical_id = CONCAT('', property.id)
         WHERE city = #{city}
           AND status = 'ACTIVE'
-        ORDER BY rating DESC, popularity_score DESC, id ASC
+        ORDER BY COALESCE(m.popularity_7d, 0) DESC,
+                 COALESCE(m.ctr_7d, 0) DESC,
+                 rating DESC,
+                 popularity_score DESC,
+                 id ASC
         LIMIT #{limit}
         """,
     )
@@ -328,10 +354,16 @@ interface DestinationRecommendationMapper {
         """
         SELECT p.city, COUNT(*) AS count
         FROM property p
+        LEFT JOIN ac_suggest_metric m
+          ON m.type = 'CITY'
+         AND m.canonical_id = p.city
         WHERE p.status = 'ACTIVE'
           AND p.country = #{country}
         GROUP BY p.city
-        ORDER BY count DESC, p.city ASC
+        ORDER BY MAX(COALESCE(m.popularity_7d, 0)) DESC,
+                 MAX(COALESCE(m.ctr_7d, 0)) DESC,
+                 COUNT(*) DESC,
+                 p.city ASC
         LIMIT #{limit}
         """,
     )
