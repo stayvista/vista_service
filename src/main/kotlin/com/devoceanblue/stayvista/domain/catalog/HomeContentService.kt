@@ -15,10 +15,21 @@ class HomeContentService(
         val heroMetrics = if (heroRow == null) {
             emptyList()
         } else {
-            mapper.listHeroMetrics(heroRow.id)
+            mapper.listHeroMetrics(heroRow.id).map {
+                HomeHeroMetricData(
+                    metric_value = it.metricValue,
+                    metric_label = it.metricLabel,
+                )
+            }
         }
 
-        val quickFilters = mapper.listQuickFilters()
+        val quickFilters = mapper.listQuickFilters().map {
+            HomeQuickFilterData(
+                label = it.label,
+                filter_key = it.filterKey,
+                filter_value = it.filterValue,
+            )
+        }
 
         val propertyCountByCity = mapper.listPropertyCountByCity().associate { it.city to it.count }
 
@@ -44,7 +55,13 @@ class HomeContentService(
                 )
             }
 
-        val promotionSections = mapper.listPromotionSections()
+        val promotionSections = mapper.listPromotionSections().map {
+            HomePromotionSectionData(
+                section_code = it.sectionCode,
+                title = it.title,
+                subtitle = it.subtitle,
+            )
+        }
 
         return HomeContentData(
             hero = heroRow?.let {
@@ -132,6 +149,23 @@ data class HomeCityCountRow(
     val count: Int,
 )
 
+data class HomeHeroMetricRow(
+    val metricValue: String,
+    val metricLabel: String,
+)
+
+data class HomeQuickFilterRow(
+    val label: String,
+    val filterKey: String,
+    val filterValue: String,
+)
+
+data class HomePromotionSectionRow(
+    val sectionCode: String,
+    val title: String,
+    val subtitle: String?,
+)
+
 @Mapper
 interface HomeContentMapper {
     @Select(
@@ -151,24 +185,27 @@ interface HomeContentMapper {
 
     @Select(
         """
-        SELECT metric_value, metric_label
+        SELECT metric_value AS metricValue,
+               metric_label AS metricLabel
         FROM home_hero_metric
         WHERE hero_id = #{heroId}
           AND active = 1
         ORDER BY display_order ASC, id ASC
         """,
     )
-    fun listHeroMetrics(@Param("heroId") heroId: Int): List<HomeHeroMetricData>
+    fun listHeroMetrics(@Param("heroId") heroId: Int): List<HomeHeroMetricRow>
 
     @Select(
         """
-        SELECT label, filter_key, filter_value
+        SELECT label,
+               filter_key AS filterKey,
+               filter_value AS filterValue
         FROM home_quick_filter
         WHERE active = 1
         ORDER BY display_order ASC, id ASC
         """,
     )
-    fun listQuickFilters(): List<HomeQuickFilterData>
+    fun listQuickFilters(): List<HomeQuickFilterRow>
 
     @Select(
         """
@@ -200,11 +237,13 @@ interface HomeContentMapper {
 
     @Select(
         """
-        SELECT section_code, title, subtitle
+        SELECT section_code AS sectionCode,
+               title,
+               subtitle
         FROM promotion_section
         WHERE active = 1
         ORDER BY display_order ASC, section_code ASC
         """,
     )
-    fun listPromotionSections(): List<HomePromotionSectionData>
+    fun listPromotionSections(): List<HomePromotionSectionRow>
 }

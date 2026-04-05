@@ -80,26 +80,29 @@ class AutocompleteCandidateRepository(
 
     private fun searchCities(sqlLike: String, size: Int): List<AutocompleteCandidate> {
         return mapper.searchCities(sqlLike = sqlLike, limit = size.coerceAtLeast(1) * 2)
+            .mapNotNull { it.toCandidate() }
     }
 
     private fun searchProperties(sqlLike: String, size: Int): List<AutocompleteCandidate> {
         return mapper.searchProperties(sqlLike = sqlLike, limit = size.coerceAtLeast(1) * 2)
+            .mapNotNull { it.toCandidate() }
     }
 
     private fun searchPois(sqlLike: String, size: Int): List<AutocompleteCandidate> {
         return mapper.searchPois(sqlLike = sqlLike, limit = size.coerceAtLeast(1) * 2)
+            .mapNotNull { it.toCandidate() }
     }
 
     private fun popularCities(size: Int): List<AutocompleteCandidate> {
-        return mapper.popularCities(size)
+        return mapper.popularCities(size).mapNotNull { it.toCandidate() }
     }
 
     private fun popularProperties(size: Int): List<AutocompleteCandidate> {
-        return mapper.popularProperties(size)
+        return mapper.popularProperties(size).mapNotNull { it.toCandidate() }
     }
 
     private fun popularPois(size: Int): List<AutocompleteCandidate> {
-        return mapper.popularPois(size)
+        return mapper.popularPois(size).mapNotNull { it.toCandidate() }
     }
 
     private fun filterStatic(sqlLike: String, type: PlaceType): List<AutocompleteCandidate> {
@@ -176,6 +179,33 @@ class AutocompleteCandidateRepository(
     }
 }
 
+data class AutocompleteCandidateRow(
+    val type: String,
+    val canonicalId: String,
+    val display: String,
+    val subtitle: String?,
+    val lat: Double?,
+    val lng: Double?,
+    val score: Double?,
+    val source: String,
+    val bucket: String?,
+) {
+    fun toCandidate(): AutocompleteCandidate? {
+        val placeType = runCatching { PlaceType.valueOf(type.uppercase()) }.getOrNull() ?: return null
+        return AutocompleteCandidate(
+            type = placeType,
+            canonicalId = canonicalId,
+            display = display,
+            subtitle = subtitle,
+            lat = lat,
+            lng = lng,
+            score = score ?: 0.0,
+            source = source,
+            bucket = bucket,
+        )
+    }
+}
+
 @Mapper
 interface AutocompleteCandidateMapper {
     @Select("SELECT city FROM poi WHERE id = #{poiId}")
@@ -213,7 +243,7 @@ interface AutocompleteCandidateMapper {
     fun searchCities(
         @Param("sqlLike") sqlLike: String,
         @Param("limit") limit: Int,
-    ): List<AutocompleteCandidate>
+    ): List<AutocompleteCandidateRow>
 
     @Select(
         """
@@ -236,7 +266,7 @@ interface AutocompleteCandidateMapper {
     fun searchProperties(
         @Param("sqlLike") sqlLike: String,
         @Param("limit") limit: Int,
-    ): List<AutocompleteCandidate>
+    ): List<AutocompleteCandidateRow>
 
     @Select(
         """
@@ -258,7 +288,7 @@ interface AutocompleteCandidateMapper {
     fun searchPois(
         @Param("sqlLike") sqlLike: String,
         @Param("limit") limit: Int,
-    ): List<AutocompleteCandidate>
+    ): List<AutocompleteCandidateRow>
 
     @Select(
         """
@@ -288,7 +318,7 @@ interface AutocompleteCandidateMapper {
         LIMIT #{limit}
         """,
     )
-    fun popularCities(@Param("limit") limit: Int): List<AutocompleteCandidate>
+    fun popularCities(@Param("limit") limit: Int): List<AutocompleteCandidateRow>
 
     @Select(
         """
@@ -307,7 +337,7 @@ interface AutocompleteCandidateMapper {
         LIMIT #{limit}
         """,
     )
-    fun popularProperties(@Param("limit") limit: Int): List<AutocompleteCandidate>
+    fun popularProperties(@Param("limit") limit: Int): List<AutocompleteCandidateRow>
 
     @Select(
         """
@@ -325,5 +355,5 @@ interface AutocompleteCandidateMapper {
         LIMIT #{limit}
         """,
     )
-    fun popularPois(@Param("limit") limit: Int): List<AutocompleteCandidate>
+    fun popularPois(@Param("limit") limit: Int): List<AutocompleteCandidateRow>
 }

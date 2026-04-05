@@ -89,16 +89,17 @@ class TicketService(
     }
 
     fun listProducts(): TicketProductListData {
-        val rows = mapper.listProducts()
+        val rows = mapper.listProducts().map { it.toSummary() }
         return TicketProductListData(rows)
     }
 
     fun getProduct(productId: Long): TicketProductDetail {
-        return mapper.findProduct(productId) ?: throw DomainException(ErrorCode.NOT_FOUND, "Ticket product not found")
+        return mapper.findProduct(productId)?.toDetail()
+            ?: throw DomainException(ErrorCode.NOT_FOUND, "Ticket product not found")
     }
 
     fun listEvents(productId: Long?, date: LocalDate?): TicketEventListData {
-        val rows = mapper.listEvents(productId = productId, eventDate = date?.let(Date::valueOf))
+        val rows = mapper.listEvents(productId = productId, eventDate = date?.let(Date::valueOf)).map { it.toSummary() }
         return TicketEventListData(rows)
     }
 
@@ -139,7 +140,7 @@ class TicketService(
             throw DomainException(ErrorCode.NOT_FOUND, "Ticket order not found")
         }
 
-        val vouchers = mapper.listOrderVouchers(orderId = orderId, userId = userId)
+        val vouchers = mapper.listOrderVouchers(orderId = orderId, userId = userId).map { it.toSummary() }
 
         return TicketVoucherListData(
             order_id = "tord_$orderId",
@@ -399,6 +400,75 @@ data class TicketVoucherListData(
     val items: List<TicketVoucherSummary>,
 )
 
+data class TicketProductRow(
+    val productId: Long,
+    val name: String,
+    val category: String,
+    val city: String?,
+    val status: String,
+    val imageUrl: String?,
+) {
+    fun toSummary(): TicketProductSummary = TicketProductSummary(
+        product_id = productId,
+        name = name,
+        category = category,
+        city = city,
+        status = status,
+        image_url = imageUrl,
+    )
+
+    fun toDetail(): TicketProductDetail = TicketProductDetail(
+        product_id = productId,
+        name = name,
+        category = category,
+        city = city,
+        status = status,
+        image_url = imageUrl,
+    )
+}
+
+data class TicketEventSummaryRow(
+    val eventId: Long,
+    val productId: Long,
+    val eventDate: LocalDate,
+    val startTime: LocalTime,
+    val endTime: LocalTime?,
+    val status: String,
+    val total: Int,
+    val hold: Int,
+    val sold: Int,
+) {
+    fun toSummary(): TicketEventSummary = TicketEventSummary(
+        event_id = eventId,
+        product_id = productId,
+        event_date = eventDate,
+        start_time = startTime,
+        end_time = endTime,
+        status = status,
+        total = total,
+        hold = hold,
+        sold = sold,
+    )
+}
+
+data class TicketVoucherSummaryRow(
+    val voucherId: String,
+    val sequenceNo: Int,
+    val status: String,
+    val qrPayload: String,
+    val issuedAt: Timestamp?,
+    val redeemedAt: Timestamp?,
+) {
+    fun toSummary(): TicketVoucherSummary = TicketVoucherSummary(
+        voucher_id = voucherId,
+        sequence_no = sequenceNo,
+        status = status,
+        qr_payload = qrPayload,
+        issued_at = issuedAt?.toInstant()?.toString(),
+        redeemed_at = redeemedAt?.toInstant()?.toString(),
+    )
+}
+
 data class ValidateVoucherRequest(
     val voucher_id: String? = null,
     val qr_payload: String? = null,
@@ -512,42 +582,42 @@ interface TicketMapper {
 
     @Select(
         """
-        SELECT id AS product_id,
+        SELECT id AS productId,
                name,
                product_type AS category,
                city,
                status,
-               image_url AS image_url
+               image_url AS imageUrl
         FROM product
         WHERE status='ACTIVE'
         ORDER BY id DESC
         """,
     )
-    fun listProducts(): List<TicketProductSummary>
+    fun listProducts(): List<TicketProductRow>
 
     @Select(
         """
-        SELECT id AS product_id,
+        SELECT id AS productId,
                name,
                product_type AS category,
                city,
                status,
-               image_url AS image_url
+               image_url AS imageUrl
         FROM product
         WHERE id = #{productId}
         LIMIT 1
         """,
     )
-    fun findProduct(@Param("productId") productId: Long): TicketProductDetail?
+    fun findProduct(@Param("productId") productId: Long): TicketProductRow?
 
     @Select(
         """
         <script>
-        SELECT te.id AS event_id,
-               te.product_id AS product_id,
-               DATE(te.start_time) AS event_date,
-               TIME(te.start_time) AS start_time,
-               TIME(te.end_time) AS end_time,
+        SELECT te.id AS eventId,
+               te.product_id AS productId,
+               DATE(te.start_time) AS eventDate,
+               TIME(te.start_time) AS startTime,
+               TIME(te.end_time) AS endTime,
                te.status,
                COALESCE(ti.total, 0) AS total,
                COALESCE(ti.hold, 0) AS hold,
@@ -568,7 +638,7 @@ interface TicketMapper {
     fun listEvents(
         @Param("productId") productId: Long?,
         @Param("eventDate") eventDate: Date?,
-    ): List<TicketEventSummary>
+    ): List<TicketEventSummaryRow>
 
     @Select(
         """
@@ -584,12 +654,12 @@ interface TicketMapper {
 
     @Select(
         """
-        SELECT CONCAT('vch_', id) AS voucher_id,
-               sequence_no,
+        SELECT CONCAT('vch_', id) AS voucherId,
+               sequence_no AS sequenceNo,
                status,
-               qr_payload,
-               issued_at AS issued_at,
-               redeemed_at AS redeemed_at
+               qr_payload AS qrPayload,
+               issued_at AS issuedAt,
+               redeemed_at AS redeemedAt
         FROM voucher
         WHERE order_id = #{orderId} AND user_id = #{userId}
         ORDER BY sequence_no
@@ -598,7 +668,7 @@ interface TicketMapper {
     fun listOrderVouchers(
         @Param("orderId") orderId: Long,
         @Param("userId") userId: Long,
-    ): List<TicketVoucherSummary>
+    ): List<TicketVoucherSummaryRow>
 
     @Select(
         """

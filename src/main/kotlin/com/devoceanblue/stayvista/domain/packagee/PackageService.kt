@@ -71,7 +71,7 @@ class PackageService(
     }
 
     fun listPackages(): PackageListData {
-        val items = mapper.listActivePackages()
+        val items = mapper.listActivePackages().map { it.toSummary() }
         return PackageListData(items)
     }
 
@@ -100,9 +100,9 @@ class PackageService(
         params += safeLimit
 
         val items = if (!status.isNullOrBlank()) {
-            mapper.listOrdersByStatus(status = status, limit = safeLimit)
+            mapper.listOrdersByStatus(status = status, limit = safeLimit).map { it.toSummary() }
         } else {
-            mapper.listOrders(limit = safeLimit)
+            mapper.listOrders(limit = safeLimit).map { it.toSummary() }
         }
         return PackageOrderListData(items)
     }
@@ -277,7 +277,7 @@ class PackageService(
     }
 
     private fun components(packageId: Long): List<PackageComponent> {
-        return mapper.listComponents(packageId)
+        return mapper.listComponents(packageId).map { it.toComponent() }
     }
 }
 
@@ -369,6 +369,65 @@ data class PackageOrderListData(
     val items: List<PackageOrderSummary>,
 )
 
+data class PackageSummaryRow(
+    val packageId: Long,
+    val name: String,
+    val status: String,
+    val currency: String,
+    val amountTotal: Long,
+    val imageUrl: String?,
+) {
+    fun toSummary(): PackageSummary = PackageSummary(
+        package_id = packageId,
+        name = name,
+        status = status,
+        price = PackagePrice(currency = currency, amount_total = amountTotal),
+        image_url = imageUrl,
+    )
+}
+
+data class PackageOrderSummaryRow(
+    val packageOrderId: String,
+    val packageId: Long,
+    val userId: Long,
+    val status: String,
+    val bookingId: String?,
+    val ticketOrderId: String?,
+    val expiresAt: java.sql.Timestamp?,
+    val createdAt: java.sql.Timestamp?,
+    val updatedAt: java.sql.Timestamp?,
+) {
+    fun toSummary(): PackageOrderSummary = PackageOrderSummary(
+        package_order_id = packageOrderId,
+        package_id = packageId,
+        user_id = userId,
+        status = status,
+        booking_id = bookingId,
+        ticket_order_id = ticketOrderId,
+        expires_at = expiresAt?.toInstant()?.toString(),
+        created_at = createdAt?.toInstant()?.toString(),
+        updated_at = updatedAt?.toInstant()?.toString(),
+    )
+}
+
+data class PackageComponentRow(
+    val type: String,
+    val roomTypeId: Long?,
+    val eventId: Long?,
+    val nights: Int?,
+    val rooms: Int?,
+    val quantity: Int?,
+) {
+    fun toComponent(): PackageComponent = PackageComponent(
+        type = type,
+        room_type_id = roomTypeId,
+        event_id = eventId,
+        nights = nights,
+        rooms = rooms,
+        quantity = quantity,
+    )
+}
+
 data class PackageBase(
     val id: Long,
     val name: String,
@@ -447,48 +506,48 @@ interface PackageMapper {
 
     @Select(
         """
-        SELECT id AS package_id,
+        SELECT id AS packageId,
                name,
                status,
                currency,
-               amount_total AS amount_total,
-               image_url AS image_url
+               amount_total AS amountTotal,
+               image_url AS imageUrl
         FROM package_product
         WHERE status='ACTIVE'
         ORDER BY id DESC
         """,
     )
-    fun listActivePackages(): List<PackageSummary>
+    fun listActivePackages(): List<PackageSummaryRow>
 
     @Select(
         """
-        SELECT CONCAT('pkg_', id) AS package_order_id,
-               package_id,
-               user_id,
+        SELECT CONCAT('pkg_', id) AS packageOrderId,
+               package_id AS packageId,
+               user_id AS userId,
                status,
-               CASE WHEN booking_id IS NULL THEN NULL ELSE CONCAT('bkg_', booking_id) END AS booking_id,
-               CASE WHEN ticket_order_id IS NULL THEN NULL ELSE CONCAT('tord_', ticket_order_id) END AS ticket_order_id,
-               expires_at AS expires_at,
-               created_at AS created_at,
-               updated_at AS updated_at
+               CASE WHEN booking_id IS NULL THEN NULL ELSE CONCAT('bkg_', booking_id) END AS bookingId,
+               CASE WHEN ticket_order_id IS NULL THEN NULL ELSE CONCAT('tord_', ticket_order_id) END AS ticketOrderId,
+               expires_at AS expiresAt,
+               created_at AS createdAt,
+               updated_at AS updatedAt
         FROM package_order
         ORDER BY id DESC
         LIMIT #{limit}
         """,
     )
-    fun listOrders(@Param("limit") limit: Int): List<PackageOrderSummary>
+    fun listOrders(@Param("limit") limit: Int): List<PackageOrderSummaryRow>
 
     @Select(
         """
-        SELECT CONCAT('pkg_', id) AS package_order_id,
-               package_id,
-               user_id,
+        SELECT CONCAT('pkg_', id) AS packageOrderId,
+               package_id AS packageId,
+               user_id AS userId,
                status,
-               CASE WHEN booking_id IS NULL THEN NULL ELSE CONCAT('bkg_', booking_id) END AS booking_id,
-               CASE WHEN ticket_order_id IS NULL THEN NULL ELSE CONCAT('tord_', ticket_order_id) END AS ticket_order_id,
-               expires_at AS expires_at,
-               created_at AS created_at,
-               updated_at AS updated_at
+               CASE WHEN booking_id IS NULL THEN NULL ELSE CONCAT('bkg_', booking_id) END AS bookingId,
+               CASE WHEN ticket_order_id IS NULL THEN NULL ELSE CONCAT('tord_', ticket_order_id) END AS ticketOrderId,
+               expires_at AS expiresAt,
+               created_at AS createdAt,
+               updated_at AS updatedAt
         FROM package_order
         WHERE status = #{status}
         ORDER BY id DESC
@@ -498,7 +557,7 @@ interface PackageMapper {
     fun listOrdersByStatus(
         @Param("status") status: String,
         @Param("limit") limit: Int,
-    ): List<PackageOrderSummary>
+    ): List<PackageOrderSummaryRow>
 
     @Update(
         """
@@ -560,8 +619,8 @@ interface PackageMapper {
     @Select(
         """
         SELECT component_type AS type,
-               room_type_id AS room_type_id,
-               ticket_event_id AS event_id,
+               room_type_id AS roomTypeId,
+               ticket_event_id AS eventId,
                nights,
                rooms,
                quantity
@@ -570,5 +629,5 @@ interface PackageMapper {
         ORDER BY id
         """,
     )
-    fun listComponents(@Param("packageId") packageId: Long): List<PackageComponent>
+    fun listComponents(@Param("packageId") packageId: Long): List<PackageComponentRow>
 }
